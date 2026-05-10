@@ -53,18 +53,18 @@ Files/
   (`PLAYER_COLUMNS_OF_INTEREST` in `data_loader.py`); loading all 271
   is slow and pointless. Add columns to that tuple as logic needs them.
 
-### 2. Two team-ID spaces (foot-gun)
-- `GMInfo.xlsx` uses TeamIndex `[0..31]`.
-- `DraftPicks.xlsx` stores team identity as a 32-char binary string;
-  the **lowest 8 bits** are the TeamIndex byte, but the values used
-  there are `[0..7, 10..17, 19, 21..23, 25..36]` — five GM teams
-  (Chiefs=8, Colts=9, Lions=18, Panthers=20, Ravens=24) are missing
-  from that range and instead appear at indices 32..36.
-- `DraftSession._build_team_name_map` patches this with a heuristic
-  that aligns the two sorted "leftover" lists. **If you ever get a
-  documented mapping, replace that heuristic.** Until then, expect the
-  five wrap-around teams to display correctly only because of the
-  alignment trick.
+### 2. Team ID resolution
+- `DraftPicks.xlsx` stores team identity as a 32-char binary string.
+  The **lowest 8 bits** decode to a `TeamNumber` (0–36) that maps
+  directly to `TeamInfo.xlsx` (`TeamNumber` column).
+- `TeamInfo.xlsx` is the authoritative lookup: `TeamNumber → TeamName`.
+  Rows with `TeamIndex >= 32` are non-team entries (AFC, NFC, Free
+  Agents, Hall Of Fame, NFL Greats) and are filtered out in
+  `data_loader.load_team_info`.
+- `GMInfo.xlsx` uses its own `TeamIndex` (`[0..31]`) for GM traits —
+  **don't** use it for pick-order team resolution.
+- `DraftSession._build_team_name_map` is now a simple passthrough of
+  the `team_info` dict loaded by `data_loader`.
 - `exporter._encode_team_id` reuses a fixed 24-bit prefix observed in
   the sample data when writing CurrentTeam back out. If Madden
   re-import rejects the file, the fix is to preserve each row's

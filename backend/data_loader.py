@@ -237,11 +237,11 @@ def load_players(folder: Path) -> list[dict[str, Any]]:
     return out
 
 
-def _decode_team_id(value: Any) -> int | None:
+def _decode_team_number(value: Any) -> int | None:
     """DraftPicks.xlsx stores team identity as a 32-bit binary string.
 
-    The lowest 8 bits are the Madden TeamIndex (matches GMInfo). We
-    decode just that byte so callers can look the team name up.
+    The lowest 8 bits are the TeamNumber from TeamInfo.xlsx. We decode
+    just that byte so callers can look the team name up in team_info.
     """
     if value is None:
         return None
@@ -251,21 +251,42 @@ def _decode_team_id(value: Any) -> int | None:
     return int(s[-8:], 2)
 
 
+def load_team_info(folder: Path) -> dict[int, str]:
+    """Load TeamInfo.xlsx -> {TeamNumber: TeamName} for real NFL teams only.
+
+    Filters out non-team rows (AFC, NFC, Free Agents, Hall Of Fame, NFL
+    Greats) whose TeamIndex >= 32.
+    """
+    headers, rows = _read_sheet(folder / "TeamInfo.xlsx")
+    dicts = _rows_to_dicts(headers, rows)
+    out: dict[int, str] = {}
+    for d in dicts:
+        team_num = d.get("TeamNumber")
+        name = d.get("TeamName")
+        team_idx = d.get("TeamIndex")
+        if team_num is None or not name or team_idx is None:
+            continue
+        if int(team_idx) >= 32:
+            continue
+        out[int(team_num)] = str(name)
+    return out
+
+
 def load_draft_picks(folder: Path) -> list[dict[str, Any]]:
     """Load DraftPicks.xlsx.
 
     Columns: SelectedPlayer, OriginalTeam, CurrentTeam, YearOffset,
     Round, PickNumber. ``Round`` / ``PickNumber`` are 0-indexed in the
-    source. Adds 1-indexed convenience fields and decoded TeamIndex ints
-    for OriginalTeam / CurrentTeam.
+    source. Adds 1-indexed convenience fields and decoded TeamNumber ints
+    (from TeamInfo.xlsx) for OriginalTeam / CurrentTeam.
     """
     headers, rows = _read_sheet(folder / "DraftPicks.xlsx")
     dicts = _rows_to_dicts(headers, rows)
     for d in dicts:
         d["round_1"] = (d.get("Round") or 0) + 1
         d["pick_1"] = (d.get("PickNumber") or 0) + 1
-        d["OriginalTeamIndex"] = _decode_team_id(d.get("OriginalTeam"))
-        d["CurrentTeamIndex"] = _decode_team_id(d.get("CurrentTeam"))
+        d["OriginalTeamIndex"] = _decode_team_number(d.get("OriginalTeam"))
+        d["CurrentTeamIndex"] = _decode_team_number(d.get("CurrentTeam"))
     return dicts
 
 
@@ -297,7 +318,7 @@ def load_draft_pick_value(folder: Path) -> dict[str, list[dict[str, Any]]]:
 
 def load_max_per_position(folder: Path) -> list[dict[str, Any]]:
     """Load DraftMaxPerPosition.xlsx -> per-position cap on draftees."""
-    headers, rows = _read_sheet(folder / "DraftMaxPerPosition.xlsx")
+    _, rows = _read_sheet(folder / "DraftMaxPerPosition.xlsx")
     out: list[dict[str, Any]] = []
     for row in rows:
         if row[0] in (None, ""):
@@ -358,6 +379,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
         "players": players,
         "draft_picks": load_draft_picks(folder),
         "gm_info": load_gm_info(folder),
+        "team_info": load_team_info(folder),
         "position_needs": load_position_needs(folder),
         "pick_values": load_draft_pick_value(folder),
         "max_per_position": load_max_per_position(folder),

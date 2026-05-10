@@ -99,33 +99,12 @@ class DraftSession:
 
     @staticmethod
     def _build_team_name_map(data: dict[str, Any]) -> dict[int, str]:
-        """Map decoded pick TeamIndex -> team name.
+        """Map decoded pick TeamNumber -> team name using TeamInfo.xlsx.
 
-        GMInfo and DraftPicks use slightly different ID spaces: in our
-        TestFiles, DraftPicks' indices range over [0..7, 10..17, 19, 21..23,
-        25..36] — exactly 32 distinct values — while GMInfo uses [0..31].
-        Five GMInfo teams (Chiefs, Colts, Lions, Panthers, Ravens at
-        indices 8, 9, 18, 20, 24) are absent from DraftPicks' low range
-        and appear at the high end (32..36). We patch this by aligning
-        the two sorted lists of "missing" vs "extra" indices. If a
-        future data drop has a documented mapping we can replace this.
+        DraftPicks binary strings decode to a TeamNumber that maps
+        directly to TeamInfo.xlsx. No heuristic needed.
         """
-        gm_indices = sorted(int(t["TeamIndex"]) for t in data.get("gm_info", []))
-        gm_name_by_idx = {int(t["TeamIndex"]): t["TeamName"]
-                          for t in data.get("gm_info", []) if t.get("TeamIndex") is not None}
-        pick_indices = sorted({p.get("OriginalTeamIndex") for p in data.get("draft_picks", [])
-                               if p.get("OriginalTeamIndex") is not None})
-        out: dict[int, str] = {}
-        # Pass-through where indices match.
-        for idx in pick_indices:
-            if idx in gm_name_by_idx:
-                out[idx] = gm_name_by_idx[idx]
-        # Align the leftovers in sorted order.
-        gm_only = [i for i in gm_indices if i not in pick_indices]
-        pick_only = [i for i in pick_indices if i not in gm_name_by_idx]
-        for pick_idx, gm_idx in zip(pick_only, gm_only):
-            out[pick_idx] = gm_name_by_idx[gm_idx]
-        return out
+        return dict(data.get("team_info", {}))
 
     @property
     def total_picks(self) -> int:
