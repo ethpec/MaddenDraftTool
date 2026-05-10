@@ -499,6 +499,7 @@ function renderOffersTable(offers) {
 
 function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${state.board.map(renderPickCell).join('')}</div>`;
+  document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
 }
 
@@ -520,6 +521,7 @@ function openModal(title, subtitle, bodyHtml) {
 
 function closeModal() {
   document.getElementById('modal-root').classList.add('hidden');
+  document.getElementById('modal-root').classList.remove('full-board-modal');
 }
 
 let toastTimer = null;
