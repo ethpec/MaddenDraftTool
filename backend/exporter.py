@@ -1,0 +1,139 @@
+"""xlsx exporters for a finished (or in-progress) draft.
+
+Three workbooks are produced:
+
+1. **DraftPickOutcome.xlsx** — one row per pick with the player chosen,
+   the team that ended up making the selection, and round/pick numbers.
+2. **DraftPicks_updated.xlsx** — same shape as the input DraftPicks.xlsx
+   but with ``CurrentTeam`` rewritten for any traded picks and
+   ``SelectedPlayer`` populated where applicable. This is the file the
+   game would re-import.
+3. **Trades.xlsx** — chronological log of every trade for testing.
+
+Outputs land under ``Files/<year>/Exports/draft_<timestamp>/``.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import openpyxl
+
+from .data_loader import resolve_year_folder
+from .draft_state import DraftSession, _pick_to_dict
+
+
+def export_session(session: DraftSession, year: str | int | None) -> dict[str, str]:
+    """Write all three xlsx outputs and return their paths."""
+    folder = resolve_year_folder(year)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_dir = folder / "Exports" / f"draft_{stamp}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    outcome_path = out_dir / "DraftPickOutcome.xlsx"
+    picks_path = out_dir / "DraftPicks_updated.xlsx"
+    trades_path = out_dir / "Trades.xlsx"
+
+    _write_outcome(session, outcome_path)
+    _write_updated_picks(session, year, picks_path)
+    _write_trades(session, trades_path)
+
+    return {
+        "outcome": str(outcome_path),
+        "picks": str(picks_path),
+        "trades": str(trades_path),
+        "folder": str(out_dir),
+    }
+
+
+def _write_outcome(session: DraftSession, path: Path) -> None:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "DraftPickOutcome"
+    ws.append([
+        "Overall", "Round", "PickInRound", "OriginalTeam", "DraftingTeam",
+        "PlayerID", "PlayerName",
+    ])
+    for pick in session.board():
+        ws.append([
+            pick.overall, pick.round_1, pick.pick_in_round_1,
+            pick.original_team, pick.current_team,
+            pick.selected_player_id, pick.selected_player_name,
+        ])
+    wb.save(path)
+
+
+def _write_updated_picks(session: DraftSession, year: str | int | None, path: Path) -> None:
+    """Rewrite the original DraftPicks.xlsx with updated CurrentTeam + selections.
+
+    We re-open the source file to preserve column order/format, mutate
+    just the rows for YearOffset == 0, and save under a new name.
+    """
+    source = resolve_year_folder(year) / "DraftPicks.xlsx"
+    wb = openpyxl.load_workbook(source)
+    ws = wb.active
+
+    # Collect mutations indexed by (Round, PickNumber).
+    by_round_pick: dict[tuple[int, int], Any] = {}
+    for pick in session.board():
+        by_round_pick[(pick.round_1 - 1, pick.pick_in_round_1 - 1)] = pick
+
+    # Find header positions.
+    headers = [c.value for c in ws[1]]
+    h = {name: headers.index(name) + 1 for name in headers if name}
+
+    name_to_idx = {
+        t["TeamName"]: int(t["TeamIndex"])
+        for t in session.data.get("gm_info", [])
+        if t.get("TeamIndex") is not None
+    }
+
+    for row_i in range(2, ws.max_row + 1):
+        if (ws.cell(row_i, h["YearOffset"]).value or 0) != 0:
+            continue
+        rnd = ws.cell(row_i, h["Round"]).value or 0
+        pk = ws.cell(row_i, h["PickNumber"]).value or 0
+        pick = by_round_pick.get((rnd, pk))
+        if not pick:
+            continue
+        idx = name_to_idx.get(pick.current_team)
+        if idx is not None:
+            ws.cell(row_i, h["CurrentTeam"]).value = _encode_team_id(idx)
+        if pick.selected_player_id:
+            ws.cell(row_i, h["SelectedPlayer"]).value = pick.selected_player_id
+    wb.save(path)
+
+
+def _write_trades(session: DraftSession, path: Path) -> None:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Trades"
+    ws.append([
+        "TradeID", "InitiatedBy", "HeadlinePickOverall",
+        "TeamA", "TeamB", "TeamASends", "TeamBSends",
+    ])
+    for t in session.trade_log():
+        ws.append([
+            t.trade_id, t.initiated_by, t.overall_pick_traded,
+            t.team_a, t.team_b,
+            _summarize_picks(t.team_a_sends),
+            _summarize_picks(t.team_b_sends),
+        ])
+    wb.save(path)
+
+
+def _summarize_picks(picks: list[dict[str, Any]]) -> str:
+    return "; ".join(f"R{p['round']}.{p['pick_in_round']} (overall {p['overall']})" for p in picks)
+
+
+def _encode_team_id(team_index: int) -> str:
+    """Inverse of data_loader._decode_team_id.
+
+    Reuses the high-bit prefix observed in the source file. Real game
+    re-import may need the full original 24-bit prefix; for now we
+    preserve the prefix from one of the sample IDs.
+    """
+    prefix = "001011010100101000000000"
+    return prefix + format(team_index & 0xFF, "08b")

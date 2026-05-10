@@ -1,0 +1,171 @@
+/* Custom styles layered on top of Tailwind. Tailwind handles 95% of
+   the layout; this file is for component-level polish that's awkward
+   to do inline (scrollbars, button states, animation). */
+
+.card {
+  background: linear-gradient(180deg, #11151f 0%, #0e1219 100%);
+  border: 1px solid #1a2030;
+  border-radius: 12px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px rgba(0,0,0,0.25);
+}
+.card-eyebrow {
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  font-weight: 600;
+}
+.sim-btn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #252d42;
+  background: #11151f;
+  color: #e2e8f0;
+  transition: all 120ms ease;
+}
+.sim-btn:hover { background: #1a2030; border-color: #38456a; color: #fff; }
+.primary-btn {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: #f0b020;
+  color: #06080d;
+  transition: all 120ms ease;
+}
+.primary-btn:hover { background: #f8c043; }
+.action-btn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid #38456a;
+  background: #1a2030;
+  color: #e2e8f0;
+  transition: all 120ms ease;
+}
+.action-btn:hover { background: #252d42; border-color: #f0b020; color: #f8c043; }
+
+/* Round grid pick cards */
+.pick-cell {
+  border: 1px solid #1a2030;
+  background: #0b0e15;
+  border-radius: 8px;
+  padding: 10px;
+  position: relative;
+  transition: all 120ms ease;
+  min-height: 78px;
+}
+.pick-cell.user-pick {
+  border-color: #f0b020;
+  box-shadow: 0 0 0 1px #f0b020 inset;
+}
+.pick-cell.on-clock {
+  border-color: #22c55e;
+  box-shadow: 0 0 0 1px #22c55e inset, 0 0 24px rgba(34,197,94,0.15);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.pick-cell.completed { background: #11151f; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #22c55e inset, 0 0 24px rgba(34,197,94,0.15); }
+  50%      { box-shadow: 0 0 0 1px #22c55e inset, 0 0 36px rgba(34,197,94,0.30); }
+}
+.pick-cell .pick-num {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: #64748b;
+  font-weight: 600;
+}
+.pick-cell .pick-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+.pick-cell .pick-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.pick-cell .pick-team {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+}
+.pick-cell .pick-player {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 4px;
+  line-height: 1.25;
+}
+.pick-cell .pick-player.placeholder { color: #475569; font-style: italic; }
+
+/* Big board rows */
+.bb-row {
+  display: grid;
+  grid-template-columns: 32px 28px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border-bottom: 1px solid #11151f;
+}
+.bb-row:hover { background: #11151f; }
+.bb-row .bb-rank { font-family: 'JetBrains Mono', ui-monospace; font-size: 11px; color: #64748b; text-align: right; }
+.bb-row .bb-logo { width: 28px; height: 28px; object-fit: contain; }
+.bb-row .bb-logo-placeholder {
+  width: 28px; height: 28px; border-radius: 4px; background: #11151f;
+  border: 1px dashed #1a2030;
+}
+.bb-row .bb-info { min-width: 0; }
+.bb-row .bb-name { font-size: 13px; color: #e2e8f0; line-height: 1.2; }
+.bb-row .bb-sub { font-size: 10px; color: #64748b; margin-top: 1px; }
+.bb-row.drafted { opacity: 0.4; text-decoration: line-through; }
+.bb-row.drafted .bb-sub { text-decoration: none; }
+.bb-row .bb-action {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #f0b020;
+  color: #06080d;
+  cursor: pointer;
+  display: none;
+}
+.bb-row.draftable .bb-action { display: inline-block; }
+.bb-row.draftable .bb-action:hover { background: #f8c043; }
+
+.need-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.need-row:hover { background: #11151f; }
+.need-row .pos { font-weight: 600; color: #e2e8f0; }
+.need-row .meta { font-size: 11px; color: #64748b; font-family: 'JetBrains Mono', ui-monospace; }
+
+.pretty-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.pretty-scroll::-webkit-scrollbar-track { background: transparent; }
+.pretty-scroll::-webkit-scrollbar-thumb { background: #1a2030; border-radius: 4px; }
+.pretty-scroll::-webkit-scrollbar-thumb:hover { background: #252d42; }
+
+/* Full draft order modal */
+.full-board {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.full-board .pick-cell { min-height: 60px; padding: 6px 8px; }
+.full-board .pick-cell .pick-team { font-size: 11px; }
+.full-board .pick-cell .pick-player { font-size: 10px; }
+
+.toast-show { display: block !important; animation: toast-in 200ms ease-out; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
