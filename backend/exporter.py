@@ -18,6 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+import zipfile
 
 import openpyxl
 
@@ -46,6 +47,19 @@ def export_session(session: DraftSession, year: str | int | None) -> dict[str, s
         "trades": str(trades_path),
         "folder": str(out_dir),
     }
+
+
+def export_session_zip(session: DraftSession, year: str | int | None) -> dict[str, str]:
+    """Write one export folder and zip the three workbook outputs."""
+    paths = export_session(session, year)
+    out_dir = Path(paths["folder"])
+    zip_path = out_dir / "DraftExport.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for kind in ("outcome", "picks", "trades"):
+            source = Path(paths[kind])
+            zf.write(source, arcname=source.name)
+    paths["zip"] = str(zip_path)
+    return paths
 
 
 def _write_outcome(session: DraftSession, path: Path) -> None:
