@@ -170,7 +170,7 @@
   color: #fbd874;
   box-shadow: 0 0 20px rgba(240,176,32,0.25);
 }
-.trade-hub-btn .trade-hub-phone {
+.trade-hub-phone {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -402,67 +402,161 @@
   line-height: 1.15;
 }
 
-/* Select Player modal (full-screen picker) */
-#modal-root.picker-modal > div {
-  max-width: 72rem;
+/* Big Board modal */
+#modal-root.big-board-modal-open > div {
+  max-width: 84rem;
   width: 100%;
 }
-.player-picker {
+.big-board-modal {
   display: flex;
   flex-direction: column;
-  height: 75vh;
-  max-height: 800px;
+  height: 78vh;
+  max-height: 880px;
 }
-.player-picker-header {
+.bbm-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 6px 4px 12px;
+  gap: 14px;
+  padding: 4px 4px 12px;
   border-bottom: 1px solid #1a2030;
+  flex-wrap: wrap;
 }
-.player-picker-list {
+.bbm-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.bbm-sort-group {
+  display: inline-flex;
+  border: 1px solid #252d42;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.bbm-sort {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 10px;
+  background: #11151f;
+  color: #94a3b8;
+  border: none;
+  transition: all 100ms ease;
+}
+.bbm-sort:hover { background: #1a2030; color: #e2e8f0; }
+.bbm-sort.active {
+  background: #f0b020;
+  color: #06080d;
+}
+.bbm-drafted-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+  cursor: pointer;
+  user-select: none;
+}
+.bbm-drafted-toggle input { accent-color: #f0b020; }
+.bbm-search {
+  font-size: 11px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #252d42;
+  background: #0b0e15;
+  color: #e2e8f0;
+  width: 200px;
+}
+.bbm-position-bar {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 8px 4px;
+  margin-top: 12px;
+  border-top: 1px solid #1a2030;
+  border-bottom: 1px solid #1a2030;
+  scrollbar-width: thin;
+}
+.bbm-position-bar::-webkit-scrollbar { height: 6px; }
+.bb-pos-pill {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: #11151f;
+  color: #94a3b8;
+  border: 1px solid #1a2030;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+.bb-pos-pill:hover {
+  background: #1a2030;
+  color: #e2e8f0;
+  border-color: #38456a;
+  transform: translateY(-1px);
+}
+.bb-pos-pill.active {
+  background: linear-gradient(135deg, #f8c043 0%, #f0b020 100%);
+  color: #06080d;
+  border-color: #f8c043;
+  box-shadow: 0 2px 8px rgba(240,176,32,0.35), 0 0 0 1px rgba(255,255,255,0.15) inset;
+}
+.bb-pos-pill.active:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 12px rgba(240,176,32,0.45), 0 0 0 1px rgba(255,255,255,0.2) inset;
+}
+.bbm-list-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin-top: 12px;
+}
+.bbm-list {
   flex: 1;
   overflow-y: auto;
   border: 1px solid #1a2030;
   border-radius: 8px;
   background: #0b0e15;
 }
-.pp-row {
+.bbm-row {
   display: grid;
-  grid-template-columns: 48px 36px 1fr auto;
+  grid-template-columns: 64px 36px 1fr auto;
   align-items: center;
   gap: 14px;
   padding: 10px 14px;
   border-bottom: 1px solid #11151f;
   transition: background 100ms ease;
 }
-.pp-row:hover { background: #11151f; }
-.pp-row:last-child { border-bottom: none; }
-.pp-rank {
+.bbm-row:hover { background: #11151f; }
+.bbm-row:last-child { border-bottom: none; }
+.bbm-row.drafted { opacity: 0.45; }
+.bbm-row.drafted .bbm-name { text-decoration: line-through; }
+.bbm-rank {
   font-family: 'JetBrains Mono', ui-monospace;
-  font-size: 13px;
-  font-weight: 600;
-  color: #94a3b8;
+  font-size: 14px;
+  font-weight: 700;
+  color: #cbd5e1;
   text-align: right;
+  line-height: 1.1;
 }
-.pp-logo { width: 36px; height: 36px; object-fit: contain; }
-.pp-logo-placeholder {
+.bbm-rank-alt {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: #64748b;
+  margin-top: 1px;
+}
+.bbm-logo { width: 36px; height: 36px; object-fit: contain; }
+.bbm-logo-placeholder {
   width: 36px; height: 36px; border-radius: 6px;
   background: #11151f; border: 1px dashed #1a2030;
 }
-.pp-info { min-width: 0; }
-.pp-name {
-  font-size: 15px;
-  font-weight: 600;
-  color: #e2e8f0;
-  line-height: 1.2;
-}
-.pp-sub {
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 2px;
-}
-.pp-draft {
+.bbm-info { min-width: 0; }
+.bbm-name { font-size: 15px; font-weight: 600; color: #e2e8f0; line-height: 1.2; }
+.bbm-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
+.bbm-draft {
   font-size: 12px;
   font-weight: 600;
   padding: 6px 14px;
@@ -471,7 +565,30 @@
   color: #06080d;
   transition: all 100ms ease;
 }
-.pp-draft:hover { background: #f8c043; }
+.bbm-draft:hover { background: #f8c043; }
+
+/* Trade Hub button in the header */
+.trade-hub-header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid #38456a;
+  background: linear-gradient(180deg, #1a2030 0%, #11151f 100%);
+  color: #e2e8f0;
+  transition: all 140ms ease;
+}
+.trade-hub-header-btn:hover {
+  border-color: #f0b020;
+  color: #f8c043;
+  box-shadow: 0 0 14px rgba(240,176,32,0.18);
+}
+.trade-hub-header-btn .trade-hub-badge {
+  margin-left: 4px;
+}
 
 .toast-show { display: block !important; animation: toast-in 200ms ease-out; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

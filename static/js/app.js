@@ -180,7 +180,6 @@ function renderAll() {
   renderPreviousSelections();
   renderRoundTitle();
   renderRoundGrid();
-  renderPublicBoard();
   renderTeamBoard();
   renderSimRoundSelect();
 }
@@ -190,15 +189,10 @@ function renderOnTheClock() {
   const teamEl = document.getElementById('on-the-clock-team');
   const metaEl = document.getElementById('on-the-clock-meta');
   const logoEl = document.getElementById('on-the-clock-logo');
-  const userActions = document.getElementById('user-pick-actions');
-  const aiActions = document.getElementById('ai-pick-actions');
-  const forceTeamName = document.getElementById('force-pick-team-name');
   if (!c) {
     teamEl.textContent = 'Draft Complete';
     metaEl.textContent = `${state.session.picks_made} of ${state.session.total_picks} picks`;
     if (logoEl) logoEl.innerHTML = '';
-    userActions.classList.add('hidden');
-    if (aiActions) aiActions.classList.add('hidden');
     return;
   }
   teamEl.textContent = c.current_team;
@@ -209,23 +203,18 @@ function renderOnTheClock() {
       ? `<img src="${c.current_team_logo}" alt="${escapeHtml(c.current_team)}" class="h-16 w-16 object-contain">`
       : `<div class="h-16 w-16 rounded-full bg-ink-700 grid place-items-center text-2xl font-bold text-slate-500">${escapeHtml(c.current_team[0] || '?')}</div>`;
   }
-  if (c.current_team === state.userTeam) {
-    userActions.classList.remove('hidden');
-    if (aiActions) aiActions.classList.add('hidden');
-    updateTradeHubBadge();
-  } else {
-    userActions.classList.add('hidden');
-    if (aiActions) {
-      aiActions.classList.remove('hidden');
-      if (forceTeamName) forceTeamName.textContent = c.current_team;
-    }
-  }
+  updateTradeHubBadge();
 }
 
 async function updateTradeHubBadge() {
-  // Show offer count next to the Trade Hub button when user is on clock.
-  const badge = document.getElementById('trade-hub-badge');
+  // Show offer count next to the Trade Hub header button when user is on clock.
+  const badge = document.getElementById('trade-hub-header-badge');
   if (!badge) return;
+  const c = state.session?.current_pick;
+  if (!c || c.current_team !== state.userTeam) {
+    badge.classList.add('hidden');
+    return;
+  }
   try {
     const res = await api.get('/api/trade/down-offers');
     const n = (res.ok && res.offers) ? res.offers.length : 0;
@@ -372,49 +361,6 @@ function renderPickCell(p) {
   `;
 }
 
-function renderPublicBoard() {
-  const search = document.getElementById('board-search');
-  if (!search.dataset.bound) {
-    search.addEventListener('input', renderPublicBoard);
-    search.dataset.bound = '1';
-  }
-  const q = search.value.trim().toLowerCase();
-  const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
-  const draftableEnabled = !!state.session.current_pick;
-  const rows = state.publicBoard
-    .filter(p => !q || (p.first_name + ' ' + p.last_name + ' ' + (p.college || '')).toLowerCase().includes(q))
-    .slice(0, 200)
-    .map(p => {
-      const isDrafted = drafted.has(p.player_id) || p.drafted;
-      const cls = ['bb-row'];
-      if (isDrafted) cls.push('drafted');
-      else if (draftableEnabled) cls.push('draftable');
-      const logo = p.college_logo
-        ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bb-logo">`
-        : `<div class="bb-logo-placeholder"></div>`;
-      const sub = [p.position, p.college].filter(Boolean).map(escapeHtml).join(' · ');
-      return `
-        <div class="${cls.join(' ')}" data-player-id="${escapeHtml(p.player_id)}">
-          <div class="bb-rank">${p.rank ?? '—'}</div>
-          ${logo}
-          <div class="bb-info">
-            <div class="bb-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
-            ${sub ? `<div class="bb-sub">${sub}</div>` : ''}
-          </div>
-          <button class="bb-action" data-draft-id="${escapeHtml(p.player_id)}">Draft</button>
-        </div>
-      `;
-    }).join('');
-  const el = document.getElementById('public-board');
-  el.innerHTML = rows || '<div class="text-xs text-slate-500 p-3">No matches.</div>';
-  el.querySelectorAll('[data-draft-id]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      submitPick(btn.dataset.draftId);
-    });
-  });
-}
-
 function renderTeamBoard() {
   const picker = document.getElementById('team-board-picker');
   if (picker.value !== state.selectedTeamForBoard) {
@@ -492,8 +438,7 @@ async function onAction(action) {
     case 'trade-down': return showTradeDownOffers();
     case 'trade-up': return openTradeUpModal();
     case 'trade-hub': return openTradeHub();
-    case 'trade-up-current': return openTradeUpModal({ targetCurrent: true });
-    case 'open-player-picker': return openPlayerPicker();
+    case 'open-big-board': return openBigBoardModal();
   }
 }
 
@@ -671,50 +616,74 @@ function openTradeUpModal(opts = {}) {
 }
 
 async function openTradeHub() {
-  // Combined trade hub modal — incoming trade-up offers on top, manual
-  // trade-up offer form on the bottom. Only meaningful when user is on
-  // the clock; for AI-on-clock the header button is hidden and the AI
-  // override section has a dedicated "Trade Up to This Pick" button.
-  const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
-  const offers = (res.ok && res.offers) || [];
-  const offersBlock = offers.length
-    ? renderOffersTable(offers)
-    : '<div class="text-sm text-slate-400">No incoming trade-up offers right now. <span class="text-slate-500">(AI trade logic is still a placeholder.)</span></div>';
+  // Trade Hub modal. Layout depends on who's on the clock:
+  //  - User on clock: incoming offers + manual trade form (full layout).
+  //  - AI on clock: trade-up form only, with the on-clock pick pre-selected.
+  //  - Draft complete: empty state.
+  const c = state.session?.current_pick;
+  const isUserPick = c?.current_team === state.userTeam;
   const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
-  const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id).slice(0, 64);
-  const targetOpts = targets.map(p =>
-    `<option value="${p.overall}">R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`
-  ).join('');
+  const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id).slice(0, 200);
+  const preselectOverall = (c && !isUserPick) ? c.overall : null;
+  const targetOpts = targets.map(p => {
+    const sel = preselectOverall === p.overall ? ' selected' : '';
+    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
+  }).join('');
   const offerCheckboxes = myUnpickedPicks.map(p => `
     <label class="flex items-center gap-2 text-sm py-1">
       <input type="checkbox" class="trade-up-offer" value="${p.overall}">
       <span>R${p.round}.${p.pick_in_round} (overall ${p.overall})</span>
     </label>
   `).join('');
-  const body = `
-    <div class="space-y-5">
+  const tradeForm = `
+    <div class="space-y-2">
       <div>
-        <div class="card-eyebrow mb-2">Incoming Offers</div>
-        ${offersBlock}
+        <label class="text-xs uppercase text-slate-400">Target Pick</label>
+        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts || '<option disabled>No targets available</option>'}</select>
       </div>
-      <div class="border-t border-ink-700 pt-4">
-        <div class="card-eyebrow mb-2">Offer Manual Trade</div>
-        <div class="space-y-2">
-          <div>
-            <label class="text-xs uppercase text-slate-400">Target Pick</label>
-            <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts}</select>
-          </div>
-          <div>
-            <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
-            <div class="mt-1 max-h-40 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
-          </div>
-          <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
-          <div id="trade-up-result" class="text-sm text-slate-400"></div>
-        </div>
+      <div>
+        <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
+        <div class="mt-1 max-h-40 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
       </div>
+      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
+      <div id="trade-up-result" class="text-sm text-slate-400"></div>
     </div>
   `;
-  openModal('Trade Hub', 'Review incoming offers or propose a trade up', body);
+
+  let body, subtitle;
+  if (!c) {
+    body = '<div class="text-sm text-slate-400">Draft is complete — no more trades possible.</div>';
+    subtitle = '';
+  } else if (isUserPick) {
+    const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
+    const offers = (res.ok && res.offers) || [];
+    const offersBlock = offers.length
+      ? renderOffersTable(offers)
+      : '<div class="text-sm text-slate-400">No incoming trade-up offers right now. <span class="text-slate-500">(AI trade logic is still a placeholder.)</span></div>';
+    body = `
+      <div class="space-y-5">
+        <div>
+          <div class="card-eyebrow mb-2">Incoming Offers</div>
+          ${offersBlock}
+        </div>
+        <div class="border-t border-ink-700 pt-4">
+          <div class="card-eyebrow mb-2">Offer Manual Trade</div>
+          ${tradeForm}
+        </div>
+      </div>
+    `;
+    subtitle = 'Review incoming offers or propose a manual trade';
+  } else {
+    body = `
+      <div class="space-y-3">
+        <div class="card-eyebrow">Trade Up to ${escapeHtml(c.current_team)}'s Pick</div>
+        <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · overall #${c.overall}</div>
+        ${tradeForm}
+      </div>
+    `;
+    subtitle = `Propose a trade for the ${c.current_team}'s pick`;
+  }
+  openModal('Trade Hub', subtitle, body);
   const submitBtn = document.getElementById('submit-trade-up');
   if (submitBtn) submitBtn.addEventListener('click', submitTradeUp);
 }
@@ -753,96 +722,200 @@ function renderOffersTable(offers) {
   `;
 }
 
-// ---------- Select Player modal ----------
+// ---------- Big Board modal ----------
 
-const pickerState = {
-  search: '',
-  position: 'ALL',
+const POSITION_ORDER = ['QB','RB','FB','WR','TE','OG','OT','C','END','DT','OLB','ILB','CB','SS','FS','K','P'];
+
+// Madden stores sub-positions (LE/RE, LG/RG, LT/RT, LOLB/ROLB, MLB, HB) but
+// we display the conventional grouping (END, OG, OT, OLB, ILB, RB). This
+// map says "what raw positions count as this display position?"
+const POSITION_ALIASES = {
+  QB: ['QB'],
+  RB: ['HB'],
+  FB: ['FB'],
+  WR: ['WR'],
+  TE: ['TE'],
+  OG: ['LG', 'RG'],
+  OT: ['LT', 'RT'],
+  C: ['C'],
+  END: ['LE', 'RE'],
+  DT: ['DT'],
+  OLB: ['LOLB', 'ROLB'],
+  ILB: ['MLB', 'ILB'],
+  CB: ['CB'],
+  SS: ['SS'],
+  FS: ['FS'],
+  K: ['K'],
+  P: ['P'],
+};
+// Inverse: raw position string -> display group label (e.g. "LE" -> "END").
+const RAW_TO_DISPLAY = Object.fromEntries(
+  Object.entries(POSITION_ALIASES).flatMap(([display, raws]) => raws.map(r => [r, display]))
+);
+
+function displayPosition(raw) {
+  return RAW_TO_DISPLAY[raw] || raw || '—';
+}
+
+const bigBoardState = {
+  position: 'ALL',          // 'ALL' | one of POSITION_ORDER
+  sortBy: 'consensus',      // 'consensus' | 'team'
+  showDrafted: false,
+  userTeamBoard: [],        // cached big board for the user's team
 };
 
-function openPlayerPicker() {
-  pickerState.search = '';
-  pickerState.position = 'ALL';
+async function openBigBoardModal() {
+  // Fetch the user's personal team board so we can sort by it. We
+  // refresh on every open so rankings reflect current undrafted state.
+  try {
+    const res = await api.get('/api/big-board/team/' + encodeURIComponent(state.userTeam));
+    bigBoardState.userTeamBoard = res.players || [];
+  } catch (e) {
+    bigBoardState.userTeamBoard = [];
+  }
   const c = state.session?.current_pick;
   const onClock = c?.current_team;
-  const actionable = !!c;  // any team on the clock is draftable
   const headerLogo = c?.current_team_logo
     ? `<img src="${c.current_team_logo}" alt="${escapeHtml(onClock)}" class="h-10 w-10 object-contain">`
     : '';
   const subtitle = c
     ? `Drafting for ${onClock} · R${c.round}.${c.pick_in_round} (overall ${c.overall})`
     : 'Draft is complete — viewing only';
-  // Build position filter from distinct positions in publicBoard.
-  const positions = Array.from(new Set(state.publicBoard.map(p => p.position).filter(Boolean))).sort();
-  const posOptions = ['<option value="ALL">All Positions</option>']
-    .concat(positions.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)).join('');
+  const positionList = ['ALL', ...POSITION_ORDER].map(pos => {
+    const label = pos === 'ALL' ? 'All' : pos;
+    const active = bigBoardState.position === pos ? ' active' : '';
+    return `<button class="bb-pos-pill${active}" data-bb-pos="${escapeHtml(pos)}">${escapeHtml(label)}</button>`;
+  }).join('');
+  const sortConsensusActive = bigBoardState.sortBy === 'consensus' ? ' active' : '';
+  const sortTeamActive = bigBoardState.sortBy === 'team' ? ' active' : '';
+  const draftedChecked = bigBoardState.showDrafted ? ' checked' : '';
   const body = `
-    <div class="player-picker">
-      <div class="player-picker-header">
+    <div class="big-board-modal">
+      <div class="bbm-header">
         ${headerLogo}
         <div class="flex-1 min-w-0">
           <div class="text-xs uppercase tracking-wider text-slate-400">On the Clock</div>
           <div class="text-lg font-bold truncate">${escapeHtml(onClock || 'Draft Complete')}</div>
           <div class="text-xs text-slate-500">${subtitle}</div>
         </div>
-        <div class="flex items-center gap-2">
-          <select id="picker-position" class="rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs">${posOptions}</select>
-          <input id="picker-search" type="text" placeholder="Search name or college…" class="rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs w-56">
+        <div class="bbm-controls">
+          <div class="bbm-sort-group">
+            <button class="bbm-sort${sortConsensusActive}" data-bb-sort="consensus">Consensus</button>
+            <button class="bbm-sort${sortTeamActive}" data-bb-sort="team">My Team</button>
+          </div>
+          <label class="bbm-drafted-toggle">
+            <input id="bb-show-drafted" type="checkbox"${draftedChecked}>
+            <span>Show drafted</span>
+          </label>
+          <input id="bb-search" type="text" placeholder="Search…" class="bbm-search">
         </div>
       </div>
-      <div id="picker-count" class="text-xs text-slate-500 px-1 pt-1"></div>
-      <div id="picker-list" class="player-picker-list pretty-scroll mt-2"></div>
+      <div class="bbm-position-bar pretty-scroll">${positionList}</div>
+      <div class="bbm-list-wrap">
+        <div id="bb-count" class="text-xs text-slate-500 px-1 pb-1.5"></div>
+        <div id="bb-list" class="bbm-list pretty-scroll"></div>
+      </div>
     </div>
   `;
-  document.getElementById('modal-root').classList.add('picker-modal');
-  openModal('Select Player', '', body);
-  document.getElementById('picker-search').addEventListener('input', (e) => {
-    pickerState.search = e.target.value.trim().toLowerCase();
-    renderPlayerPickerList();
+  document.getElementById('modal-root').classList.add('big-board-modal-open');
+  openModal('Big Board', '', body);
+  // Wire up controls.
+  document.querySelectorAll('[data-bb-pos]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      bigBoardState.position = btn.dataset.bbPos;
+      document.querySelectorAll('[data-bb-pos]').forEach(b => b.classList.toggle('active', b.dataset.bbPos === bigBoardState.position));
+      renderBigBoardList();
+    });
   });
-  document.getElementById('picker-position').addEventListener('change', (e) => {
-    pickerState.position = e.target.value;
-    renderPlayerPickerList();
+  document.querySelectorAll('[data-bb-sort]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      bigBoardState.sortBy = btn.dataset.bbSort;
+      document.querySelectorAll('[data-bb-sort]').forEach(b => b.classList.toggle('active', b.dataset.bbSort === bigBoardState.sortBy));
+      renderBigBoardList();
+    });
   });
-  renderPlayerPickerList();
+  document.getElementById('bb-show-drafted').addEventListener('change', (e) => {
+    bigBoardState.showDrafted = e.target.checked;
+    renderBigBoardList();
+  });
+  const searchEl = document.getElementById('bb-search');
+  searchEl.addEventListener('input', renderBigBoardList);
+  renderBigBoardList();
 }
 
-function renderPlayerPickerList() {
+function renderBigBoardList() {
   const c = state.session?.current_pick;
   const actionable = !!c;
   const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
-  const rows = state.publicBoard
-    .filter(p => !drafted.has(p.player_id) && !p.drafted)
-    .filter(p => pickerState.position === 'ALL' || p.position === pickerState.position)
-    .filter(p => !pickerState.search ||
-      (p.first_name + ' ' + p.last_name + ' ' + (p.college || '') + ' ' + (p.position || ''))
-        .toLowerCase().includes(pickerState.search));
-  document.getElementById('picker-count').textContent =
-    `${rows.length} available player${rows.length === 1 ? '' : 's'}`;
-  const html = rows.slice(0, 400).map(p => {
+  const searchEl = document.getElementById('bb-search');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+
+  // Build a per-player view by merging consensus board + user team board.
+  // Use Player_ID as the join key. Consensus has `rank`; team has
+  // `team_rank`/`original_rank`.
+  const teamByPid = Object.fromEntries(bigBoardState.userTeamBoard.map(p => [p.player_id, p]));
+  let players = state.publicBoard.map(p => {
+    const t = teamByPid[p.player_id];
+    return {
+      ...p,
+      team_rank: t?.team_rank ?? null,
+      team_original_rank: t?.original_rank ?? null,
+    };
+  });
+  // Filter: drafted, position (alias-aware), search.
+  const allowedRaws = bigBoardState.position === 'ALL'
+    ? null
+    : new Set(POSITION_ALIASES[bigBoardState.position] || [bigBoardState.position]);
+  players = players.filter(p => {
+    if (!bigBoardState.showDrafted && (drafted.has(p.player_id) || p.drafted)) return false;
+    if (allowedRaws && !allowedRaws.has(p.position)) return false;
+    if (q) {
+      const hay = (p.first_name + ' ' + p.last_name + ' ' + (p.college || '') + ' ' + (p.position || '')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  // Sort: consensus or team. Nulls always last.
+  const sortField = bigBoardState.sortBy === 'team' ? 'team_rank' : 'rank';
+  players.sort((a, b) => {
+    const av = a[sortField], bv = b[sortField];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return av - bv;
+  });
+  document.getElementById('bb-count').textContent =
+    `${players.length} player${players.length === 1 ? '' : 's'}` +
+    (bigBoardState.showDrafted ? ' (incl. drafted)' : ' available');
+  const html = players.slice(0, 600).map(p => {
+    const isDrafted = drafted.has(p.player_id) || p.drafted;
+    const cls = ['bbm-row'];
+    if (isDrafted) cls.push('drafted');
     const logo = p.college_logo
-      ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="pp-logo">`
-      : `<div class="pp-logo-placeholder"></div>`;
-    const action = actionable
-      ? `<button class="pp-draft" data-pp-draft="${escapeHtml(p.player_id)}">Draft</button>`
+      ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bbm-logo">`
+      : `<div class="bbm-logo-placeholder"></div>`;
+    const primary = bigBoardState.sortBy === 'team' ? p.team_rank : p.rank;
+    const secondary = bigBoardState.sortBy === 'team' ? p.rank : p.team_rank;
+    const action = !isDrafted && actionable
+      ? `<button class="bbm-draft" data-bb-draft="${escapeHtml(p.player_id)}">Draft</button>`
       : '';
     return `
-      <div class="pp-row">
-        <div class="pp-rank">#${p.rank ?? '—'}</div>
+      <div class="${cls.join(' ')}">
+        <div class="bbm-rank">#${primary ?? '—'}${secondary != null ? `<span class="bbm-rank-alt">${bigBoardState.sortBy === 'team' ? 'c' : 't'}${secondary}</span>` : ''}</div>
         ${logo}
-        <div class="pp-info">
-          <div class="pp-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
-          <div class="pp-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
+        <div class="bbm-info">
+          <div class="bbm-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
+          <div class="bbm-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
         </div>
         ${action}
       </div>
     `;
   }).join('');
-  const listEl = document.getElementById('picker-list');
+  const listEl = document.getElementById('bb-list');
   listEl.innerHTML = html || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>';
-  listEl.querySelectorAll('[data-pp-draft]').forEach(btn => {
+  listEl.querySelectorAll('[data-bb-draft]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      await submitPick(btn.dataset.ppDraft);
+      await submitPick(btn.dataset.bbDraft);
       closeModal();
     });
   });
@@ -895,7 +968,7 @@ function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel =
 function closeModal() {
   const root = document.getElementById('modal-root');
   root.classList.add('hidden');
-  root.classList.remove('full-board-modal', 'picker-modal');
+  root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open');
 }
 
 let toastTimer = null;
