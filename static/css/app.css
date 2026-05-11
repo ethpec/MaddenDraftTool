@@ -204,6 +204,12 @@
 .bb-row .bb-info { min-width: 0; }
 .bb-row .bb-name { font-size: 13px; color: #e2e8f0; line-height: 1.2; }
 .bb-row .bb-sub { font-size: 10px; color: #64748b; margin-top: 1px; }
+.bb-row .bb-consensus {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', ui-monospace;
+  white-space: nowrap;
+  text-align: right;
+}
 .bb-row.drafted { opacity: 0.4; text-decoration: line-through; }
 .bb-row.drafted .bb-sub { text-decoration: none; }
 .bb-row .bb-action {
@@ -281,6 +287,77 @@
   font-size: 9px;
   line-height: 1.15;
 }
+
+/* Select Player modal (full-screen picker) */
+#modal-root.picker-modal > div {
+  max-width: 72rem;
+  width: 100%;
+}
+.player-picker {
+  display: flex;
+  flex-direction: column;
+  height: 75vh;
+  max-height: 800px;
+}
+.player-picker-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px 12px;
+  border-bottom: 1px solid #1a2030;
+}
+.player-picker-list {
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid #1a2030;
+  border-radius: 8px;
+  background: #0b0e15;
+}
+.pp-row {
+  display: grid;
+  grid-template-columns: 48px 36px 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #11151f;
+  transition: background 100ms ease;
+}
+.pp-row:hover { background: #11151f; }
+.pp-row:last-child { border-bottom: none; }
+.pp-rank {
+  font-family: 'JetBrains Mono', ui-monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: right;
+}
+.pp-logo { width: 36px; height: 36px; object-fit: contain; }
+.pp-logo-placeholder {
+  width: 36px; height: 36px; border-radius: 6px;
+  background: #11151f; border: 1px dashed #1a2030;
+}
+.pp-info { min-width: 0; }
+.pp-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e2e8f0;
+  line-height: 1.2;
+}
+.pp-sub {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.pp-draft {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  background: #f0b020;
+  color: #06080d;
+  transition: all 100ms ease;
+}
+.pp-draft:hover { background: #f8c043; }
 
 .toast-show { display: block !important; animation: toast-in 200ms ease-out; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

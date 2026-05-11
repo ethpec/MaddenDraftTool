@@ -360,7 +360,7 @@ function renderTeamBoard() {
           <div class="bb-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
           ${sub ? `<div class="bb-sub">${sub}</div>` : ''}
         </div>
-        <div class="text-[10px] text-slate-500 font-mono">c${p.consensus_rank ?? '—'}</div>
+        <div class="bb-consensus">${renderConsensusDelta(p)}</div>
       </div>
     `;
   }).join('');
@@ -405,6 +405,7 @@ async function onAction(action) {
     case 'trade-hub': return openTradeHub();
     case 'trade-up-current': return openTradeUpModal({ targetCurrent: true });
     case 'force-pick-on-board': return enterForcePickMode();
+    case 'open-player-picker': return openPlayerPicker();
   }
 }
 
@@ -431,25 +432,39 @@ function renderSimRoundSelect() {
   if (!sel) return;
   const currentRound = state.session?.current_pick?.round ?? 1;
   const totalRounds = state.board.length ? Math.max(...state.board.map(p => p.round)) : 7;
-  const prev = parseInt(sel.value, 10);
+  const prev = sel.value;
   sel.innerHTML = '';
   for (let r = currentRound + 1; r <= totalRounds; r++) {
     const opt = document.createElement('option');
-    opt.value = r;
+    opt.value = String(r);
     opt.textContent = `Round ${r}`;
-    if (r === prev) opt.selected = true;
+    if (String(r) === prev) opt.selected = true;
     sel.appendChild(opt);
   }
-  sel.disabled = currentRound >= totalRounds;
+  // Always add an "End of Draft" sentinel so the user can complete the draft.
+  if (!state.session?.is_complete) {
+    const endOpt = document.createElement('option');
+    endOpt.value = 'end';
+    endOpt.textContent = 'End of Draft';
+    if (prev === 'end') endOpt.selected = true;
+    sel.appendChild(endOpt);
+  }
+  sel.disabled = sel.options.length === 0;
   const btn = sel.nextElementSibling;
   if (btn) btn.disabled = sel.disabled;
 }
 
 async function promptSimUntilRound() {
   const sel = document.getElementById('sim-round-select');
-  const r = sel ? parseInt(sel.value, 10) : NaN;
-  if (!r || isNaN(r)) return;
-  await api.post('/api/pick/sim-until-round', { round: r });
+  if (!sel) return;
+  const v = sel.value;
+  if (v === 'end') {
+    await api.post('/api/pick/sim-until-end');
+  } else {
+    const r = parseInt(v, 10);
+    if (!r || isNaN(r)) return;
+    await api.post('/api/pick/sim-until-round', { round: r });
+  }
   await reloadSessionAndRender();
 }
 
@@ -649,6 +664,112 @@ function renderOffersTable(offers) {
   `;
 }
 
+// ---------- Select Player modal ----------
+
+const pickerState = {
+  search: '',
+  position: 'ALL',
+};
+
+function openPlayerPicker() {
+  pickerState.search = '';
+  pickerState.position = 'ALL';
+  const c = state.session?.current_pick;
+  const onClock = c?.current_team;
+  const isUserPick = onClock === state.userTeam;
+  const actionable = isUserPick || state.forcePickMode;
+  const headerLogo = c?.current_team_logo
+    ? `<img src="${c.current_team_logo}" alt="${escapeHtml(onClock)}" class="h-10 w-10 object-contain">`
+    : '';
+  const subtitle = c
+    ? (actionable
+        ? `Drafting for ${onClock} · R${c.round}.${c.pick_in_round} (overall ${c.overall})`
+        : `${onClock} is on the clock · viewing only`)
+    : 'Draft is complete — viewing only';
+  // Build position filter from distinct positions in publicBoard.
+  const positions = Array.from(new Set(state.publicBoard.map(p => p.position).filter(Boolean))).sort();
+  const posOptions = ['<option value="ALL">All Positions</option>']
+    .concat(positions.map(p => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`)).join('');
+  const body = `
+    <div class="player-picker">
+      <div class="player-picker-header">
+        ${headerLogo}
+        <div class="flex-1 min-w-0">
+          <div class="text-xs uppercase tracking-wider text-slate-400">On the Clock</div>
+          <div class="text-lg font-bold truncate">${escapeHtml(onClock || 'Draft Complete')}</div>
+          <div class="text-xs text-slate-500">${subtitle}</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <select id="picker-position" class="rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs">${posOptions}</select>
+          <input id="picker-search" type="text" placeholder="Search name or college…" class="rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs w-56">
+        </div>
+      </div>
+      <div id="picker-count" class="text-xs text-slate-500 px-1 pt-1"></div>
+      <div id="picker-list" class="player-picker-list pretty-scroll mt-2"></div>
+    </div>
+  `;
+  document.getElementById('modal-root').classList.add('picker-modal');
+  openModal('Select Player', '', body);
+  document.getElementById('picker-search').addEventListener('input', (e) => {
+    pickerState.search = e.target.value.trim().toLowerCase();
+    renderPlayerPickerList();
+  });
+  document.getElementById('picker-position').addEventListener('change', (e) => {
+    pickerState.position = e.target.value;
+    renderPlayerPickerList();
+  });
+  renderPlayerPickerList();
+}
+
+function renderPlayerPickerList() {
+  const c = state.session?.current_pick;
+  const isUserPick = c?.current_team === state.userTeam;
+  const actionable = isUserPick || state.forcePickMode;
+  const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
+  const rows = state.publicBoard
+    .filter(p => !drafted.has(p.player_id) && !p.drafted)
+    .filter(p => pickerState.position === 'ALL' || p.position === pickerState.position)
+    .filter(p => !pickerState.search ||
+      (p.first_name + ' ' + p.last_name + ' ' + (p.college || '') + ' ' + (p.position || ''))
+        .toLowerCase().includes(pickerState.search));
+  document.getElementById('picker-count').textContent =
+    `${rows.length} available player${rows.length === 1 ? '' : 's'}`;
+  const html = rows.slice(0, 400).map(p => {
+    const logo = p.college_logo
+      ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="pp-logo">`
+      : `<div class="pp-logo-placeholder"></div>`;
+    const action = actionable
+      ? `<button class="pp-draft" data-pp-draft="${escapeHtml(p.player_id)}">Draft</button>`
+      : '';
+    return `
+      <div class="pp-row">
+        <div class="pp-rank">#${p.rank ?? '—'}</div>
+        ${logo}
+        <div class="pp-info">
+          <div class="pp-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
+          <div class="pp-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
+        </div>
+        ${action}
+      </div>
+    `;
+  }).join('');
+  const listEl = document.getElementById('picker-list');
+  listEl.innerHTML = html || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>';
+  listEl.querySelectorAll('[data-pp-draft]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const pid = btn.dataset.ppDraft;
+      if (isUserPick) {
+        await makeUserPick(pid);
+      } else if (state.forcePickMode) {
+        await forceMakePick(pid);
+      } else {
+        return;
+      }
+      closeModal();
+    });
+  });
+}
+
 function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${state.board.map(renderPickCell).join('')}</div>`;
   document.getElementById('modal-root').classList.add('full-board-modal');
@@ -672,8 +793,9 @@ function openModal(title, subtitle, bodyHtml) {
 }
 
 function closeModal() {
-  document.getElementById('modal-root').classList.add('hidden');
-  document.getElementById('modal-root').classList.remove('full-board-modal');
+  const root = document.getElementById('modal-root');
+  root.classList.add('hidden');
+  root.classList.remove('full-board-modal', 'picker-modal');
 }
 
 let toastTimer = null;
@@ -686,6 +808,24 @@ function toast(msg) {
 }
 
 // ---------- utils ----------
+
+function renderConsensusDelta(p) {
+  // Show "#consensus (±delta)" colored by team's opinion vs consensus.
+  // Positive delta = team ranks higher than consensus (likes him more) -> green.
+  // Negative delta = team ranks lower than consensus -> red.
+  const consensus = p.consensus_rank;
+  const team = p.team_rank;
+  if (consensus == null) return '<span class="text-slate-500">—</span>';
+  if (team == null) return `<span class="text-slate-500">#${consensus}</span>`;
+  const delta = consensus - team;
+  if (delta === 0) {
+    return `<span class="text-slate-500">#${consensus} <span class="text-slate-600">(=)</span></span>`;
+  }
+  const sign = delta > 0 ? '+' : '−';
+  const mag = Math.abs(delta);
+  const cls = delta > 0 ? 'text-emerald-400' : 'text-rose-400';
+  return `<span class="text-slate-500">#${consensus}</span> <span class="${cls} font-semibold">(${sign}${mag})</span>`;
+}
 
 function escapeHtml(s) {
   if (s == null) return '';

@@ -271,6 +271,26 @@ class DraftSession:
         return {"ok": True, "events": results,
                 "stopped_at": _pick_to_dict(self.current_pick()) if self.current_pick() else None}
 
+    def sim_until_end(self) -> dict[str, Any]:
+        """Sim every remaining pick until the draft is complete."""
+        results: list[dict[str, Any]] = []
+        with self.lock:
+            while True:
+                pick = self.current_pick()
+                if pick is None:
+                    break
+                if pick.current_team == self.user_team:
+                    # Don't auto-pick for the user; stop here so they
+                    # can select. (User can force-pick if they want.)
+                    break
+                step = self._sim_one_locked()
+                results.append(step)
+                if not step.get("ok"):
+                    break
+        return {"ok": True, "events": results,
+                "stopped_at": _pick_to_dict(self.current_pick()) if self.current_pick() else None,
+                "is_complete": self.is_complete}
+
     def sim_until_overall(self, target_overall: int) -> dict[str, Any]:
         """Sim until the pick whose ``overall`` number == ``target_overall`` is on the clock."""
         results: list[dict[str, Any]] = []

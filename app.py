@@ -283,6 +283,15 @@ def api_pick_sim_until_round():
     return jsonify(sess.sim_until_round(target))
 
 
+@app.post("/api/pick/sim-until-end")
+def api_pick_sim_until_end():
+    """Sim all remaining picks. Stops if the user (Steelers) comes up."""
+    sess, err = _require_session()
+    if err:
+        return err
+    return jsonify(sess.sim_until_end())
+
+
 @app.post("/api/pick/sim-until-overall")
 def api_pick_sim_until_overall():
     sess, err = _require_session()
