@@ -274,6 +274,18 @@
   line-height: 1.25;
 }
 .pick-cell .pick-player.placeholder { color: #475569; font-style: italic; }
+.pick-cell .pick-pos {
+  display: inline-block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  margin-right: 5px;
+  border-radius: 3px;
+  background: #1a2030;
+  color: #f8c043;
+  vertical-align: 1px;
+}
 
 /* Big board rows */
 .bb-row {

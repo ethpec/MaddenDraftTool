@@ -127,6 +127,7 @@ async function refreshAll() {
   ]);
   state.board = board.picks;
   state.publicBoard = pub.players;
+  invalidatePositionLookup();
 
   // Populate team-pickers if not already done.
   populateTeamPickers(gms.gms.map(g => g.TeamName));
@@ -331,6 +332,21 @@ async function simUntilOverall(overall) {
   toast(`Sim'd to overall #${overall}.`);
 }
 
+// Built lazily by getPositionByPlayerId() and invalidated when the
+// public board changes (handled in reloadSessionAndRender). Avoids
+// O(n*m) scans when rendering many pick cells at once.
+let _positionByPlayerId = null;
+function getPositionByPlayerId() {
+  if (_positionByPlayerId === null) {
+    _positionByPlayerId = {};
+    for (const pl of state.publicBoard) {
+      if (pl.player_id) _positionByPlayerId[pl.player_id] = pl.position;
+    }
+  }
+  return _positionByPlayerId;
+}
+function invalidatePositionLookup() { _positionByPlayerId = null; }
+
 function renderPickCell(p) {
   const onClock = state.session.current_pick && state.session.current_pick.overall === p.overall;
   const isUser = p.current_team === state.userTeam;
@@ -342,9 +358,14 @@ function renderPickCell(p) {
   if (onClock) cls.push('on-clock');
   if (completed) cls.push('completed');
   if (simmable) cls.push('simmable');
-  const playerLine = completed
-    ? `<div class="pick-player">${escapeHtml(p.selected_player_name)}</div>`
-    : `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
+  let playerLine;
+  if (completed) {
+    const pos = getPositionByPlayerId()[p.selected_player_id];
+    const posTag = pos ? `<span class="pick-pos">${escapeHtml(displayPosition(pos))}</span>` : '';
+    playerLine = `<div class="pick-player">${posTag}${escapeHtml(p.selected_player_name)}</div>`;
+  } else {
+    playerLine = `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
+  }
   const trade = p.original_team !== p.current_team
     ? `<div class="text-[9px] uppercase tracking-wider text-accent-500 mt-0.5">via ${escapeHtml(p.original_team)}</div>`
     : '';
@@ -539,6 +560,7 @@ async function reloadSessionAndRender() {
   state.session = s.session;
   state.board = b.picks;
   state.publicBoard = pub.players;
+  invalidatePositionLookup();
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;
     document.getElementById('round-picker').value = String(state.selectedRound);
