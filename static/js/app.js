@@ -355,7 +355,7 @@ function renderPickCell(p) {
   if (simmable) cls.push('simmable');
   const playerLine = completed
     ? `<div class="pick-player">${escapeHtml(p.selected_player_name)}</div>`
-    : `<div class="pick-player placeholder">${onClock ? 'On the clock…' : (simmable ? 'Click to sim here' : 'TBD')}</div>`;
+    : `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
   const trade = p.original_team !== p.current_team
     ? `<div class="text-[9px] uppercase tracking-wider text-accent-500 mt-0.5">via ${escapeHtml(p.original_team)}</div>`
     : '';
