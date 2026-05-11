@@ -10,6 +10,7 @@ The user controls the Steelers; everything else is AI. UI controls map
 
 from __future__ import annotations
 
+import random
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -58,6 +59,19 @@ class DraftSession:
         self.data = data
         self.lock = threading.Lock()
         self._pick_order: list[PickRecord] = self._build_initial_order(data)
+        self._team_boards: dict[str, list[str]] = self._build_team_boards(data)
+        self._weighted_needs: list[dict[str, Any]] = self._build_weighted_needs(data)
+        self._gm_index_map: dict[str, int] = {
+            g["TeamName"]: int(g["TeamIndex"])
+            for g in data.get("gm_info", [])
+            if g.get("TeamName") and g.get("TeamIndex") is not None
+        }
+        self._roster_lookup: dict[tuple[str, str, str, str], dict[str, Any]] = {
+            (p.get("FirstName"), p.get("LastName"),
+             p.get("ContractStatus"), p.get("Position")): p
+            for p in data.get("players", [])
+            if p.get("FirstName") and p.get("LastName")
+        }
         self._current_idx: int = 0
         self.trades: list[TradeRecord] = []
         self._next_trade_id: int = 1
@@ -94,6 +108,36 @@ class DraftSession:
                 year_offset=row.get("YearOffset") or 0,
             ))
         return out
+
+    def _build_weighted_needs(self, data: dict[str, Any]) -> list[dict[str, Any]]:
+        """Pre-compute TrueWeight for every PositionNeeds row once at session start.
+
+        Returns a copy of position_needs with a TrueWeight key added to each
+        row. compute_team_needs uses this value directly so weights stay fixed
+        for the whole draft.
+        """
+        out = []
+        for row in data.get("position_needs", []):
+            default_weight = float(row.get("DefaultWeight") or 0)
+            true_weight = default_weight + random.uniform(
+                -default_weight * 0.25, default_weight * 0.25
+            )
+            out.append({**row, "TrueWeight": round(true_weight, 3)})
+        return out
+
+    def _build_team_boards(self, data: dict[str, Any]) -> dict[str, list[str]]:
+        """Pre-compute each team's noise-adjusted big board once at session start.
+
+        Stores an ordered list of Player_IDs per team. Drafted players are
+        filtered out at serve time; the order itself never changes mid-draft.
+        """
+        all_players = data["big_board"]["players"]
+        boards: dict[str, list[str]] = {}
+        for team_name in data["team_info"].values():
+            gm = next((g for g in data["gm_info"] if g.get("TeamName") == team_name), {})
+            ordered = logic.compute_team_big_board(team_name, all_players, gm)
+            boards[team_name] = [p["Player_ID"] for p in ordered if p.get("Player_ID")]
+        return boards
 
     # -- queries -------------------------------------------------------------
 
@@ -282,6 +326,14 @@ class DraftSession:
         player["Drafted"] = True
         pick.selected_player_id = player.get("Player_ID")
         pick.selected_player_name = f"{player.get('FirstName','')} {player.get('LastName','')}".strip()
+        key = (player.get("FirstName"), player.get("LastName"),
+               player.get("contract_status"), player.get("position"))
+        roster_entry = self._roster_lookup.get(key)
+        if roster_entry is not None:
+            team_index = self._gm_index_map.get(pick.current_team)
+            if team_index is not None:
+                roster_entry["TeamIndex"] = team_index
+                roster_entry["ContractStatus"] = "Signed"
 
     def _advance(self) -> None:
         self._current_idx += 1
@@ -319,9 +371,10 @@ class DraftSession:
             "big_board": self.data["big_board"],
             "players": self.data["players"],
             "gm_info": self.data["gm_info"],
-            "position_needs": self.data["position_needs"],
+            "position_needs": self._weighted_needs,
             "pick_values": self.data["pick_values"],
             "max_per_position": self.data["max_per_position"],
+            "team_boards": self._team_boards,
             "current_pick": _pick_to_dict(self.current_pick()) if self.current_pick() else None,
             "remaining_picks": [_pick_to_dict(p) for p in self._pick_order if p.selected_player_id is None],
         }

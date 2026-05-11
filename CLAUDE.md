@@ -70,19 +70,47 @@ Files/
   re-import rejects the file, the fix is to preserve each row's
   *original* prefix instead of using a constant.
 
-### 3. Logic is stubs
-Every function in `backend/logic.py` is a documented placeholder. The
-docstrings describe the real algorithm (BigBoardSkill variance, GM
-trait influence on trade-up/down propensity, BPA-vs-need mixing,
-Jimmy-Johnson value math, future-pick discounting). The plumbing
-around them (state mutation, API surface, UI rendering, exporters) is
-real and ready to be driven by real logic. **When implementing real
-logic, do not change the function signatures** — `draft_state.py` and
-`app.py` already call them with the documented arguments.
+### 3. Logic — what's real vs. stubs
+Most functions in `backend/logic.py` are documented placeholders. The
+docstrings describe the real algorithm (GM trait influence on
+trade-up/down propensity, BPA-vs-need mixing, Jimmy-Johnson value math,
+future-pick discounting). **When implementing real logic, do not change
+the function signatures** — `draft_state.py` and `app.py` already call
+them with the documented arguments.
 
-Current placeholder behavior:
-- `sim_pick` always picks the top of the team's per-team big board.
+Implemented:
+- `compute_team_big_board` — applies rank-scaled noise (±max(10, rank/2.5)
+  spots, scaled by `BigBoardSkill`) starting from consensus `BigBoardRank`.
+  `Can'tMiss` and `BlueChip` prospects (from `ProspectType` column in
+  BigBoard.xlsx) have their downward swing capped. Called once per team at
+  session start; boards stored on `DraftSession._team_boards` as
+  `{team_name: [Player_ID, ...]}` and never re-randomized mid-draft.
+  Per-team BigBoard columns are not used — team uniqueness comes from noise.
+- `compute_team_needs` — for each PositionNeeds row, finds the Rank-th
+  highest OVR player at that position on the team's roster (default 0 if
+  fewer players than Rank). If that OVR falls in `[Roster OVR Min, Roster
+  OVR Max]`, it is a need. `TrueWeight` is pre-computed once at session
+  start in `DraftSession._weighted_needs` (DefaultWeight ± 25% random) and
+  stays fixed for the draft. Roster updates as players are drafted — see
+  section on roster mutation below.
+
+Still placeholder:
+- `sim_pick` picks the top available player on the team's board (no
+  need/BPA blending yet).
 - All trade functions refuse / return empty.
+
+### 3a. Roster mutation during the draft
+When a player is drafted (`DraftSession._record_selection`), their entry in
+`data["players"]` (Player.xlsx roster) is updated in-place: `TeamIndex` is
+set to the drafting team's GMInfo `TeamIndex`, and `ContractStatus` is set
+to `"Signed"`. This makes `compute_team_needs` reflect the pick on the next
+call without any re-load.
+
+The lookup uses a pre-built dict `DraftSession._roster_lookup` keyed by
+`(FirstName, LastName, ContractStatus, Position)` for O(1) access. Rookies
+in BigBoard get `contract_status` joined from Player.xlsx during `load_all`
+so the key matches. If a player isn't in the roster (no Player.xlsx entry),
+the update is silently skipped.
 
 ### 4. Year folders
 The user picks a year on the setup screen. `data_loader.resolve_year_folder`

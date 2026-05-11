@@ -27,6 +27,16 @@
   transition: all 120ms ease;
 }
 .sim-btn:hover { background: #1a2030; border-color: #38456a; color: #fff; }
+.sim-select {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #252d42;
+  background: #11151f;
+  color: #e2e8f0;
+}
+.sim-select:disabled { opacity: 0.4; cursor: not-allowed; }
 .primary-btn {
   font-size: 12px;
   font-weight: 600;
@@ -116,6 +126,7 @@
 }
 .bb-row:hover { background: #11151f; }
 .bb-row .bb-rank { font-family: 'JetBrains Mono', ui-monospace; font-size: 11px; color: #64748b; text-align: right; }
+.bb-orig-rank { font-size: 10px; color: #475569; margin-left: 1px; }
 .bb-row .bb-logo { width: 28px; height: 28px; object-fit: contain; }
 .bb-row .bb-logo-placeholder {
   width: 28px; height: 28px; border-radius: 4px; background: #11151f;

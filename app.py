@@ -93,22 +93,28 @@ def _public_big_board(session: DraftSession) -> list[dict[str, Any]]:
 
 
 def _team_big_board(session: DraftSession, team_name: str) -> list[dict[str, Any]]:
-    ranked = logic.compute_team_big_board(
-        team_name,
-        session.data["big_board"]["players"],
-        next((g for g in session.data["gm_info"] if g.get("TeamName") == team_name), {}),
-    )
-    return [{
-        "player_id": p.get("Player_ID"),
-        "first_name": p.get("FirstName"),
-        "last_name": p.get("LastName"),
-        "team_rank": p.get("team_rankings", {}).get(team_name),
-        "consensus_rank": p.get("BigBoardRank"),
-        "drafted": bool(p.get("drafted")),
-        "college": p.get("college"),
-        "college_logo": p.get("college_logo"),
-        "position": p.get("position"),
-    } for p in ranked]
+    player_map = {p.get("Player_ID"): p for p in session.data["big_board"]["players"]}
+    board_order = session._team_boards.get(team_name, [])
+    result = []
+    rank = 1
+    for original_rank, pid in enumerate(board_order, 1):
+        p = player_map.get(pid)
+        if p is None or p.get("drafted"):
+            continue
+        result.append({
+            "player_id": pid,
+            "first_name": p.get("FirstName"),
+            "last_name": p.get("LastName"),
+            "team_rank": rank,
+            "original_rank": original_rank,
+            "consensus_rank": p.get("BigBoardRank"),
+            "drafted": False,
+            "college": p.get("college"),
+            "college_logo": p.get("college_logo"),
+            "position": p.get("position"),
+        })
+        rank += 1
+    return result
 
 
 def _team_needs(session: DraftSession, team_name: str) -> list[dict[str, Any]]:
@@ -119,7 +125,7 @@ def _team_needs(session: DraftSession, team_name: str) -> list[dict[str, Any]]:
         team_name,
         int(gm["TeamIndex"]),
         session.data["players"],
-        session.data["position_needs"],
+        session._weighted_needs,
     )
 
 

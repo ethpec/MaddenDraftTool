@@ -134,10 +134,12 @@ function renderAll() {
   renderOnTheClock();
   renderLastPick();
   renderTeamNeeds();
+  renderPreviousSelections();
   renderRoundTitle();
   renderRoundGrid();
   renderPublicBoard();
   renderTeamBoard();
+  renderSimRoundSelect();
 }
 
 function renderOnTheClock() {
@@ -195,12 +197,36 @@ function renderTeamNeeds() {
     el.innerHTML = '<div class="text-xs text-slate-500">No needs computed.</div>';
     return;
   }
-  el.innerHTML = state.needs.slice(0, 8).map(n => `
+  const top = state.needs.slice(0, 8);
+  for (let i = top.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [top[i], top[j]] = [top[j], top[i]];
+  }
+  el.innerHTML = top.map(n => `
     <div class="need-row">
-      <span class="pos">${n.position}</span>
-      <span class="meta">top ${n.top_ovr ?? '—'} · w ${n.weight}</span>
+      <span class="pos">${n.label}</span>
+      <span class="meta">w ${n.weight}</span>
     </div>
   `).join('');
+}
+
+function renderPreviousSelections() {
+  const el = document.getElementById('previous-selections');
+  if (!el) return;
+  const onClockTeam = state.session?.current_pick?.current_team || state.userTeam;
+  const posMap = Object.fromEntries(state.publicBoard.map(p => [p.player_id, p.position]));
+  const picks = state.board.filter(p => p.current_team === onClockTeam && p.selected_player_id);
+  if (!picks.length) {
+    el.innerHTML = '<div class="text-xs text-slate-500">No picks yet.</div>';
+    return;
+  }
+  el.innerHTML = picks.map(p => {
+    const pos = posMap[p.selected_player_id] ?? '—';
+    return `<div class="need-row">
+      <span class="pos">${pos}</span>
+      <span class="meta">${p.selected_player_name} · R${p.round} P${p.pick_in_round}</span>
+    </div>`;
+  }).join('');
 }
 
 function renderRoundTitle() {
@@ -299,7 +325,7 @@ function renderTeamBoard() {
     const sub = [p.position, p.college].filter(Boolean).map(escapeHtml).join(' · ');
     return `
       <div class="${cls.join(' ')}">
-        <div class="bb-rank">${p.team_rank ?? '—'}</div>
+        <div class="bb-rank">${p.team_rank ?? '—'}${p.original_rank != null && p.original_rank !== p.team_rank ? `<span class="bb-orig-rank">(${p.original_rank})</span>` : ''}</div>
         ${logo}
         <div class="bb-info">
           <div class="bb-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
@@ -368,9 +394,29 @@ async function simUntilUser() {
   toast('Sim complete.');
 }
 
+function renderSimRoundSelect() {
+  const sel = document.getElementById('sim-round-select');
+  if (!sel) return;
+  const currentRound = state.session?.current_pick?.round ?? 1;
+  const totalRounds = state.board.length ? Math.max(...state.board.map(p => p.round)) : 7;
+  const prev = parseInt(sel.value, 10);
+  sel.innerHTML = '';
+  for (let r = currentRound + 1; r <= totalRounds; r++) {
+    const opt = document.createElement('option');
+    opt.value = r;
+    opt.textContent = `Round ${r}`;
+    if (r === prev) opt.selected = true;
+    sel.appendChild(opt);
+  }
+  sel.disabled = currentRound >= totalRounds;
+  const btn = sel.nextElementSibling;
+  if (btn) btn.disabled = sel.disabled;
+}
+
 async function promptSimUntilRound() {
-  const r = parseInt(prompt('Sim to start of which round?', '2'), 10);
-  if (!r || r < 1) return;
+  const sel = document.getElementById('sim-round-select');
+  const r = sel ? parseInt(sel.value, 10) : NaN;
+  if (!r || isNaN(r)) return;
   await api.post('/api/pick/sim-until-round', { round: r });
   await reloadSessionAndRender();
 }

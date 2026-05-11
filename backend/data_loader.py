@@ -200,25 +200,23 @@ def _rows_to_dicts(headers: list[str], rows: list[list[Any]]) -> list[dict[str, 
 
 
 def load_big_board(folder: Path) -> dict[str, Any]:
-    """Load BigBoard.xlsx -> draftable rookies plus per-team rankings.
+    """Load BigBoard.xlsx -> draftable rookies.
 
-    BigBoard has a row per rookie and one column per NFL team containing
-    that team's private ranking of the player. We split those out into a
-    nested ``team_rankings`` dict to keep the public board separate from
-    each team's view.
+    Columns used: FirstName, LastName, Player_ID, Drafted, BigBoardRank,
+    PLYR_DRAFTROUND, PLYR_DRAFTPICK, ProspectType. Per-team ranking
+    columns are not needed — team boards are generated via noise in
+    compute_team_big_board using BigBoardRank as the shared baseline.
     """
     headers, rows = _read_sheet(folder / "BigBoard.xlsx")
-    base_cols = {"FirstName", "LastName", "Player_ID", "Drafted",
-                 "BigBoardRank", "PLYR_DRAFTROUND", "PLYR_DRAFTPICK"}
-    team_cols = [h for h in headers if h not in base_cols and h]
+    keep_cols = {"FirstName", "LastName", "Player_ID", "Drafted",
+                 "BigBoardRank", "PLYR_DRAFTROUND", "PLYR_DRAFTPICK", "ProspectType"}
     players: list[dict[str, Any]] = []
     for row in rows:
-        record = {headers[i]: row[i] for i in range(len(headers))}
-        rankings = {team: record.pop(team, None) for team in team_cols}
-        record["team_rankings"] = rankings
+        record = {headers[i]: row[i] for i in range(len(headers))
+                  if headers[i] in keep_cols}
         record["drafted"] = record.get("Drafted") not in (None, "", 0, False)
         players.append(record)
-    return {"players": players, "team_columns": team_cols}
+    return {"players": players}
 
 
 def load_players(folder: Path) -> list[dict[str, Any]]:
@@ -368,6 +366,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             college_name = college_by_id.get(college_id)
             p["college"] = college_name
             p["position"] = match.get("Position")
+            p["contract_status"] = match.get("ContractStatus")
             if college_name:
                 p["college_logo"] = college_logo_map.get(college_name)
 
