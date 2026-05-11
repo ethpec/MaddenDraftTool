@@ -147,14 +147,34 @@ def api_years():
     return jsonify({"years": data_loader.list_available_years()})
 
 
+@app.get("/api/teams")
+def api_teams_for_year():
+    """Return the list of team names for a given year folder.
+
+    Cheap pre-flight call so the setup screen can populate its team
+    dropdown without paying the cost of loading every xlsx. Only reads
+    GMInfo.xlsx + the NFL logo map.
+    """
+    year = request.args.get("year")
+    folder = data_loader.resolve_year_folder(year)
+    gm_info = data_loader.load_gm_info(folder)
+    nfl_logos = data_loader.build_nfl_logo_map()
+    teams = [
+        {"name": g["TeamName"], "logo": nfl_logos.get(g["TeamName"])}
+        for g in gm_info if g.get("TeamName")
+    ]
+    return jsonify({"teams": teams, "folder": folder.name})
+
+
 @app.post("/api/session/start")
 def api_session_start():
-    """Initialize a draft session for a given year."""
+    """Initialize a draft session for a given year and user-controlled team."""
     global _session, _session_year
     body = request.get_json(force=True, silent=True) or {}
     year = body.get("year")
+    user_team = body.get("user_team")
     data = data_loader.load_all(year)
-    _session = DraftSession(data)
+    _session = DraftSession(data, user_team=user_team)
     _session_year = data.get("folder_name") or str(year)
     return jsonify({
         "ok": True,

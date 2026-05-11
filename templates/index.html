@@ -33,10 +33,16 @@
   <div id="setup" class="fixed inset-0 z-40 flex items-center justify-center bg-ink-950">
     <div class="w-full max-w-md rounded-xl border border-ink-700 bg-ink-900 p-8 shadow-2xl">
       <h1 class="text-2xl font-bold tracking-tight">Madden Draft Tool</h1>
-      <p class="mt-1 text-sm text-slate-400">Pick a draft year to load. Falls back to TestFiles if the folder is missing.</p>
-      <div class="mt-6 space-y-3">
-        <label class="block text-xs uppercase tracking-wider text-slate-400">Draft Year</label>
-        <select id="year-select" class="w-full rounded-md border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-slate-100 focus:border-accent-500 focus:outline-none"></select>
+      <p class="mt-1 text-sm text-slate-400">Pick a draft year and which team you'll control.</p>
+      <div class="mt-6 space-y-4">
+        <div class="space-y-1.5">
+          <label class="block text-xs uppercase tracking-wider text-slate-400">Draft Year</label>
+          <select id="year-select" class="w-full rounded-md border border-ink-600 bg-ink-800 px-3 py-2 text-sm text-slate-100 focus:border-accent-500 focus:outline-none"></select>
+        </div>
+        <div class="space-y-1.5">
+          <label class="block text-xs uppercase tracking-wider text-slate-400">Your Team</label>
+          <div id="team-grid" class="team-grid pretty-scroll"></div>
+        </div>
         <button id="start-btn" class="w-full rounded-md bg-accent-500 px-4 py-2 text-sm font-semibold text-ink-950 hover:bg-accent-400 transition disabled:opacity-50">Start Draft</button>
       </div>
       <div id="setup-status" class="mt-3 text-xs text-slate-500 min-h-[1rem]"></div>
@@ -46,19 +52,32 @@
   <!-- Top bar -->
   <header class="sticky top-0 z-30 border-b border-ink-700 bg-ink-900/95 backdrop-blur">
     <div class="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-3">
-      <div class="flex items-center gap-3">
-        <div class="h-8 w-8 rounded bg-accent-500 grid place-items-center text-ink-950 font-bold">M</div>
-        <div>
-          <div class="text-sm font-semibold leading-none">Madden Draft Tool</div>
-          <div class="text-[11px] uppercase tracking-wider text-slate-400" id="header-year"></div>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-3">
+          <div class="h-8 w-8 rounded bg-accent-500 grid place-items-center text-ink-950 font-bold">M</div>
+          <div>
+            <div class="text-sm font-semibold leading-none">Madden Draft Tool</div>
+            <div class="text-[11px] uppercase tracking-wider text-slate-400" id="header-year"></div>
+          </div>
         </div>
+        <button class="select-player-btn" data-action="open-player-picker">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+            <circle cx="12" cy="12" r="9"/>
+            <circle cx="12" cy="12" r="4"/>
+            <line x1="12" y1="2" x2="12" y2="5"/>
+            <line x1="12" y1="19" x2="12" y2="22"/>
+            <line x1="2" y1="12" x2="5" y2="12"/>
+            <line x1="19" y1="12" x2="22" y2="12"/>
+          </svg>
+          <span>Select Player</span>
+        </button>
       </div>
       <div class="flex items-center gap-2">
         <button class="sim-btn" data-action="sim-pick">Sim Pick</button>
         <button class="sim-btn" data-action="sim-until-user">Sim to My Pick</button>
-        <select id="sim-round-select" class="sim-select"></select>
-        <button class="sim-btn" data-action="sim-until-round">Sim to Round</button>
-        <button class="sim-btn" data-action="open-player-picker">Select Player</button>
+        <select id="sim-round-select" class="sim-select" aria-label="Sim to round">
+          <option value="" disabled selected>Sim to Round…</option>
+        </select>
         <button class="sim-btn" data-action="open-board-zoom">Full Draft Order</button>
         <button class="primary-btn" data-action="export">Export</button>
       </div>
@@ -93,7 +112,6 @@
         <div id="ai-pick-actions" class="mt-4 hidden space-y-2">
           <div class="text-[11px] uppercase tracking-wider text-slate-400">User Override</div>
           <button class="action-btn w-full" data-action="trade-up-current">Offer Trade Up to This Pick</button>
-          <button class="action-btn w-full" data-action="force-pick-on-board">Draft for <span id="force-pick-team-name">Team</span></button>
         </div>
       </div>
 

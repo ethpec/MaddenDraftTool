@@ -55,7 +55,7 @@ class TradeRecord:
 class DraftSession:
     """One end-to-end draft, owning all mutable state."""
 
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any], user_team: str | None = None):
         self.data = data
         self.lock = threading.Lock()
         self._pick_order: list[PickRecord] = self._build_initial_order(data)
@@ -75,7 +75,11 @@ class DraftSession:
         self._current_idx: int = 0
         self.trades: list[TradeRecord] = []
         self._next_trade_id: int = 1
-        self.user_team: str = USER_TEAM_NAME
+        # Default to Steelers if no team is specified (legacy behavior).
+        # Validate against GMInfo so we don't accept arbitrary strings.
+        valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
+        chosen = user_team if user_team in valid_teams else USER_TEAM_NAME
+        self.user_team: str = chosen if chosen in valid_teams else (next(iter(valid_teams), USER_TEAM_NAME))
 
     # -- setup ---------------------------------------------------------------
 
@@ -272,16 +276,18 @@ class DraftSession:
                 "stopped_at": _pick_to_dict(self.current_pick()) if self.current_pick() else None}
 
     def sim_until_end(self) -> dict[str, Any]:
-        """Sim every remaining pick until the draft is complete."""
+        """Sim every remaining pick until the draft is complete.
+
+        Unlike sim_until_user / sim_until_round, this does NOT stop on
+        the user's picks — it AI-fills the entire remainder of the
+        draft, including the user team. Used when the user wants to
+        burn through the rest of the draft.
+        """
         results: list[dict[str, Any]] = []
         with self.lock:
             while True:
                 pick = self.current_pick()
                 if pick is None:
-                    break
-                if pick.current_team == self.user_team:
-                    # Don't auto-pick for the user; stop here so they
-                    # can select. (User can force-pick if they want.)
                     break
                 step = self._sim_one_locked()
                 results.append(step)

@@ -59,6 +59,85 @@
 }
 .action-btn:hover { background: #252d42; border-color: #f0b020; color: #f8c043; }
 
+/* Setup screen team picker */
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  background: #0b0e15;
+  border: 1px solid #1a2030;
+  border-radius: 8px;
+}
+.team-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  background: #11151f;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.team-tile:hover {
+  background: #1a2030;
+  border-color: #38456a;
+}
+.team-tile.selected {
+  border-color: #f0b020;
+  background: linear-gradient(180deg, #2a1f08 0%, #1a1410 100%);
+  box-shadow: 0 0 12px rgba(240,176,32,0.25);
+}
+.team-tile img { width: 32px; height: 32px; object-fit: contain; }
+.team-tile .team-tile-name {
+  font-size: 10px;
+  font-weight: 600;
+  color: #cbd5e1;
+  text-align: center;
+  line-height: 1.1;
+}
+.team-tile.selected .team-tile-name { color: #f8c043; }
+
+/* Select Player header pill (primary draft action) */
+.select-player-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f8c043 0%, #f0b020 50%, #c98c0a 100%);
+  color: #06080d;
+  border: 1px solid #f8c043;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.25) inset, 0 0 0 1px rgba(240,176,32,0.25);
+  transition: all 140ms ease;
+  position: relative;
+}
+.select-player-btn::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(248,192,67,0.5), transparent 70%);
+  opacity: 0;
+  z-index: -1;
+  transition: opacity 200ms ease;
+}
+.select-player-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset, 0 4px 16px rgba(240,176,32,0.4);
+}
+.select-player-btn:hover::after { opacity: 1; }
+.select-player-btn:active { transform: translateY(0); }
+.select-player-btn svg { stroke: #06080d; }
+
 /* Trade Hub button: pulsing accent + ringing phone */
 .trade-hub-btn {
   position: relative;
@@ -148,6 +227,19 @@
   animation: pulse 1.6s ease-in-out infinite;
 }
 .pick-cell.completed { background: #11151f; }
+.pick-cell.simmable {
+  cursor: pointer;
+}
+.pick-cell.simmable:hover {
+  border-color: #38456a;
+  background: #11151f;
+  transform: translateY(-1px);
+}
+.pick-cell.simmable:focus {
+  outline: none;
+  border-color: #f0b020;
+  box-shadow: 0 0 0 1px #f0b020 inset;
+}
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 1px #22c55e inset, 0 0 24px rgba(34,197,94,0.15); }
   50%      { box-shadow: 0 0 0 1px #22c55e inset, 0 0 36px rgba(34,197,94,0.30); }
@@ -193,6 +285,9 @@
   border-radius: 6px;
   border-bottom: 1px solid #11151f;
 }
+.bb-row-team {
+  grid-template-columns: 42px 28px 1fr auto auto;
+}
 .bb-row:hover { background: #11151f; }
 .bb-row .bb-rank { font-family: 'JetBrains Mono', ui-monospace; font-size: 11px; color: #64748b; text-align: right; }
 .bb-orig-rank { font-size: 10px; color: #475569; margin-left: 1px; }
@@ -235,6 +330,25 @@
 .need-row:hover { background: #11151f; }
 .need-row .pos { font-weight: 600; color: #e2e8f0; }
 .need-row .meta { font-size: 11px; color: #64748b; font-family: 'JetBrains Mono', ui-monospace; }
+
+/* Previous Selections row (left rail) */
+.ps-row {
+  display: grid;
+  grid-template-columns: 32px 22px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.ps-row:hover { background: #11151f; }
+.ps-pos { font-size: 11px; font-weight: 700; color: #e2e8f0; font-family: 'JetBrains Mono', ui-monospace; }
+.ps-logo { width: 22px; height: 22px; object-fit: contain; }
+.ps-logo-placeholder {
+  width: 22px; height: 22px; border-radius: 3px;
+  background: #11151f; border: 1px dashed #1a2030;
+}
+.ps-meta { font-size: 12px; color: #cbd5e1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ps-rd { font-size: 10px; color: #64748b; font-family: 'JetBrains Mono', ui-monospace; margin-left: 4px; }
 
 .pretty-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
 .pretty-scroll::-webkit-scrollbar-track { background: transparent; }

@@ -24,13 +24,16 @@ const state = {
   needs: [],
   selectedRound: 1,
   lastPick: null,
-  forcePickMode: false,  // when true, public board's Draft buttons force-pick for the AI on the clock
 };
 
 // ---------- bootstrap ----------
 
+const setupState = { selectedTeam: null };
+
 window.addEventListener('DOMContentLoaded', async () => {
   await populateYears();
+  document.getElementById('year-select').addEventListener('change', populateTeamsForYear);
+  await populateTeamsForYear();
   document.getElementById('start-btn').addEventListener('click', startDraft);
   bindHeaderActions();
   bindModal();
@@ -40,7 +43,6 @@ async function populateYears() {
   const res = await api.get('/api/years');
   const sel = document.getElementById('year-select');
   sel.innerHTML = '';
-  // Always include a generic "current" option that maps to TestFiles fallback.
   const options = res.years.length
     ? res.years.map(y => ({ label: y.is_test ? `${y.year} (test data)` : y.year, value: y.year }))
     : [{ label: 'TestFiles (default)', value: 'TestFiles' }];
@@ -52,14 +54,54 @@ async function populateYears() {
   }
 }
 
+async function populateTeamsForYear() {
+  const year = document.getElementById('year-select').value;
+  const grid = document.getElementById('team-grid');
+  grid.innerHTML = '<div class="col-span-4 text-xs text-slate-500 text-center py-2">Loading teams…</div>';
+  try {
+    const res = await api.get('/api/teams?year=' + encodeURIComponent(year));
+    const teams = (res.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    // Pick a sensible default — Steelers if present, else first team.
+    const previous = setupState.selectedTeam;
+    const teamNames = teams.map(t => t.name);
+    if (!previous || !teamNames.includes(previous)) {
+      setupState.selectedTeam = teamNames.includes('Steelers') ? 'Steelers' : teamNames[0] || null;
+    }
+    renderTeamGrid(teams);
+  } catch (e) {
+    grid.innerHTML = '<div class="col-span-4 text-xs text-rose-400 text-center py-2">Failed to load teams.</div>';
+  }
+}
+
+function renderTeamGrid(teams) {
+  const grid = document.getElementById('team-grid');
+  grid.innerHTML = teams.map(t => {
+    const sel = t.name === setupState.selectedTeam ? ' selected' : '';
+    const img = t.logo
+      ? `<img src="${t.logo}" alt="${escapeHtml(t.name)}">`
+      : `<div class="text-slate-500 text-lg font-bold">${escapeHtml(t.name[0] || '?')}</div>`;
+    return `<button type="button" class="team-tile${sel}" data-team="${escapeHtml(t.name)}">${img}<span class="team-tile-name">${escapeHtml(t.name)}</span></button>`;
+  }).join('');
+  grid.querySelectorAll('[data-team]').forEach(tile => {
+    tile.addEventListener('click', () => {
+      setupState.selectedTeam = tile.dataset.team;
+      grid.querySelectorAll('.team-tile').forEach(t => t.classList.toggle('selected', t.dataset.team === setupState.selectedTeam));
+    });
+  });
+}
+
 async function startDraft() {
   const btn = document.getElementById('start-btn');
   const status = document.getElementById('setup-status');
+  if (!setupState.selectedTeam) {
+    status.textContent = 'Pick a team to control.';
+    return;
+  }
   btn.disabled = true;
   status.textContent = 'Loading data… (Player.xlsx is large, this can take 5–10s)';
   const year = document.getElementById('year-select').value;
   try {
-    const res = await api.post('/api/session/start', { year });
+    const res = await api.post('/api/session/start', { year, user_team: setupState.selectedTeam });
     if (!res.ok) throw new Error('Failed to start');
     state.session = res.session;
     state.teams = res.teams;
@@ -238,17 +280,22 @@ function renderPreviousSelections() {
   const el = document.getElementById('previous-selections');
   if (!el) return;
   const onClockTeam = state.session?.current_pick?.current_team || state.userTeam;
-  const posMap = Object.fromEntries(state.publicBoard.map(p => [p.player_id, p.position]));
+  const playerMap = Object.fromEntries(state.publicBoard.map(p => [p.player_id, p]));
   const picks = state.board.filter(p => p.current_team === onClockTeam && p.selected_player_id);
   if (!picks.length) {
     el.innerHTML = '<div class="text-xs text-slate-500">No picks yet.</div>';
     return;
   }
   el.innerHTML = picks.map(p => {
-    const pos = posMap[p.selected_player_id] ?? '—';
-    return `<div class="need-row">
-      <span class="pos">${pos}</span>
-      <span class="meta">${p.selected_player_name} · R${p.round} P${p.pick_in_round}</span>
+    const player = playerMap[p.selected_player_id] || {};
+    const pos = player.position ?? '—';
+    const logo = player.college_logo
+      ? `<img src="${player.college_logo}" alt="${escapeHtml(player.college || '')}" class="ps-logo">`
+      : `<div class="ps-logo-placeholder"></div>`;
+    return `<div class="ps-row">
+      <span class="ps-pos">${escapeHtml(pos)}</span>
+      ${logo}
+      <span class="ps-meta">${escapeHtml(p.selected_player_name)} <span class="ps-rd">R${p.round} P${p.pick_in_round}</span></span>
     </div>`;
   }).join('');
 }
@@ -261,19 +308,54 @@ function renderRoundGrid(target = 'round-grid') {
   const el = document.getElementById(target);
   const picks = state.board.filter(p => p.round === state.selectedRound);
   el.innerHTML = picks.map(p => renderPickCell(p)).join('');
+  bindSimToPickClicks(el);
+}
+
+function bindSimToPickClicks(rootEl) {
+  if (!rootEl) return;
+  rootEl.querySelectorAll('.pick-cell.simmable').forEach(cell => {
+    const trigger = () => promptSimUntilOverall(parseInt(cell.dataset.overall, 10));
+    cell.addEventListener('click', trigger);
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
+}
+
+function promptSimUntilOverall(overall) {
+  if (!overall) return;
+  const c = state.session?.current_pick;
+  if (c && overall <= c.overall) return;
+  const target = state.board.find(p => p.overall === overall);
+  if (!target) return;
+  confirmAction({
+    title: `Sim to R${target.round}.${target.pick_in_round}?`,
+    message: `Sim through every pick before overall #${overall}, stopping with the ${target.current_team} on the clock.`,
+    confirmLabel: 'Sim',
+    onConfirm: () => simUntilOverall(overall),
+  });
+}
+
+async function simUntilOverall(overall) {
+  await api.post('/api/pick/sim-until-overall', { overall });
+  await reloadSessionAndRender();
+  toast(`Sim'd to overall #${overall}.`);
 }
 
 function renderPickCell(p) {
   const onClock = state.session.current_pick && state.session.current_pick.overall === p.overall;
   const isUser = p.current_team === state.userTeam;
   const completed = !!p.selected_player_id;
+  const currentOverall = state.session.current_pick?.overall ?? 0;
+  const simmable = !completed && !onClock && p.overall > currentOverall;
   const cls = ['pick-cell'];
   if (isUser) cls.push('user-pick');
   if (onClock) cls.push('on-clock');
   if (completed) cls.push('completed');
+  if (simmable) cls.push('simmable');
   const playerLine = completed
     ? `<div class="pick-player">${escapeHtml(p.selected_player_name)}</div>`
-    : `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
+    : `<div class="pick-player placeholder">${onClock ? 'On the clock…' : (simmable ? 'Click to sim here' : 'TBD')}</div>`;
   const trade = p.original_team !== p.current_team
     ? `<div class="text-[9px] uppercase tracking-wider text-accent-500 mt-0.5">via ${escapeHtml(p.original_team)}</div>`
     : '';
@@ -281,7 +363,7 @@ function renderPickCell(p) {
     ? `<img src="${p.current_team_logo}" alt="${escapeHtml(p.current_team)}" class="pick-logo">`
     : '';
   return `
-    <div class="${cls.join(' ')}" data-overall="${p.overall}">
+    <div class="${cls.join(' ')}" data-overall="${p.overall}"${simmable ? ' role="button" tabindex="0"' : ''}>
       <div class="pick-num">R${p.round}.${p.pick_in_round} · #${p.overall}</div>
       <div class="pick-header">${logo}<div class="pick-team">${escapeHtml(p.current_team)}</div></div>
       ${playerLine}
@@ -298,8 +380,7 @@ function renderPublicBoard() {
   }
   const q = search.value.trim().toLowerCase();
   const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
-  const isUserPick = state.session.current_pick && state.session.current_pick.current_team === state.userTeam;
-  const draftableEnabled = isUserPick || state.forcePickMode;
+  const draftableEnabled = !!state.session.current_pick;
   const rows = state.publicBoard
     .filter(p => !q || (p.first_name + ' ' + p.last_name + ' ' + (p.college || '')).toLowerCase().includes(q))
     .slice(0, 200)
@@ -329,11 +410,7 @@ function renderPublicBoard() {
   el.querySelectorAll('[data-draft-id]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      if (state.forcePickMode) {
-        forceMakePick(btn.dataset.draftId);
-      } else {
-        makeUserPick(btn.dataset.draftId);
-      }
+      submitPick(btn.dataset.draftId);
     });
   });
 }
@@ -344,16 +421,21 @@ function renderTeamBoard() {
     picker.value = state.selectedTeamForBoard || state.userTeam;
   }
   const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
+  const draftableEnabled = !!state.session.current_pick;
   const rows = state.teamBoard.slice(0, 100).map(p => {
     const isDrafted = drafted.has(p.player_id) || p.drafted;
-    const cls = ['bb-row'];
+    const cls = ['bb-row', 'bb-row-team'];
     if (isDrafted) cls.push('drafted');
+    else if (draftableEnabled) cls.push('draftable');
     const logo = p.college_logo
       ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bb-logo">`
       : `<div class="bb-logo-placeholder"></div>`;
     const sub = [p.position, p.college].filter(Boolean).map(escapeHtml).join(' · ');
+    const action = !isDrafted
+      ? `<button class="bb-action" data-draft-id="${escapeHtml(p.player_id)}">Draft</button>`
+      : '';
     return `
-      <div class="${cls.join(' ')}">
+      <div class="${cls.join(' ')}" data-player-id="${escapeHtml(p.player_id)}">
         <div class="bb-rank">${p.team_rank ?? '—'}${p.original_rank != null && p.original_rank !== p.team_rank ? `<span class="bb-orig-rank">(${p.original_rank})</span>` : ''}</div>
         ${logo}
         <div class="bb-info">
@@ -361,10 +443,18 @@ function renderTeamBoard() {
           ${sub ? `<div class="bb-sub">${sub}</div>` : ''}
         </div>
         <div class="bb-consensus">${renderConsensusDelta(p)}</div>
+        ${action}
       </div>
     `;
   }).join('');
-  document.getElementById('team-board').innerHTML = rows;
+  const el = document.getElementById('team-board');
+  el.innerHTML = rows;
+  el.querySelectorAll('[data-draft-id]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      submitPick(btn.dataset.draftId);
+    });
+  });
 }
 
 function populateTeamPickers(teamNames) {
@@ -397,14 +487,12 @@ async function onAction(action) {
   switch (action) {
     case 'sim-pick': return simPick();
     case 'sim-until-user': return simUntilUser();
-    case 'sim-until-round': return promptSimUntilRound();
     case 'open-board-zoom': return openFullBoard();
     case 'export': return doExport();
     case 'trade-down': return showTradeDownOffers();
     case 'trade-up': return openTradeUpModal();
     case 'trade-hub': return openTradeHub();
     case 'trade-up-current': return openTradeUpModal({ targetCurrent: true });
-    case 'force-pick-on-board': return enterForcePickMode();
     case 'open-player-picker': return openPlayerPicker();
   }
 }
@@ -432,68 +520,69 @@ function renderSimRoundSelect() {
   if (!sel) return;
   const currentRound = state.session?.current_pick?.round ?? 1;
   const totalRounds = state.board.length ? Math.max(...state.board.map(p => p.round)) : 7;
-  const prev = sel.value;
-  sel.innerHTML = '';
+  sel.innerHTML = '<option value="" disabled selected>Sim to Round…</option>';
   for (let r = currentRound + 1; r <= totalRounds; r++) {
     const opt = document.createElement('option');
     opt.value = String(r);
     opt.textContent = `Round ${r}`;
-    if (String(r) === prev) opt.selected = true;
     sel.appendChild(opt);
   }
-  // Always add an "End of Draft" sentinel so the user can complete the draft.
   if (!state.session?.is_complete) {
     const endOpt = document.createElement('option');
     endOpt.value = 'end';
     endOpt.textContent = 'End of Draft';
-    if (prev === 'end') endOpt.selected = true;
     sel.appendChild(endOpt);
   }
-  sel.disabled = sel.options.length === 0;
-  const btn = sel.nextElementSibling;
-  if (btn) btn.disabled = sel.disabled;
+  sel.disabled = sel.options.length <= 1;
+  if (!sel.dataset.bound) {
+    sel.addEventListener('change', simUntilRoundFromSelect);
+    sel.dataset.bound = '1';
+  }
 }
 
-async function promptSimUntilRound() {
+function simUntilRoundFromSelect() {
   const sel = document.getElementById('sim-round-select');
   if (!sel) return;
   const v = sel.value;
+  // Always reset to placeholder so re-picking the same option fires again.
+  sel.value = '';
+  if (!v) return;
   if (v === 'end') {
-    await api.post('/api/pick/sim-until-end');
-  } else {
-    const r = parseInt(v, 10);
-    if (!r || isNaN(r)) return;
-    await api.post('/api/pick/sim-until-round', { round: r });
+    confirmAction({
+      title: 'Sim to End of Draft?',
+      message: 'AI will fill every remaining pick — including your team. This cannot be undone in this session.',
+      confirmLabel: 'Sim to End',
+      onConfirm: async () => {
+        await api.post('/api/pick/sim-until-end');
+        await reloadSessionAndRender();
+        toast('Draft complete.');
+      },
+    });
+    return;
   }
-  await reloadSessionAndRender();
+  const r = parseInt(v, 10);
+  if (!r || isNaN(r)) return;
+  confirmAction({
+    title: `Sim to Round ${r}?`,
+    message: `Sim every pick until the first pick of Round ${r} is on the clock.`,
+    confirmLabel: `Sim to R${r}`,
+    onConfirm: async () => {
+      await api.post('/api/pick/sim-until-round', { round: r });
+      await reloadSessionAndRender();
+    },
+  });
 }
 
-async function makeUserPick(playerId) {
-  const c = state.session.current_pick;
-  if (!c || c.current_team !== state.userTeam) return toast("Not your pick.");
-  const res = await api.post('/api/pick/make', { player_id: playerId });
-  if (!res.ok) return toast('Pick failed: ' + res.error);
-  await reloadSessionAndRender();
-  toast('Pick submitted.');
-}
-
-function enterForcePickMode() {
-  const c = state.session.current_pick;
-  if (!c) return toast('Draft complete.');
-  if (c.current_team === state.userTeam) return toast('Use the public board to draft your own pick.');
-  state.forcePickMode = true;
-  renderPublicBoard();
-  toast(`Force-pick mode: click a player to draft for the ${c.current_team}.`);
-}
-
-async function forceMakePick(playerId) {
+async function submitPick(playerId) {
+  // Universal pick handler: drafts the player for whichever team is on
+  // the clock. The user controls every team's pick button — there's no
+  // separate "force pick" mode anymore.
   const c = state.session.current_pick;
   if (!c) return toast('Draft complete.');
   const res = await api.post('/api/pick/force-make', { player_id: playerId });
   if (!res.ok) return toast('Pick failed: ' + res.error);
-  state.forcePickMode = false;
   await reloadSessionAndRender();
-  toast(`Drafted for ${res.drafted_for || c.current_team}.`);
+  toast(`${res.drafted_for || c.current_team} drafted.`);
 }
 
 async function reloadSessionAndRender() {
@@ -609,7 +698,7 @@ async function openTradeHub() {
         ${offersBlock}
       </div>
       <div class="border-t border-ink-700 pt-4">
-        <div class="card-eyebrow mb-2">Offer Trade Up</div>
+        <div class="card-eyebrow mb-2">Offer Manual Trade</div>
         <div class="space-y-2">
           <div>
             <label class="text-xs uppercase text-slate-400">Target Pick</label>
@@ -676,15 +765,12 @@ function openPlayerPicker() {
   pickerState.position = 'ALL';
   const c = state.session?.current_pick;
   const onClock = c?.current_team;
-  const isUserPick = onClock === state.userTeam;
-  const actionable = isUserPick || state.forcePickMode;
+  const actionable = !!c;  // any team on the clock is draftable
   const headerLogo = c?.current_team_logo
     ? `<img src="${c.current_team_logo}" alt="${escapeHtml(onClock)}" class="h-10 w-10 object-contain">`
     : '';
   const subtitle = c
-    ? (actionable
-        ? `Drafting for ${onClock} · R${c.round}.${c.pick_in_round} (overall ${c.overall})`
-        : `${onClock} is on the clock · viewing only`)
+    ? `Drafting for ${onClock} · R${c.round}.${c.pick_in_round} (overall ${c.overall})`
     : 'Draft is complete — viewing only';
   // Build position filter from distinct positions in publicBoard.
   const positions = Array.from(new Set(state.publicBoard.map(p => p.position).filter(Boolean))).sort();
@@ -723,8 +809,7 @@ function openPlayerPicker() {
 
 function renderPlayerPickerList() {
   const c = state.session?.current_pick;
-  const isUserPick = c?.current_team === state.userTeam;
-  const actionable = isUserPick || state.forcePickMode;
+  const actionable = !!c;
   const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
   const rows = state.publicBoard
     .filter(p => !drafted.has(p.player_id) && !p.drafted)
@@ -757,14 +842,7 @@ function renderPlayerPickerList() {
   listEl.innerHTML = html || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>';
   listEl.querySelectorAll('[data-pp-draft]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const pid = btn.dataset.ppDraft;
-      if (isUserPick) {
-        await makeUserPick(pid);
-      } else if (state.forcePickMode) {
-        await forceMakePick(pid);
-      } else {
-        return;
-      }
+      await submitPick(btn.dataset.ppDraft);
       closeModal();
     });
   });
@@ -774,6 +852,7 @@ function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${state.board.map(renderPickCell).join('')}</div>`;
   document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
+  bindSimToPickClicks(document.getElementById('modal-body'));
 }
 
 // ---------- modal & toast ----------
@@ -790,6 +869,27 @@ function openModal(title, subtitle, bodyHtml) {
   document.getElementById('modal-subtitle').textContent = subtitle || '';
   document.getElementById('modal-body').innerHTML = bodyHtml;
   document.getElementById('modal-root').classList.remove('hidden');
+}
+
+function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm }) {
+  // Lightweight confirm dialog reusing the modal root. Awaits a user
+  // click on Confirm before calling onConfirm; Cancel just closes.
+  const safeMessage = typeof message === 'string'
+    ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
+    : message;  // allow trusted HTML for richer body
+  const body = `
+    ${safeMessage}
+    <div class="mt-4 flex items-center justify-end gap-2">
+      <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
+      <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
+    </div>
+  `;
+  openModal(title, '', body);
+  document.getElementById('confirm-cancel').addEventListener('click', closeModal);
+  document.getElementById('confirm-go').addEventListener('click', async () => {
+    closeModal();
+    if (onConfirm) await onConfirm();
+  });
 }
 
 function closeModal() {
@@ -810,14 +910,16 @@ function toast(msg) {
 // ---------- utils ----------
 
 function renderConsensusDelta(p) {
-  // Show "#consensus (±delta)" colored by team's opinion vs consensus.
-  // Positive delta = team ranks higher than consensus (likes him more) -> green.
-  // Negative delta = team ranks lower than consensus -> red.
+  // Show "#consensus (±delta)" using the team's ORIGINAL (session-start)
+  // ranking — fixed for the whole draft, not recomputed as players are
+  // drafted. delta = consensus_rank - original_rank: positive means the
+  // team had him higher on their board than consensus (green/likes him),
+  // negative means lower (red/concerns).
   const consensus = p.consensus_rank;
-  const team = p.team_rank;
+  const originalTeam = p.original_rank;
   if (consensus == null) return '<span class="text-slate-500">—</span>';
-  if (team == null) return `<span class="text-slate-500">#${consensus}</span>`;
-  const delta = consensus - team;
+  if (originalTeam == null) return `<span class="text-slate-500">#${consensus}</span>`;
+  const delta = consensus - originalTeam;
   if (delta === 0) {
     return `<span class="text-slate-500">#${consensus} <span class="text-slate-600">(=)</span></span>`;
   }
