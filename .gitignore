@@ -1,5 +1,6 @@
 .venv/
 __pycache__/
 Files/*/Exports/
+Files/*/.cache/
 *.pyc
 .DS_Store

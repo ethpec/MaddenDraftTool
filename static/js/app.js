@@ -448,18 +448,25 @@ async function reloadSessionAndRender() {
 }
 
 async function doExport() {
-  const res = await api.post('/api/export', {});
-  if (!res.ok) return toast('Export failed.');
-  // Trigger downloads for all three.
-  ['outcome', 'picks', 'trades'].forEach(kind => {
+  try {
+    const res = await fetch('/api/export/download/zip');
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      return toast('Export failed: ' + (body.message || body.error || res.status));
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = '/api/export/download/' + kind;
-    a.download = '';
+    a.href = url;
+    a.download = 'DraftExport.zip';
     document.body.appendChild(a);
     a.click();
     a.remove();
-  });
-  toast('Exported to ' + res.paths.folder);
+    URL.revokeObjectURL(url);
+    toast('Export downloaded.');
+  } catch (e) {
+    toast('Export failed: ' + e.message);
+  }
 }
 
 async function showTradeDownOffers() {
@@ -538,6 +545,7 @@ function renderOffersTable(offers) {
 
 function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${state.board.map(renderPickCell).join('')}</div>`;
+  document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
 }
 
@@ -559,6 +567,7 @@ function openModal(title, subtitle, bodyHtml) {
 
 function closeModal() {
   document.getElementById('modal-root').classList.add('hidden');
+  document.getElementById('modal-root').classList.remove('full-board-modal');
 }
 
 let toastTimer = null;

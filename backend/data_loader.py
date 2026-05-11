@@ -11,8 +11,10 @@ usable while only test data is present.
 
 from __future__ import annotations
 
+import copy
 import json
 import re
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,11 @@ FILES_ROOT = REPO_ROOT / "Files"
 FALLBACK_FOLDER_NAME = "TestFiles"
 NFL_LOGOS_DIR = REPO_ROOT / "static" / "nfl_logos"
 COLLEGE_LOGOS_DIR = REPO_ROOT / "static" / "college_logos"
+DATA_CACHE_DIRNAME = ".cache"
+PLAYER_CACHE_VERSION = 1
+LOAD_ALL_CACHE_VERSION = 1
+_LOAD_ALL_CACHE_LOCK = threading.Lock()
+_LOAD_ALL_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 
 
 # Columns from Player.xlsx we actually care about for needs / roster OVR.
@@ -199,6 +206,41 @@ def _rows_to_dicts(headers: list[str], rows: list[list[Any]]) -> list[dict[str, 
     ]
 
 
+def _file_signature(path: Path) -> dict[str, Any]:
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "mtime_ns": stat.st_mtime_ns,
+        "size": stat.st_size,
+    }
+
+
+def _folder_signature(folder: Path) -> tuple[Any, ...]:
+    """Return a cheap invalidation key for source data + logo assets."""
+    source_names = (
+        "BigBoard.xlsx",
+        "Player.xlsx",
+        "DraftPicks.xlsx",
+        "GMInfo.xlsx",
+        "PositionNeeds.xlsx",
+        "DraftPickValue.xlsx",
+        "DraftMaxPerPosition.xlsx",
+        "all_colleges.json",
+    )
+    parts: list[Any] = [LOAD_ALL_CACHE_VERSION]
+    for name in source_names:
+        path = folder / name
+        parts.append((name, path.stat().st_mtime_ns, path.stat().st_size) if path.is_file() else (name, None, None))
+    for logo_dir in (NFL_LOGOS_DIR, COLLEGE_LOGOS_DIR):
+        logo_parts = []
+        if logo_dir.is_dir():
+            for path in sorted(logo_dir.glob("*.png")):
+                stat = path.stat()
+                logo_parts.append((path.name, stat.st_mtime_ns, stat.st_size))
+        parts.append((str(logo_dir), tuple(logo_parts)))
+    return tuple(parts)
+
+
 def load_big_board(folder: Path) -> dict[str, Any]:
     """Load BigBoard.xlsx -> draftable rookies.
 
@@ -226,12 +268,36 @@ def load_players(folder: Path) -> list[dict[str, Any]]:
     the draft tool. We keep just the columns useful for computing team
     needs and current roster OVR.
     """
-    headers, rows = _read_sheet(folder / "Player.xlsx")
+    path = folder / "Player.xlsx"
+    cache_path = folder / DATA_CACHE_DIRNAME / "Player.projected.json"
+    metadata = {
+        "version": PLAYER_CACHE_VERSION,
+        "source": _file_signature(path),
+        "columns": list(PLAYER_COLUMNS_OF_INTEREST),
+    }
+    if cache_path.is_file():
+        try:
+            with cache_path.open() as f:
+                cached = json.load(f)
+            if cached.get("metadata") == metadata:
+                return cached.get("players", [])
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    headers, rows = _read_sheet(path)
     keep_idx = {h: headers.index(h) for h in PLAYER_COLUMNS_OF_INTEREST if h in headers}
     out: list[dict[str, Any]] = []
     for row in rows:
         rec = {col: row[idx] for col, idx in keep_idx.items() if idx < len(row)}
         out.append(rec)
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+        with tmp_path.open("w") as f:
+            json.dump({"metadata": metadata, "players": out}, f)
+        tmp_path.replace(cache_path)
+    except OSError:
+        pass
     return out
 
 
@@ -342,6 +408,12 @@ def load_all(year: str | int | None) -> dict[str, Any]:
     itself.
     """
     folder = resolve_year_folder(year)
+    cache_key = (str(year) if year is not None else None, str(folder), _folder_signature(folder))
+    with _LOAD_ALL_CACHE_LOCK:
+        cached = _LOAD_ALL_CACHE.get(cache_key)
+    if cached is not None:
+        return copy.deepcopy(cached)
+
     big_board = load_big_board(folder)
     players = load_players(folder)
     colleges = load_colleges(folder)
@@ -370,7 +442,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             if college_name:
                 p["college_logo"] = college_logo_map.get(college_name)
 
-    return {
+    loaded = {
         "year": str(year) if year is not None else None,
         "folder": str(folder),
         "folder_name": folder.name,
@@ -386,3 +458,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
         "college_logo_map": college_logo_map,
         "nfl_logo_map": nfl_logo_map,
     }
+    with _LOAD_ALL_CACHE_LOCK:
+        _LOAD_ALL_CACHE.clear()
+        _LOAD_ALL_CACHE[cache_key] = loaded
+    return copy.deepcopy(loaded)

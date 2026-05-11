@@ -299,20 +299,23 @@ def api_export():
     sess, err = _require_session()
     if err:
         return err
-    paths = exporter.export_session(sess, _session_year)
+    paths = exporter.export_session_zip(sess, _session_year)
     return jsonify({"ok": True, "paths": paths})
 
 
 @app.get("/api/export/download/<kind>")
 def api_export_download(kind: str):
-    """Download an exported file by kind=outcome|picks|trades.
+    """Download an exported file by kind=outcome|picks|trades|zip.
 
     Forces a fresh export each call so the file is up to date.
     """
     sess, err = _require_session()
     if err:
         return err
-    paths = exporter.export_session(sess, _session_year)
+    if kind == "zip":
+        paths = exporter.export_session_zip(sess, _session_year)
+    else:
+        paths = exporter.export_session(sess, _session_year)
     target = paths.get(kind)
     if not target:
         return jsonify({"error": "unknown_kind"}), 400
