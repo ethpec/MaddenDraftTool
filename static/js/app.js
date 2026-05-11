@@ -24,6 +24,7 @@ const state = {
   needs: [],
   selectedRound: 1,
   lastPick: null,
+  forcePickMode: false,  // when true, public board's Draft buttons force-pick for the AI on the clock
 };
 
 // ---------- bootstrap ----------
@@ -148,11 +149,14 @@ function renderOnTheClock() {
   const metaEl = document.getElementById('on-the-clock-meta');
   const logoEl = document.getElementById('on-the-clock-logo');
   const userActions = document.getElementById('user-pick-actions');
+  const aiActions = document.getElementById('ai-pick-actions');
+  const forceTeamName = document.getElementById('force-pick-team-name');
   if (!c) {
     teamEl.textContent = 'Draft Complete';
     metaEl.textContent = `${state.session.picks_made} of ${state.session.total_picks} picks`;
     if (logoEl) logoEl.innerHTML = '';
     userActions.classList.add('hidden');
+    if (aiActions) aiActions.classList.add('hidden');
     return;
   }
   teamEl.textContent = c.current_team;
@@ -165,8 +169,28 @@ function renderOnTheClock() {
   }
   if (c.current_team === state.userTeam) {
     userActions.classList.remove('hidden');
+    if (aiActions) aiActions.classList.add('hidden');
+    updateTradeHubBadge();
   } else {
     userActions.classList.add('hidden');
+    if (aiActions) {
+      aiActions.classList.remove('hidden');
+      if (forceTeamName) forceTeamName.textContent = c.current_team;
+    }
+  }
+}
+
+async function updateTradeHubBadge() {
+  // Show offer count next to the Trade Hub button when user is on clock.
+  const badge = document.getElementById('trade-hub-badge');
+  if (!badge) return;
+  try {
+    const res = await api.get('/api/trade/down-offers');
+    const n = (res.ok && res.offers) ? res.offers.length : 0;
+    badge.textContent = String(n);
+    badge.classList.toggle('hidden', n === 0);
+  } catch (e) {
+    badge.classList.add('hidden');
   }
 }
 
@@ -275,6 +299,7 @@ function renderPublicBoard() {
   const q = search.value.trim().toLowerCase();
   const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
   const isUserPick = state.session.current_pick && state.session.current_pick.current_team === state.userTeam;
+  const draftableEnabled = isUserPick || state.forcePickMode;
   const rows = state.publicBoard
     .filter(p => !q || (p.first_name + ' ' + p.last_name + ' ' + (p.college || '')).toLowerCase().includes(q))
     .slice(0, 200)
@@ -282,7 +307,7 @@ function renderPublicBoard() {
       const isDrafted = drafted.has(p.player_id) || p.drafted;
       const cls = ['bb-row'];
       if (isDrafted) cls.push('drafted');
-      else if (isUserPick) cls.push('draftable');
+      else if (draftableEnabled) cls.push('draftable');
       const logo = p.college_logo
         ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bb-logo">`
         : `<div class="bb-logo-placeholder"></div>`;
@@ -304,7 +329,11 @@ function renderPublicBoard() {
   el.querySelectorAll('[data-draft-id]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      makeUserPick(btn.dataset.draftId);
+      if (state.forcePickMode) {
+        forceMakePick(btn.dataset.draftId);
+      } else {
+        makeUserPick(btn.dataset.draftId);
+      }
     });
   });
 }
@@ -373,6 +402,9 @@ async function onAction(action) {
     case 'export': return doExport();
     case 'trade-down': return showTradeDownOffers();
     case 'trade-up': return openTradeUpModal();
+    case 'trade-hub': return openTradeHub();
+    case 'trade-up-current': return openTradeUpModal({ targetCurrent: true });
+    case 'force-pick-on-board': return enterForcePickMode();
   }
 }
 
@@ -430,6 +462,25 @@ async function makeUserPick(playerId) {
   toast('Pick submitted.');
 }
 
+function enterForcePickMode() {
+  const c = state.session.current_pick;
+  if (!c) return toast('Draft complete.');
+  if (c.current_team === state.userTeam) return toast('Use the public board to draft your own pick.');
+  state.forcePickMode = true;
+  renderPublicBoard();
+  toast(`Force-pick mode: click a player to draft for the ${c.current_team}.`);
+}
+
+async function forceMakePick(playerId) {
+  const c = state.session.current_pick;
+  if (!c) return toast('Draft complete.');
+  const res = await api.post('/api/pick/force-make', { player_id: playerId });
+  if (!res.ok) return toast('Pick failed: ' + res.error);
+  state.forcePickMode = false;
+  await reloadSessionAndRender();
+  toast(`Drafted for ${res.drafted_for || c.current_team}.`);
+}
+
 async function reloadSessionAndRender() {
   const [s, b, pub] = await Promise.all([
     api.get('/api/session'),
@@ -478,10 +529,55 @@ async function showTradeDownOffers() {
         : '<div class="text-sm text-slate-400">No teams are interested in trading up right now. (Trade logic is a placeholder — once implemented this will populate.)</div>'));
 }
 
-function openTradeUpModal() {
+function openTradeUpModal(opts = {}) {
   const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
   const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id)
     .slice(0, 64);
+  const preselect = opts.targetCurrent && state.session.current_pick
+    ? state.session.current_pick.overall : null;
+  const targetOpts = targets.map(p => {
+    const sel = preselect === p.overall ? ' selected' : '';
+    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
+  }).join('');
+  const offerCheckboxes = myUnpickedPicks.map(p => `
+    <label class="flex items-center gap-2 text-sm py-1">
+      <input type="checkbox" class="trade-up-offer" value="${p.overall}">
+      <span>R${p.round}.${p.pick_in_round} (overall ${p.overall})</span>
+    </label>
+  `).join('');
+  const subtitle = opts.targetCurrent && state.session.current_pick
+    ? `Trade up to the ${state.session.current_pick.current_team}'s current pick`
+    : 'Send picks to move up the board';
+  const body = `
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs uppercase text-slate-400">Target Pick</label>
+        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts}</select>
+      </div>
+      <div>
+        <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
+        <div class="mt-1 max-h-48 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
+      </div>
+      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
+      <div id="trade-up-result" class="text-sm text-slate-400"></div>
+    </div>
+  `;
+  openModal('Offer Trade Up', subtitle, body);
+  document.getElementById('submit-trade-up').addEventListener('click', submitTradeUp);
+}
+
+async function openTradeHub() {
+  // Combined trade hub modal — incoming trade-up offers on top, manual
+  // trade-up offer form on the bottom. Only meaningful when user is on
+  // the clock; for AI-on-clock the header button is hidden and the AI
+  // override section has a dedicated "Trade Up to This Pick" button.
+  const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
+  const offers = (res.ok && res.offers) || [];
+  const offersBlock = offers.length
+    ? renderOffersTable(offers)
+    : '<div class="text-sm text-slate-400">No incoming trade-up offers right now. <span class="text-slate-500">(AI trade logic is still a placeholder.)</span></div>';
+  const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
+  const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id).slice(0, 64);
   const targetOpts = targets.map(p =>
     `<option value="${p.overall}">R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`
   ).join('');
@@ -492,21 +588,31 @@ function openTradeUpModal() {
     </label>
   `).join('');
   const body = `
-    <div class="space-y-3">
+    <div class="space-y-5">
       <div>
-        <label class="text-xs uppercase text-slate-400">Target Pick</label>
-        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts}</select>
+        <div class="card-eyebrow mb-2">Incoming Offers</div>
+        ${offersBlock}
       </div>
-      <div>
-        <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
-        <div class="mt-1 max-h-48 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes}</div>
+      <div class="border-t border-ink-700 pt-4">
+        <div class="card-eyebrow mb-2">Offer Trade Up</div>
+        <div class="space-y-2">
+          <div>
+            <label class="text-xs uppercase text-slate-400">Target Pick</label>
+            <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts}</select>
+          </div>
+          <div>
+            <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
+            <div class="mt-1 max-h-40 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
+          </div>
+          <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
+          <div id="trade-up-result" class="text-sm text-slate-400"></div>
+        </div>
       </div>
-      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
-      <div id="trade-up-result" class="text-sm text-slate-400"></div>
     </div>
   `;
-  openModal('Offer Trade Up', 'Send picks to move up the board', body);
-  document.getElementById('submit-trade-up').addEventListener('click', submitTradeUp);
+  openModal('Trade Hub', 'Review incoming offers or propose a trade up', body);
+  const submitBtn = document.getElementById('submit-trade-up');
+  if (submitBtn) submitBtn.addEventListener('click', submitTradeUp);
 }
 
 async function submitTradeUp() {

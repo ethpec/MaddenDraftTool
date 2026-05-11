@@ -59,6 +59,75 @@
 }
 .action-btn:hover { background: #252d42; border-color: #f0b020; color: #f8c043; }
 
+/* Trade Hub button: pulsing accent + ringing phone */
+.trade-hub-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid #f0b020;
+  background: linear-gradient(180deg, #2a1f08 0%, #1a1410 100%);
+  color: #f8c043;
+  transition: all 120ms ease;
+  overflow: hidden;
+}
+.trade-hub-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at center, rgba(240,176,32,0.18), transparent 70%);
+  opacity: 0;
+  animation: hub-pulse 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+.trade-hub-btn:hover {
+  background: linear-gradient(180deg, #3a2a0c 0%, #20180a 100%);
+  border-color: #f8c043;
+  color: #fbd874;
+  box-shadow: 0 0 20px rgba(240,176,32,0.25);
+}
+.trade-hub-btn .trade-hub-phone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  animation: phone-ring 1.4s ease-in-out infinite;
+  transform-origin: 50% 80%;
+}
+.trade-hub-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', ui-monospace;
+  box-shadow: 0 0 0 2px #1a1410, 0 0 8px rgba(239,68,68,0.6);
+}
+@keyframes hub-pulse {
+  0%, 100% { opacity: 0; }
+  50%      { opacity: 1; }
+}
+@keyframes phone-ring {
+  0%, 60%, 100% { transform: rotate(0deg); }
+  5%   { transform: rotate(-22deg); }
+  10%  { transform: rotate(18deg); }
+  15%  { transform: rotate(-16deg); }
+  20%  { transform: rotate(12deg); }
+  25%  { transform: rotate(-8deg); }
+  30%  { transform: rotate(4deg); }
+  35%  { transform: rotate(0deg); }
+}
+
 /* Round grid pick cards */
 .pick-cell {
   border: 1px solid #1a2030;

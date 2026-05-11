@@ -79,8 +79,20 @@
         </div>
         <div id="user-pick-actions" class="mt-4 hidden space-y-2">
           <div class="text-[11px] uppercase tracking-wider text-accent-400">Your Selection</div>
-          <button class="action-btn w-full" data-action="trade-down">Check Trade-Down Offers</button>
-          <button class="action-btn w-full" data-action="trade-up">Offer Trade Up</button>
+          <button class="trade-hub-btn w-full" data-action="trade-hub">
+            <span class="trade-hub-phone" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.37 1.9.72 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.35 1.85.59 2.81.72A2 2 0 0 1 22 16.92z"/>
+              </svg>
+            </span>
+            <span>Trade Hub</span>
+            <span id="trade-hub-badge" class="trade-hub-badge hidden">0</span>
+          </button>
+        </div>
+        <div id="ai-pick-actions" class="mt-4 hidden space-y-2">
+          <div class="text-[11px] uppercase tracking-wider text-slate-400">User Override</div>
+          <button class="action-btn w-full" data-action="trade-up-current">Offer Trade Up to This Pick</button>
+          <button class="action-btn w-full" data-action="force-pick-on-board">Draft for <span id="force-pick-team-name">Team</span></button>
         </div>
       </div>
 

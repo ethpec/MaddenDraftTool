@@ -235,6 +235,26 @@ def api_pick_make():
     return jsonify(result), code
 
 
+@app.post("/api/pick/force-make")
+def api_pick_force_make():
+    """Force a pick for whichever team is currently on the clock.
+
+    Used by the user to override an AI team's selection. The body is the
+    same as /api/pick/make ({player_id}); the difference is the backend
+    doesn't restrict to the user's team.
+    """
+    sess, err = _require_session()
+    if err:
+        return err
+    body = request.get_json(force=True, silent=True) or {}
+    pid = body.get("player_id")
+    if not pid:
+        return jsonify({"ok": False, "error": "missing_player_id"}), 400
+    result = sess.force_make_pick(pid)
+    code = 200 if result.get("ok") else 400
+    return jsonify(result), code
+
+
 @app.post("/api/pick/sim")
 def api_pick_sim():
     sess, err = _require_session()

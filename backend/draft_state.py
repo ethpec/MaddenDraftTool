@@ -196,6 +196,29 @@ class DraftSession:
             self._advance()
             return {"ok": True, "pick": _pick_to_dict(pick)}
 
+    def force_make_pick(self, player_id: str) -> dict[str, Any]:
+        """Manually select ``player_id`` for whichever team is on the clock.
+
+        Used when the user wants to override AI for another team (drafting
+        on someone else's behalf). Bypasses the user-team restriction in
+        ``make_user_pick`` but otherwise behaves identically: same selection
+        recording, same roster mutation, same advance. Returns the team the
+        pick was attributed to so the UI can label the toast.
+        """
+        with self.lock:
+            pick = self.current_pick()
+            if pick is None:
+                return {"ok": False, "error": "draft_complete"}
+            player = self._find_player(player_id)
+            if player is None:
+                return {"ok": False, "error": "unknown_player"}
+            if player.get("drafted"):
+                return {"ok": False, "error": "already_drafted"}
+            self._record_selection(pick, player)
+            self._advance()
+            return {"ok": True, "pick": _pick_to_dict(pick),
+                    "drafted_for": pick.current_team}
+
     def sim_one_pick(self) -> dict[str, Any]:
         """Run logic.sim_pick for the team currently on the clock.
 
