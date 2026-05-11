@@ -53,36 +53,64 @@ Files/
   (`PLAYER_COLUMNS_OF_INTEREST` in `data_loader.py`); loading all 271
   is slow and pointless. Add columns to that tuple as logic needs them.
 
-### 2. Two team-ID spaces (foot-gun)
-- `GMInfo.xlsx` uses TeamIndex `[0..31]`.
-- `DraftPicks.xlsx` stores team identity as a 32-char binary string;
-  the **lowest 8 bits** are the TeamIndex byte, but the values used
-  there are `[0..7, 10..17, 19, 21..23, 25..36]` — five GM teams
-  (Chiefs=8, Colts=9, Lions=18, Panthers=20, Ravens=24) are missing
-  from that range and instead appear at indices 32..36.
-- `DraftSession._build_team_name_map` patches this with a heuristic
-  that aligns the two sorted "leftover" lists. **If you ever get a
-  documented mapping, replace that heuristic.** Until then, expect the
-  five wrap-around teams to display correctly only because of the
-  alignment trick.
+### 2. Team ID resolution
+- `DraftPicks.xlsx` stores team identity as a 32-char binary string.
+  The **lowest 8 bits** decode to a `TeamNumber` (0–36) that maps
+  directly to `TeamInfo.xlsx` (`TeamNumber` column).
+- `TeamInfo.xlsx` is the authoritative lookup: `TeamNumber → TeamName`.
+  Rows with `TeamIndex >= 32` are non-team entries (AFC, NFC, Free
+  Agents, Hall Of Fame, NFL Greats) and are filtered out in
+  `data_loader.load_team_info`.
+- `GMInfo.xlsx` uses its own `TeamIndex` (`[0..31]`) for GM traits —
+  **don't** use it for pick-order team resolution.
+- `DraftSession._build_team_name_map` is now a simple passthrough of
+  the `team_info` dict loaded by `data_loader`.
 - `exporter._encode_team_id` reuses a fixed 24-bit prefix observed in
   the sample data when writing CurrentTeam back out. If Madden
   re-import rejects the file, the fix is to preserve each row's
   *original* prefix instead of using a constant.
 
-### 3. Logic is stubs
-Every function in `backend/logic.py` is a documented placeholder. The
-docstrings describe the real algorithm (BigBoardSkill variance, GM
-trait influence on trade-up/down propensity, BPA-vs-need mixing,
-Jimmy-Johnson value math, future-pick discounting). The plumbing
-around them (state mutation, API surface, UI rendering, exporters) is
-real and ready to be driven by real logic. **When implementing real
-logic, do not change the function signatures** — `draft_state.py` and
-`app.py` already call them with the documented arguments.
+### 3. Logic — what's real vs. stubs
+Most functions in `backend/logic.py` are documented placeholders. The
+docstrings describe the real algorithm (GM trait influence on
+trade-up/down propensity, BPA-vs-need mixing, Jimmy-Johnson value math,
+future-pick discounting). **When implementing real logic, do not change
+the function signatures** — `draft_state.py` and `app.py` already call
+them with the documented arguments.
 
-Current placeholder behavior:
-- `sim_pick` always picks the top of the team's per-team big board.
+Implemented:
+- `compute_team_big_board` — applies rank-scaled noise (±max(10, rank/2.5)
+  spots, scaled by `BigBoardSkill`) starting from consensus `BigBoardRank`.
+  `Can'tMiss` and `BlueChip` prospects (from `ProspectType` column in
+  BigBoard.xlsx) have their downward swing capped. Called once per team at
+  session start; boards stored on `DraftSession._team_boards` as
+  `{team_name: [Player_ID, ...]}` and never re-randomized mid-draft.
+  Per-team BigBoard columns are not used — team uniqueness comes from noise.
+- `compute_team_needs` — for each PositionNeeds row, finds the Rank-th
+  highest OVR player at that position on the team's roster (default 0 if
+  fewer players than Rank). If that OVR falls in `[Roster OVR Min, Roster
+  OVR Max]`, it is a need. `TrueWeight` is pre-computed once at session
+  start in `DraftSession._weighted_needs` (DefaultWeight ± 25% random) and
+  stays fixed for the draft. Roster updates as players are drafted — see
+  section on roster mutation below.
+
+Still placeholder:
+- `sim_pick` picks the top available player on the team's board (no
+  need/BPA blending yet).
 - All trade functions refuse / return empty.
+
+### 3a. Roster mutation during the draft
+When a player is drafted (`DraftSession._record_selection`), their entry in
+`data["players"]` (Player.xlsx roster) is updated in-place: `TeamIndex` is
+set to the drafting team's GMInfo `TeamIndex`, and `ContractStatus` is set
+to `"Signed"`. This makes `compute_team_needs` reflect the pick on the next
+call without any re-load.
+
+The lookup uses a pre-built dict `DraftSession._roster_lookup` keyed by
+`(FirstName, LastName, ContractStatus, Position)` for O(1) access. Rookies
+in BigBoard get `contract_status` joined from Player.xlsx during `load_all`
+so the key matches. If a player isn't in the roster (no Player.xlsx entry),
+the update is silently skipped.
 
 ### 4. Year folders
 The user picks a year on the setup screen. `data_loader.resolve_year_folder`

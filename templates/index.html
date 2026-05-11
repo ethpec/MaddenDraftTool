@@ -56,7 +56,8 @@
       <div class="flex items-center gap-2">
         <button class="sim-btn" data-action="sim-pick">Sim Pick</button>
         <button class="sim-btn" data-action="sim-until-user">Sim to My Pick</button>
-        <button class="sim-btn" data-action="sim-until-round">Sim to Round…</button>
+        <select id="sim-round-select" class="sim-select"></select>
+        <button class="sim-btn" data-action="sim-until-round">Sim to Round</button>
         <button class="sim-btn" data-action="open-board-zoom">Full Draft Order</button>
         <button class="primary-btn" data-action="export">Export</button>
       </div>
@@ -91,6 +92,11 @@
       <div class="card">
         <div class="card-eyebrow">Team Needs</div>
         <div id="team-needs" class="mt-2 space-y-1 text-sm"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-eyebrow">Previous Selections</div>
+        <div id="previous-selections" class="mt-2 space-y-1 text-sm"></div>
       </div>
     </section>
 

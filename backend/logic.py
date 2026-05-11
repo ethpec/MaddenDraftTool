@@ -25,22 +25,33 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
                            gm_info: dict[str, Any]) -> list[dict[str, Any]]:
     """Return ``team_name``'s personal ranking of the still-undrafted players.
 
-    Real implementation should:
-    - Start from the BigBoard's per-team column (already loaded as
-      ``player['team_rankings'][team_name]``).
-    - Apply per-team variance based on ``BigBoardSkill`` (1=worst, 5=best):
-      lower skill -> wider random shuffle around the true rank; higher
-      skill -> closer to the consensus rank. Spec from DraftToolLogic:
-      worst rank = default + max(10, draftPos); best rank = default -
-      max(10, draftPos/2).
-    - Filter out anyone already drafted.
+    Starts from the per-team BigBoard column, applies rank-scaled noise so
+    mid-round players move more than top players, then re-assigns clean 1..N
+    positions so there are no ties or out-of-bounds values.
 
-    Current placeholder: returns the players sorted by their stored
-    per-team rank.
+    Noise window: ±max(10, rank/3) spots, scaled by BigBoardSkill
+    (1=widest variance → 1.5x, 3=default → 1.0x, 5=tightest → 0.5x).
+    At rank 150 with skill 3 this gives roughly ±50 spots.
     """
-    avail = [p for p in draftable_players if not p.get("drafted")]
-    avail.sort(key=lambda p: p.get("team_rankings", {}).get(team_name) or 9999)
-    return avail
+    # Can'tMiss / BlueChip prospects are protected from falling too far.
+    # PROSPECT_FACTOR caps the downward (worse rank) portion of the swing.
+    PROSPECT_FACTOR: dict[str, float] = {"Can'tMiss": 0.00, "BlueChip": 0.1}
+
+    skill = max(1, min(5, int(gm_info.get("BigBoardSkill") or 3)))
+    skill_factor = 1.0 + (3 - skill) * 0.25
+
+    noisy: list[tuple[float, int | float, dict[str, Any]]] = []
+    for p in draftable_players:
+        if p.get("drafted"):
+            continue
+        rank = p.get("BigBoardRank") or 9999
+        swing = max(10.0, rank / 2.5) * skill_factor
+        prospect_factor = PROSPECT_FACTOR.get(p.get("ProspectType") or "Standard", 1.0)
+        noisy_rank = max(1.0, rank + random.uniform(-swing, swing * prospect_factor))
+        noisy.append((noisy_rank, rank, p))
+
+    noisy.sort(key=lambda x: (x[0], x[1]))
+    return [p for _, _, p in noisy]
 
 
 def compute_team_needs(team_name: str, team_index: int,
@@ -48,34 +59,45 @@ def compute_team_needs(team_name: str, team_index: int,
                        position_needs_table: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Return a ranked list of position needs for ``team_name``.
 
-    Real implementation should:
-    - Filter roster to ``TeamIndex == team_index`` and signed players.
-    - For each position, look at the highest OVR currently rostered.
-    - Cross-reference PositionNeeds.xlsx rows: each row says "if your
-      best player at POS has OVR in [Roster OVR Min, Roster OVR Max],
-      then a player in OVR [Target OVR Min, Target OVR Max] satisfies
-      this need with weight DefaultWeight, label NeedLabel".
-    - Sort by weight desc; return e.g. ``[{"position": "WR", "weight": 2,
-      "label": "WR1"}, ...]``.
-
-    Current placeholder: derives a rough need list from rostered top-OVR
-    by position (lower top-OVR -> bigger need) without consulting the
-    tier table.
+    For each row in PositionNeeds, finds the Rank-th highest OVR player
+    at that position on the team (defaulting to 0 if the team has fewer
+    players than Rank). If that OVR falls within [Roster OVR Min, Roster
+    OVR Max] (inclusive), it is a need. TrueWeight is DefaultWeight ±
+    random(DefaultWeight * 0.25). Returns rows sorted by TrueWeight desc.
     """
-    by_pos: dict[str, int] = {}
+    # Collect each position's OVRs for this team, sorted descending.
+    by_pos: dict[str, list[int]] = {}
     for player in roster:
         if player.get("TeamIndex") != team_index:
             continue
         pos = player.get("Position")
-        if not pos:
+        ovr = player.get("OverallRating")
+        if not pos or ovr is None:
             continue
-        ovr = player.get("OverallRating") or 0
-        if ovr > by_pos.get(pos, 0):
-            by_pos[pos] = ovr
-    needs = [
-        {"position": pos, "top_ovr": ovr, "weight": max(0, 80 - ovr)}
-        for pos, ovr in by_pos.items()
-    ]
+        by_pos.setdefault(pos, []).append(int(ovr))
+    for pos in by_pos:
+        by_pos[pos].sort(reverse=True)
+
+    needs: list[dict[str, Any]] = []
+    for row in position_needs_table:
+        pos = row.get("Position")
+        rank = row.get("Rank")
+        if not pos or rank is None:
+            continue
+        ovrs = by_pos.get(pos, [])
+        player_ovr = ovrs[int(rank) - 1] if len(ovrs) >= int(rank) else 0
+        ovr_min = row.get("Roster OVR Min") or 0
+        ovr_max = row.get("Roster OVR Max") or 0
+        if not (ovr_min <= player_ovr <= ovr_max):
+            continue
+        weight = float(row.get("TrueWeight") or row.get("DefaultWeight") or 0)
+        needs.append({
+            "position": pos,
+            "label": row.get("Need Label"),
+            "weight": weight,
+            "roster_ovr": player_ovr,
+        })
+
     needs.sort(key=lambda n: n["weight"], reverse=True)
     return needs
 
@@ -100,21 +122,24 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
        Respect DraftMaxPerPosition.
     5. Return a SELECT outcome with the chosen player.
 
-    Current placeholder: picks the highest-ranked still-available player
-    from this team's big board.
+    Current placeholder: picks the top still-available player from this
+    team's pre-built big board.
     """
-    big_board = state["big_board"]["players"]
-    avail = [p for p in big_board if not p.get("drafted")]
-    if not avail:
+    player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
+    board = state.get("team_boards", {}).get(team_name, [])
+    pick = next(
+        (player_map[pid] for pid in board
+         if pid in player_map and not player_map[pid].get("drafted")),
+        None,
+    )
+    if pick is None:
         return {"outcome": "skip", "reason": "no_players_left"}
-    avail.sort(key=lambda p: p.get("team_rankings", {}).get(team_name) or 9999)
-    pick = avail[0]
     return {
         "outcome": "select",
         "player_id": pick.get("Player_ID"),
         "first_name": pick.get("FirstName"),
         "last_name": pick.get("LastName"),
-        "rationale": f"placeholder: top of {team_name}'s board",
+        "rationale": f"top of {team_name}'s board",
     }
 
 
