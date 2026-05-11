@@ -55,7 +55,7 @@ class TradeRecord:
 class DraftSession:
     """One end-to-end draft, owning all mutable state."""
 
-    def __init__(self, data: dict[str, Any]):
+    def __init__(self, data: dict[str, Any], user_team: str | None = None):
         self.data = data
         self.lock = threading.Lock()
         self._pick_order: list[PickRecord] = self._build_initial_order(data)
@@ -75,7 +75,11 @@ class DraftSession:
         self._current_idx: int = 0
         self.trades: list[TradeRecord] = []
         self._next_trade_id: int = 1
-        self.user_team: str = USER_TEAM_NAME
+        # Default to Steelers if no team is specified (legacy behavior).
+        # Validate against GMInfo so we don't accept arbitrary strings.
+        valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
+        chosen = user_team if user_team in valid_teams else USER_TEAM_NAME
+        self.user_team: str = chosen if chosen in valid_teams else (next(iter(valid_teams), USER_TEAM_NAME))
 
     # -- setup ---------------------------------------------------------------
 
@@ -196,6 +200,29 @@ class DraftSession:
             self._advance()
             return {"ok": True, "pick": _pick_to_dict(pick)}
 
+    def force_make_pick(self, player_id: str) -> dict[str, Any]:
+        """Manually select ``player_id`` for whichever team is on the clock.
+
+        Used when the user wants to override AI for another team (drafting
+        on someone else's behalf). Bypasses the user-team restriction in
+        ``make_user_pick`` but otherwise behaves identically: same selection
+        recording, same roster mutation, same advance. Returns the team the
+        pick was attributed to so the UI can label the toast.
+        """
+        with self.lock:
+            pick = self.current_pick()
+            if pick is None:
+                return {"ok": False, "error": "draft_complete"}
+            player = self._find_player(player_id)
+            if player is None:
+                return {"ok": False, "error": "unknown_player"}
+            if player.get("drafted"):
+                return {"ok": False, "error": "already_drafted"}
+            self._record_selection(pick, player)
+            self._advance()
+            return {"ok": True, "pick": _pick_to_dict(pick),
+                    "drafted_for": pick.current_team}
+
     def sim_one_pick(self) -> dict[str, Any]:
         """Run logic.sim_pick for the team currently on the clock.
 
@@ -247,6 +274,28 @@ class DraftSession:
                     break
         return {"ok": True, "events": results,
                 "stopped_at": _pick_to_dict(self.current_pick()) if self.current_pick() else None}
+
+    def sim_until_end(self) -> dict[str, Any]:
+        """Sim every remaining pick until the draft is complete.
+
+        Unlike sim_until_user / sim_until_round, this does NOT stop on
+        the user's picks — it AI-fills the entire remainder of the
+        draft, including the user team. Used when the user wants to
+        burn through the rest of the draft.
+        """
+        results: list[dict[str, Any]] = []
+        with self.lock:
+            while True:
+                pick = self.current_pick()
+                if pick is None:
+                    break
+                step = self._sim_one_locked()
+                results.append(step)
+                if not step.get("ok"):
+                    break
+        return {"ok": True, "events": results,
+                "stopped_at": _pick_to_dict(self.current_pick()) if self.current_pick() else None,
+                "is_complete": self.is_complete}
 
     def sim_until_overall(self, target_overall: int) -> dict[str, Any]:
         """Sim until the pick whose ``overall`` number == ``target_overall`` is on the clock."""

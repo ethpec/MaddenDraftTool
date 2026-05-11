@@ -28,8 +28,12 @@ const state = {
 
 // ---------- bootstrap ----------
 
+const setupState = { selectedTeam: null };
+
 window.addEventListener('DOMContentLoaded', async () => {
   await populateYears();
+  document.getElementById('year-select').addEventListener('change', populateTeamsForYear);
+  await populateTeamsForYear();
   document.getElementById('start-btn').addEventListener('click', startDraft);
   bindHeaderActions();
   bindModal();
@@ -39,7 +43,6 @@ async function populateYears() {
   const res = await api.get('/api/years');
   const sel = document.getElementById('year-select');
   sel.innerHTML = '';
-  // Always include a generic "current" option that maps to TestFiles fallback.
   const options = res.years.length
     ? res.years.map(y => ({ label: y.is_test ? `${y.year} (test data)` : y.year, value: y.year }))
     : [{ label: 'TestFiles (default)', value: 'TestFiles' }];
@@ -51,14 +54,54 @@ async function populateYears() {
   }
 }
 
+async function populateTeamsForYear() {
+  const year = document.getElementById('year-select').value;
+  const grid = document.getElementById('team-grid');
+  grid.innerHTML = '<div class="col-span-4 text-xs text-slate-500 text-center py-2">Loading teams…</div>';
+  try {
+    const res = await api.get('/api/teams?year=' + encodeURIComponent(year));
+    const teams = (res.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    // Pick a sensible default — Steelers if present, else first team.
+    const previous = setupState.selectedTeam;
+    const teamNames = teams.map(t => t.name);
+    if (!previous || !teamNames.includes(previous)) {
+      setupState.selectedTeam = teamNames.includes('Steelers') ? 'Steelers' : teamNames[0] || null;
+    }
+    renderTeamGrid(teams);
+  } catch (e) {
+    grid.innerHTML = '<div class="col-span-4 text-xs text-rose-400 text-center py-2">Failed to load teams.</div>';
+  }
+}
+
+function renderTeamGrid(teams) {
+  const grid = document.getElementById('team-grid');
+  grid.innerHTML = teams.map(t => {
+    const sel = t.name === setupState.selectedTeam ? ' selected' : '';
+    const img = t.logo
+      ? `<img src="${t.logo}" alt="${escapeHtml(t.name)}">`
+      : `<div class="text-slate-500 text-lg font-bold">${escapeHtml(t.name[0] || '?')}</div>`;
+    return `<button type="button" class="team-tile${sel}" data-team="${escapeHtml(t.name)}">${img}<span class="team-tile-name">${escapeHtml(t.name)}</span></button>`;
+  }).join('');
+  grid.querySelectorAll('[data-team]').forEach(tile => {
+    tile.addEventListener('click', () => {
+      setupState.selectedTeam = tile.dataset.team;
+      grid.querySelectorAll('.team-tile').forEach(t => t.classList.toggle('selected', t.dataset.team === setupState.selectedTeam));
+    });
+  });
+}
+
 async function startDraft() {
   const btn = document.getElementById('start-btn');
   const status = document.getElementById('setup-status');
+  if (!setupState.selectedTeam) {
+    status.textContent = 'Pick a team to control.';
+    return;
+  }
   btn.disabled = true;
   status.textContent = 'Loading data… (Player.xlsx is large, this can take 5–10s)';
   const year = document.getElementById('year-select').value;
   try {
-    const res = await api.post('/api/session/start', { year });
+    const res = await api.post('/api/session/start', { year, user_team: setupState.selectedTeam });
     if (!res.ok) throw new Error('Failed to start');
     state.session = res.session;
     state.teams = res.teams;
@@ -84,6 +127,7 @@ async function refreshAll() {
   ]);
   state.board = board.picks;
   state.publicBoard = pub.players;
+  invalidatePositionLookup();
 
   // Populate team-pickers if not already done.
   populateTeamPickers(gms.gms.map(g => g.TeamName));
@@ -137,7 +181,6 @@ function renderAll() {
   renderPreviousSelections();
   renderRoundTitle();
   renderRoundGrid();
-  renderPublicBoard();
   renderTeamBoard();
   renderSimRoundSelect();
 }
@@ -147,12 +190,10 @@ function renderOnTheClock() {
   const teamEl = document.getElementById('on-the-clock-team');
   const metaEl = document.getElementById('on-the-clock-meta');
   const logoEl = document.getElementById('on-the-clock-logo');
-  const userActions = document.getElementById('user-pick-actions');
   if (!c) {
     teamEl.textContent = 'Draft Complete';
     metaEl.textContent = `${state.session.picks_made} of ${state.session.total_picks} picks`;
     if (logoEl) logoEl.innerHTML = '';
-    userActions.classList.add('hidden');
     return;
   }
   teamEl.textContent = c.current_team;
@@ -163,10 +204,25 @@ function renderOnTheClock() {
       ? `<img src="${c.current_team_logo}" alt="${escapeHtml(c.current_team)}" class="h-16 w-16 object-contain">`
       : `<div class="h-16 w-16 rounded-full bg-ink-700 grid place-items-center text-2xl font-bold text-slate-500">${escapeHtml(c.current_team[0] || '?')}</div>`;
   }
-  if (c.current_team === state.userTeam) {
-    userActions.classList.remove('hidden');
-  } else {
-    userActions.classList.add('hidden');
+  updateTradeHubBadge();
+}
+
+async function updateTradeHubBadge() {
+  // Show offer count next to the Trade Hub header button when user is on clock.
+  const badge = document.getElementById('trade-hub-header-badge');
+  if (!badge) return;
+  const c = state.session?.current_pick;
+  if (!c || c.current_team !== state.userTeam) {
+    badge.classList.add('hidden');
+    return;
+  }
+  try {
+    const res = await api.get('/api/trade/down-offers');
+    const n = (res.ok && res.offers) ? res.offers.length : 0;
+    badge.textContent = String(n);
+    badge.classList.toggle('hidden', n === 0);
+  } catch (e) {
+    badge.classList.add('hidden');
   }
 }
 
@@ -214,17 +270,22 @@ function renderPreviousSelections() {
   const el = document.getElementById('previous-selections');
   if (!el) return;
   const onClockTeam = state.session?.current_pick?.current_team || state.userTeam;
-  const posMap = Object.fromEntries(state.publicBoard.map(p => [p.player_id, p.position]));
+  const playerMap = Object.fromEntries(state.publicBoard.map(p => [p.player_id, p]));
   const picks = state.board.filter(p => p.current_team === onClockTeam && p.selected_player_id);
   if (!picks.length) {
     el.innerHTML = '<div class="text-xs text-slate-500">No picks yet.</div>';
     return;
   }
   el.innerHTML = picks.map(p => {
-    const pos = posMap[p.selected_player_id] ?? '—';
-    return `<div class="need-row">
-      <span class="pos">${pos}</span>
-      <span class="meta">${p.selected_player_name} · R${p.round} P${p.pick_in_round}</span>
+    const player = playerMap[p.selected_player_id] || {};
+    const pos = player.position ?? '—';
+    const logo = player.college_logo
+      ? `<img src="${player.college_logo}" alt="${escapeHtml(player.college || '')}" class="ps-logo">`
+      : `<div class="ps-logo-placeholder"></div>`;
+    return `<div class="ps-row">
+      <span class="ps-pos">${escapeHtml(pos)}</span>
+      ${logo}
+      <span class="ps-meta">${escapeHtml(p.selected_player_name)} <span class="ps-rd">R${p.round} P${p.pick_in_round}</span></span>
     </div>`;
   }).join('');
 }
@@ -237,19 +298,74 @@ function renderRoundGrid(target = 'round-grid') {
   const el = document.getElementById(target);
   const picks = state.board.filter(p => p.round === state.selectedRound);
   el.innerHTML = picks.map(p => renderPickCell(p)).join('');
+  bindSimToPickClicks(el);
 }
+
+function bindSimToPickClicks(rootEl) {
+  if (!rootEl) return;
+  rootEl.querySelectorAll('.pick-cell.simmable').forEach(cell => {
+    const trigger = () => promptSimUntilOverall(parseInt(cell.dataset.overall, 10));
+    cell.addEventListener('click', trigger);
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
+}
+
+function promptSimUntilOverall(overall) {
+  if (!overall) return;
+  const c = state.session?.current_pick;
+  if (c && overall <= c.overall) return;
+  const target = state.board.find(p => p.overall === overall);
+  if (!target) return;
+  confirmAction({
+    title: `Sim to R${target.round}.${target.pick_in_round}?`,
+    message: `Sim through every pick before overall #${overall}, stopping with the ${target.current_team} on the clock.`,
+    confirmLabel: 'Sim',
+    onConfirm: () => simUntilOverall(overall),
+  });
+}
+
+async function simUntilOverall(overall) {
+  await api.post('/api/pick/sim-until-overall', { overall });
+  await reloadSessionAndRender();
+  toast(`Sim'd to overall #${overall}.`);
+}
+
+// Built lazily by getPositionByPlayerId() and invalidated when the
+// public board changes (handled in reloadSessionAndRender). Avoids
+// O(n*m) scans when rendering many pick cells at once.
+let _positionByPlayerId = null;
+function getPositionByPlayerId() {
+  if (_positionByPlayerId === null) {
+    _positionByPlayerId = {};
+    for (const pl of state.publicBoard) {
+      if (pl.player_id) _positionByPlayerId[pl.player_id] = pl.position;
+    }
+  }
+  return _positionByPlayerId;
+}
+function invalidatePositionLookup() { _positionByPlayerId = null; }
 
 function renderPickCell(p) {
   const onClock = state.session.current_pick && state.session.current_pick.overall === p.overall;
   const isUser = p.current_team === state.userTeam;
   const completed = !!p.selected_player_id;
+  const currentOverall = state.session.current_pick?.overall ?? 0;
+  const simmable = !completed && !onClock && p.overall > currentOverall;
   const cls = ['pick-cell'];
   if (isUser) cls.push('user-pick');
   if (onClock) cls.push('on-clock');
   if (completed) cls.push('completed');
-  const playerLine = completed
-    ? `<div class="pick-player">${escapeHtml(p.selected_player_name)}</div>`
-    : `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
+  if (simmable) cls.push('simmable');
+  let playerLine;
+  if (completed) {
+    const pos = getPositionByPlayerId()[p.selected_player_id];
+    const posTag = pos ? `<span class="pick-pos">${escapeHtml(displayPosition(pos))}</span>` : '';
+    playerLine = `<div class="pick-player">${posTag}${escapeHtml(p.selected_player_name)}</div>`;
+  } else {
+    playerLine = `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
+  }
   const trade = p.original_team !== p.current_team
     ? `<div class="text-[9px] uppercase tracking-wider text-accent-500 mt-0.5">via ${escapeHtml(p.original_team)}</div>`
     : '';
@@ -257,7 +373,7 @@ function renderPickCell(p) {
     ? `<img src="${p.current_team_logo}" alt="${escapeHtml(p.current_team)}" class="pick-logo">`
     : '';
   return `
-    <div class="${cls.join(' ')}" data-overall="${p.overall}">
+    <div class="${cls.join(' ')}" data-overall="${p.overall}"${simmable ? ' role="button" tabindex="0"' : ''}>
       <div class="pick-num">R${p.round}.${p.pick_in_round} · #${p.overall}</div>
       <div class="pick-header">${logo}<div class="pick-team">${escapeHtml(p.current_team)}</div></div>
       ${playerLine}
@@ -266,76 +382,46 @@ function renderPickCell(p) {
   `;
 }
 
-function renderPublicBoard() {
-  const search = document.getElementById('board-search');
-  if (!search.dataset.bound) {
-    search.addEventListener('input', renderPublicBoard);
-    search.dataset.bound = '1';
-  }
-  const q = search.value.trim().toLowerCase();
-  const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
-  const isUserPick = state.session.current_pick && state.session.current_pick.current_team === state.userTeam;
-  const rows = state.publicBoard
-    .filter(p => !q || (p.first_name + ' ' + p.last_name + ' ' + (p.college || '')).toLowerCase().includes(q))
-    .slice(0, 200)
-    .map(p => {
-      const isDrafted = drafted.has(p.player_id) || p.drafted;
-      const cls = ['bb-row'];
-      if (isDrafted) cls.push('drafted');
-      else if (isUserPick) cls.push('draftable');
-      const logo = p.college_logo
-        ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bb-logo">`
-        : `<div class="bb-logo-placeholder"></div>`;
-      const sub = [p.position, p.college].filter(Boolean).map(escapeHtml).join(' · ');
-      return `
-        <div class="${cls.join(' ')}" data-player-id="${escapeHtml(p.player_id)}">
-          <div class="bb-rank">${p.rank ?? '—'}</div>
-          ${logo}
-          <div class="bb-info">
-            <div class="bb-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
-            ${sub ? `<div class="bb-sub">${sub}</div>` : ''}
-          </div>
-          <button class="bb-action" data-draft-id="${escapeHtml(p.player_id)}">Draft</button>
-        </div>
-      `;
-    }).join('');
-  const el = document.getElementById('public-board');
-  el.innerHTML = rows || '<div class="text-xs text-slate-500 p-3">No matches.</div>';
-  el.querySelectorAll('[data-draft-id]').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      makeUserPick(btn.dataset.draftId);
-    });
-  });
-}
-
 function renderTeamBoard() {
   const picker = document.getElementById('team-board-picker');
   if (picker.value !== state.selectedTeamForBoard) {
     picker.value = state.selectedTeamForBoard || state.userTeam;
   }
   const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
+  const draftableEnabled = !!state.session.current_pick;
   const rows = state.teamBoard.slice(0, 100).map(p => {
     const isDrafted = drafted.has(p.player_id) || p.drafted;
-    const cls = ['bb-row'];
+    const cls = ['bb-row', 'bb-row-team'];
     if (isDrafted) cls.push('drafted');
+    else if (draftableEnabled) cls.push('draftable');
     const logo = p.college_logo
       ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bb-logo">`
       : `<div class="bb-logo-placeholder"></div>`;
     const sub = [p.position, p.college].filter(Boolean).map(escapeHtml).join(' · ');
+    const action = !isDrafted
+      ? `<button class="bb-action" data-draft-id="${escapeHtml(p.player_id)}">Draft</button>`
+      : '';
     return `
-      <div class="${cls.join(' ')}">
+      <div class="${cls.join(' ')}" data-player-id="${escapeHtml(p.player_id)}">
         <div class="bb-rank">${p.team_rank ?? '—'}${p.original_rank != null && p.original_rank !== p.team_rank ? `<span class="bb-orig-rank">(${p.original_rank})</span>` : ''}</div>
         ${logo}
         <div class="bb-info">
           <div class="bb-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
           ${sub ? `<div class="bb-sub">${sub}</div>` : ''}
         </div>
-        <div class="text-[10px] text-slate-500 font-mono">c${p.consensus_rank ?? '—'}</div>
+        <div class="bb-consensus">${renderConsensusDelta(p)}</div>
+        ${action}
       </div>
     `;
   }).join('');
-  document.getElementById('team-board').innerHTML = rows;
+  const el = document.getElementById('team-board');
+  el.innerHTML = rows;
+  el.querySelectorAll('[data-draft-id]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      submitPick(btn.dataset.draftId);
+    });
+  });
 }
 
 function populateTeamPickers(teamNames) {
@@ -368,11 +454,12 @@ async function onAction(action) {
   switch (action) {
     case 'sim-pick': return simPick();
     case 'sim-until-user': return simUntilUser();
-    case 'sim-until-round': return promptSimUntilRound();
     case 'open-board-zoom': return openFullBoard();
     case 'export': return doExport();
     case 'trade-down': return showTradeDownOffers();
     case 'trade-up': return openTradeUpModal();
+    case 'trade-hub': return openTradeHub();
+    case 'open-big-board': return openBigBoardModal();
   }
 }
 
@@ -399,35 +486,69 @@ function renderSimRoundSelect() {
   if (!sel) return;
   const currentRound = state.session?.current_pick?.round ?? 1;
   const totalRounds = state.board.length ? Math.max(...state.board.map(p => p.round)) : 7;
-  const prev = parseInt(sel.value, 10);
-  sel.innerHTML = '';
+  sel.innerHTML = '<option value="" disabled selected>Sim to Round…</option>';
   for (let r = currentRound + 1; r <= totalRounds; r++) {
     const opt = document.createElement('option');
-    opt.value = r;
+    opt.value = String(r);
     opt.textContent = `Round ${r}`;
-    if (r === prev) opt.selected = true;
     sel.appendChild(opt);
   }
-  sel.disabled = currentRound >= totalRounds;
-  const btn = sel.nextElementSibling;
-  if (btn) btn.disabled = sel.disabled;
+  if (!state.session?.is_complete) {
+    const endOpt = document.createElement('option');
+    endOpt.value = 'end';
+    endOpt.textContent = 'End of Draft';
+    sel.appendChild(endOpt);
+  }
+  sel.disabled = sel.options.length <= 1;
+  if (!sel.dataset.bound) {
+    sel.addEventListener('change', simUntilRoundFromSelect);
+    sel.dataset.bound = '1';
+  }
 }
 
-async function promptSimUntilRound() {
+function simUntilRoundFromSelect() {
   const sel = document.getElementById('sim-round-select');
-  const r = sel ? parseInt(sel.value, 10) : NaN;
+  if (!sel) return;
+  const v = sel.value;
+  // Always reset to placeholder so re-picking the same option fires again.
+  sel.value = '';
+  if (!v) return;
+  if (v === 'end') {
+    confirmAction({
+      title: 'Sim to End of Draft?',
+      message: 'AI will fill every remaining pick — including your team. This cannot be undone in this session.',
+      confirmLabel: 'Sim to End',
+      onConfirm: async () => {
+        await api.post('/api/pick/sim-until-end');
+        await reloadSessionAndRender();
+        toast('Draft complete.');
+      },
+    });
+    return;
+  }
+  const r = parseInt(v, 10);
   if (!r || isNaN(r)) return;
-  await api.post('/api/pick/sim-until-round', { round: r });
-  await reloadSessionAndRender();
+  confirmAction({
+    title: `Sim to Round ${r}?`,
+    message: `Sim every pick until the first pick of Round ${r} is on the clock.`,
+    confirmLabel: `Sim to R${r}`,
+    onConfirm: async () => {
+      await api.post('/api/pick/sim-until-round', { round: r });
+      await reloadSessionAndRender();
+    },
+  });
 }
 
-async function makeUserPick(playerId) {
+async function submitPick(playerId) {
+  // Universal pick handler: drafts the player for whichever team is on
+  // the clock. The user controls every team's pick button — there's no
+  // separate "force pick" mode anymore.
   const c = state.session.current_pick;
-  if (!c || c.current_team !== state.userTeam) return toast("Not your pick.");
-  const res = await api.post('/api/pick/make', { player_id: playerId });
+  if (!c) return toast('Draft complete.');
+  const res = await api.post('/api/pick/force-make', { player_id: playerId });
   if (!res.ok) return toast('Pick failed: ' + res.error);
   await reloadSessionAndRender();
-  toast('Pick submitted.');
+  toast(`${res.drafted_for || c.current_team} drafted.`);
 }
 
 async function reloadSessionAndRender() {
@@ -439,6 +560,7 @@ async function reloadSessionAndRender() {
   state.session = s.session;
   state.board = b.picks;
   state.publicBoard = pub.players;
+  invalidatePositionLookup();
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;
     document.getElementById('round-picker').value = String(state.selectedRound);
@@ -478,19 +600,25 @@ async function showTradeDownOffers() {
         : '<div class="text-sm text-slate-400">No teams are interested in trading up right now. (Trade logic is a placeholder — once implemented this will populate.)</div>'));
 }
 
-function openTradeUpModal() {
+function openTradeUpModal(opts = {}) {
   const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
   const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id)
     .slice(0, 64);
-  const targetOpts = targets.map(p =>
-    `<option value="${p.overall}">R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`
-  ).join('');
+  const preselect = opts.targetCurrent && state.session.current_pick
+    ? state.session.current_pick.overall : null;
+  const targetOpts = targets.map(p => {
+    const sel = preselect === p.overall ? ' selected' : '';
+    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
+  }).join('');
   const offerCheckboxes = myUnpickedPicks.map(p => `
     <label class="flex items-center gap-2 text-sm py-1">
       <input type="checkbox" class="trade-up-offer" value="${p.overall}">
       <span>R${p.round}.${p.pick_in_round} (overall ${p.overall})</span>
     </label>
   `).join('');
+  const subtitle = opts.targetCurrent && state.session.current_pick
+    ? `Trade up to the ${state.session.current_pick.current_team}'s current pick`
+    : 'Send picks to move up the board';
   const body = `
     <div class="space-y-3">
       <div>
@@ -499,14 +627,87 @@ function openTradeUpModal() {
       </div>
       <div>
         <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
-        <div class="mt-1 max-h-48 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes}</div>
+        <div class="mt-1 max-h-48 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
       </div>
       <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
       <div id="trade-up-result" class="text-sm text-slate-400"></div>
     </div>
   `;
-  openModal('Offer Trade Up', 'Send picks to move up the board', body);
+  openModal('Offer Trade Up', subtitle, body);
   document.getElementById('submit-trade-up').addEventListener('click', submitTradeUp);
+}
+
+async function openTradeHub() {
+  // Trade Hub modal. Layout depends on who's on the clock:
+  //  - User on clock: incoming offers + manual trade form (full layout).
+  //  - AI on clock: trade-up form only, with the on-clock pick pre-selected.
+  //  - Draft complete: empty state.
+  const c = state.session?.current_pick;
+  const isUserPick = c?.current_team === state.userTeam;
+  const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
+  const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id).slice(0, 200);
+  const preselectOverall = (c && !isUserPick) ? c.overall : null;
+  const targetOpts = targets.map(p => {
+    const sel = preselectOverall === p.overall ? ' selected' : '';
+    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
+  }).join('');
+  const offerCheckboxes = myUnpickedPicks.map(p => `
+    <label class="flex items-center gap-2 text-sm py-1">
+      <input type="checkbox" class="trade-up-offer" value="${p.overall}">
+      <span>R${p.round}.${p.pick_in_round} (overall ${p.overall})</span>
+    </label>
+  `).join('');
+  const tradeForm = `
+    <div class="space-y-2">
+      <div>
+        <label class="text-xs uppercase text-slate-400">Target Pick</label>
+        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts || '<option disabled>No targets available</option>'}</select>
+      </div>
+      <div>
+        <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
+        <div class="mt-1 max-h-40 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
+      </div>
+      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
+      <div id="trade-up-result" class="text-sm text-slate-400"></div>
+    </div>
+  `;
+
+  let body, subtitle;
+  if (!c) {
+    body = '<div class="text-sm text-slate-400">Draft is complete — no more trades possible.</div>';
+    subtitle = '';
+  } else if (isUserPick) {
+    const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
+    const offers = (res.ok && res.offers) || [];
+    const offersBlock = offers.length
+      ? renderOffersTable(offers)
+      : '<div class="text-sm text-slate-400">No incoming trade-up offers right now. <span class="text-slate-500">(AI trade logic is still a placeholder.)</span></div>';
+    body = `
+      <div class="space-y-5">
+        <div>
+          <div class="card-eyebrow mb-2">Incoming Offers</div>
+          ${offersBlock}
+        </div>
+        <div class="border-t border-ink-700 pt-4">
+          <div class="card-eyebrow mb-2">Offer Manual Trade</div>
+          ${tradeForm}
+        </div>
+      </div>
+    `;
+    subtitle = 'Review incoming offers or propose a manual trade';
+  } else {
+    body = `
+      <div class="space-y-3">
+        <div class="card-eyebrow">Trade Up to ${escapeHtml(c.current_team)}'s Pick</div>
+        <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · overall #${c.overall}</div>
+        ${tradeForm}
+      </div>
+    `;
+    subtitle = `Propose a trade for the ${c.current_team}'s pick`;
+  }
+  openModal('Trade Hub', subtitle, body);
+  const submitBtn = document.getElementById('submit-trade-up');
+  if (submitBtn) submitBtn.addEventListener('click', submitTradeUp);
 }
 
 async function submitTradeUp() {
@@ -543,10 +744,210 @@ function renderOffersTable(offers) {
   `;
 }
 
+// ---------- Big Board modal ----------
+
+const POSITION_ORDER = ['QB','RB','FB','WR','TE','OG','OT','C','END','DT','OLB','ILB','CB','SS','FS','K','P'];
+
+// Madden stores sub-positions (LE/RE, LG/RG, LT/RT, LOLB/ROLB, MLB, HB) but
+// we display the conventional grouping (END, OG, OT, OLB, ILB, RB). This
+// map says "what raw positions count as this display position?"
+const POSITION_ALIASES = {
+  QB: ['QB'],
+  RB: ['HB'],
+  FB: ['FB'],
+  WR: ['WR'],
+  TE: ['TE'],
+  OG: ['LG', 'RG'],
+  OT: ['LT', 'RT'],
+  C: ['C'],
+  END: ['LE', 'RE'],
+  DT: ['DT'],
+  OLB: ['LOLB', 'ROLB'],
+  ILB: ['MLB', 'ILB'],
+  CB: ['CB'],
+  SS: ['SS'],
+  FS: ['FS'],
+  K: ['K'],
+  P: ['P'],
+};
+// Inverse: raw position string -> display group label (e.g. "LE" -> "END").
+const RAW_TO_DISPLAY = Object.fromEntries(
+  Object.entries(POSITION_ALIASES).flatMap(([display, raws]) => raws.map(r => [r, display]))
+);
+
+function displayPosition(raw) {
+  return RAW_TO_DISPLAY[raw] || raw || '—';
+}
+
+const bigBoardState = {
+  position: 'ALL',          // 'ALL' | one of POSITION_ORDER
+  sortBy: 'consensus',      // 'consensus' | 'team'
+  showDrafted: false,
+  userTeamBoard: [],        // cached big board for the user's team
+};
+
+async function openBigBoardModal() {
+  // Fetch the user's personal team board so we can sort by it. We
+  // refresh on every open so rankings reflect current undrafted state.
+  try {
+    const res = await api.get('/api/big-board/team/' + encodeURIComponent(state.userTeam));
+    bigBoardState.userTeamBoard = res.players || [];
+  } catch (e) {
+    bigBoardState.userTeamBoard = [];
+  }
+  const c = state.session?.current_pick;
+  const onClock = c?.current_team;
+  const headerLogo = c?.current_team_logo
+    ? `<img src="${c.current_team_logo}" alt="${escapeHtml(onClock)}" class="h-10 w-10 object-contain">`
+    : '';
+  const subtitle = c
+    ? `Drafting for ${onClock} · R${c.round}.${c.pick_in_round} (overall ${c.overall})`
+    : 'Draft is complete — viewing only';
+  const positionList = ['ALL', ...POSITION_ORDER].map(pos => {
+    const label = pos === 'ALL' ? 'All' : pos;
+    const active = bigBoardState.position === pos ? ' active' : '';
+    return `<button class="bb-pos-pill${active}" data-bb-pos="${escapeHtml(pos)}">${escapeHtml(label)}</button>`;
+  }).join('');
+  const sortConsensusActive = bigBoardState.sortBy === 'consensus' ? ' active' : '';
+  const sortTeamActive = bigBoardState.sortBy === 'team' ? ' active' : '';
+  const draftedChecked = bigBoardState.showDrafted ? ' checked' : '';
+  const body = `
+    <div class="big-board-modal">
+      <div class="bbm-header">
+        ${headerLogo}
+        <div class="flex-1 min-w-0">
+          <div class="text-xs uppercase tracking-wider text-slate-400">On the Clock</div>
+          <div class="text-lg font-bold truncate">${escapeHtml(onClock || 'Draft Complete')}</div>
+          <div class="text-xs text-slate-500">${subtitle}</div>
+        </div>
+        <div class="bbm-controls">
+          <div class="bbm-sort-group">
+            <button class="bbm-sort${sortConsensusActive}" data-bb-sort="consensus">Consensus</button>
+            <button class="bbm-sort${sortTeamActive}" data-bb-sort="team">My Team</button>
+          </div>
+          <label class="bbm-drafted-toggle">
+            <input id="bb-show-drafted" type="checkbox"${draftedChecked}>
+            <span>Show drafted</span>
+          </label>
+          <input id="bb-search" type="text" placeholder="Search…" class="bbm-search">
+        </div>
+      </div>
+      <div class="bbm-position-bar pretty-scroll">${positionList}</div>
+      <div class="bbm-list-wrap">
+        <div id="bb-count" class="text-xs text-slate-500 px-1 pb-1.5"></div>
+        <div id="bb-list" class="bbm-list pretty-scroll"></div>
+      </div>
+    </div>
+  `;
+  document.getElementById('modal-root').classList.add('big-board-modal-open');
+  openModal('Big Board', '', body);
+  // Wire up controls.
+  document.querySelectorAll('[data-bb-pos]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      bigBoardState.position = btn.dataset.bbPos;
+      document.querySelectorAll('[data-bb-pos]').forEach(b => b.classList.toggle('active', b.dataset.bbPos === bigBoardState.position));
+      renderBigBoardList();
+    });
+  });
+  document.querySelectorAll('[data-bb-sort]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      bigBoardState.sortBy = btn.dataset.bbSort;
+      document.querySelectorAll('[data-bb-sort]').forEach(b => b.classList.toggle('active', b.dataset.bbSort === bigBoardState.sortBy));
+      renderBigBoardList();
+    });
+  });
+  document.getElementById('bb-show-drafted').addEventListener('change', (e) => {
+    bigBoardState.showDrafted = e.target.checked;
+    renderBigBoardList();
+  });
+  const searchEl = document.getElementById('bb-search');
+  searchEl.addEventListener('input', renderBigBoardList);
+  renderBigBoardList();
+}
+
+function renderBigBoardList() {
+  const c = state.session?.current_pick;
+  const actionable = !!c;
+  const drafted = new Set(state.board.filter(p => p.selected_player_id).map(p => p.selected_player_id));
+  const searchEl = document.getElementById('bb-search');
+  const q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+
+  // Build a per-player view by merging consensus board + user team board.
+  // Use Player_ID as the join key. Consensus has `rank`; team has
+  // `team_rank`/`original_rank`.
+  const teamByPid = Object.fromEntries(bigBoardState.userTeamBoard.map(p => [p.player_id, p]));
+  let players = state.publicBoard.map(p => {
+    const t = teamByPid[p.player_id];
+    return {
+      ...p,
+      team_rank: t?.team_rank ?? null,
+      team_original_rank: t?.original_rank ?? null,
+    };
+  });
+  // Filter: drafted, position (alias-aware), search.
+  const allowedRaws = bigBoardState.position === 'ALL'
+    ? null
+    : new Set(POSITION_ALIASES[bigBoardState.position] || [bigBoardState.position]);
+  players = players.filter(p => {
+    if (!bigBoardState.showDrafted && (drafted.has(p.player_id) || p.drafted)) return false;
+    if (allowedRaws && !allowedRaws.has(p.position)) return false;
+    if (q) {
+      const hay = (p.first_name + ' ' + p.last_name + ' ' + (p.college || '') + ' ' + (p.position || '')).toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  // Sort: consensus or team. Nulls always last.
+  const sortField = bigBoardState.sortBy === 'team' ? 'team_rank' : 'rank';
+  players.sort((a, b) => {
+    const av = a[sortField], bv = b[sortField];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return av - bv;
+  });
+  document.getElementById('bb-count').textContent =
+    `${players.length} player${players.length === 1 ? '' : 's'}` +
+    (bigBoardState.showDrafted ? ' (incl. drafted)' : ' available');
+  const html = players.slice(0, 600).map(p => {
+    const isDrafted = drafted.has(p.player_id) || p.drafted;
+    const cls = ['bbm-row'];
+    if (isDrafted) cls.push('drafted');
+    const logo = p.college_logo
+      ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bbm-logo">`
+      : `<div class="bbm-logo-placeholder"></div>`;
+    const primary = bigBoardState.sortBy === 'team' ? p.team_rank : p.rank;
+    const secondary = bigBoardState.sortBy === 'team' ? p.rank : p.team_rank;
+    const action = !isDrafted && actionable
+      ? `<button class="bbm-draft" data-bb-draft="${escapeHtml(p.player_id)}">Draft</button>`
+      : '';
+    return `
+      <div class="${cls.join(' ')}">
+        <div class="bbm-rank">#${primary ?? '—'}${secondary != null ? `<span class="bbm-rank-alt">${bigBoardState.sortBy === 'team' ? 'c' : 't'}${secondary}</span>` : ''}</div>
+        ${logo}
+        <div class="bbm-info">
+          <div class="bbm-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
+          <div class="bbm-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
+        </div>
+        ${action}
+      </div>
+    `;
+  }).join('');
+  const listEl = document.getElementById('bb-list');
+  listEl.innerHTML = html || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>';
+  listEl.querySelectorAll('[data-bb-draft]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await submitPick(btn.dataset.bbDraft);
+      closeModal();
+    });
+  });
+}
+
 function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${state.board.map(renderPickCell).join('')}</div>`;
   document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
+  bindSimToPickClicks(document.getElementById('modal-body'));
 }
 
 // ---------- modal & toast ----------
@@ -565,9 +966,31 @@ function openModal(title, subtitle, bodyHtml) {
   document.getElementById('modal-root').classList.remove('hidden');
 }
 
+function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm }) {
+  // Lightweight confirm dialog reusing the modal root. Awaits a user
+  // click on Confirm before calling onConfirm; Cancel just closes.
+  const safeMessage = typeof message === 'string'
+    ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
+    : message;  // allow trusted HTML for richer body
+  const body = `
+    ${safeMessage}
+    <div class="mt-4 flex items-center justify-end gap-2">
+      <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
+      <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
+    </div>
+  `;
+  openModal(title, '', body);
+  document.getElementById('confirm-cancel').addEventListener('click', closeModal);
+  document.getElementById('confirm-go').addEventListener('click', async () => {
+    closeModal();
+    if (onConfirm) await onConfirm();
+  });
+}
+
 function closeModal() {
-  document.getElementById('modal-root').classList.add('hidden');
-  document.getElementById('modal-root').classList.remove('full-board-modal');
+  const root = document.getElementById('modal-root');
+  root.classList.add('hidden');
+  root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open');
 }
 
 let toastTimer = null;
@@ -580,6 +1003,26 @@ function toast(msg) {
 }
 
 // ---------- utils ----------
+
+function renderConsensusDelta(p) {
+  // Show "#consensus (±delta)" using the team's ORIGINAL (session-start)
+  // ranking — fixed for the whole draft, not recomputed as players are
+  // drafted. delta = consensus_rank - original_rank: positive means the
+  // team had him higher on their board than consensus (green/likes him),
+  // negative means lower (red/concerns).
+  const consensus = p.consensus_rank;
+  const originalTeam = p.original_rank;
+  if (consensus == null) return '<span class="text-slate-500">—</span>';
+  if (originalTeam == null) return `<span class="text-slate-500">#${consensus}</span>`;
+  const delta = consensus - originalTeam;
+  if (delta === 0) {
+    return `<span class="text-slate-500">#${consensus} <span class="text-slate-600">(=)</span></span>`;
+  }
+  const sign = delta > 0 ? '+' : '−';
+  const mag = Math.abs(delta);
+  const cls = delta > 0 ? 'text-emerald-400' : 'text-rose-400';
+  return `<span class="text-slate-500">#${consensus}</span> <span class="${cls} font-semibold">(${sign}${mag})</span>`;
+}
 
 function escapeHtml(s) {
   if (s == null) return '';

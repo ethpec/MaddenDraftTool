@@ -27,11 +27,27 @@ app — Python backend, JavaScript frontend, opens in any browser.
 
 Requires Python 3.10+.
 
+**macOS / Linux (bash/zsh):**
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 .venv/bin/python app.py
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+.\.venv\Scripts\python app.py
+```
+
+If PowerShell blocks the activation script with a security error, you
+can either run the commands above directly (they don't need the venv
+"activated" — they invoke the venv's `pip` and `python` by path) or
+loosen the policy for the current session with
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`.
 
 Then open http://localhost:5050. Pick a year on the setup screen
 (today only `TestFiles` is present) and click **Start Draft**.
