@@ -60,14 +60,41 @@ def _serialize_session(session: DraftSession) -> dict[str, Any]:
     }
 
 
+def _pick_point_value(overall: int, year_offset: int, pick_values: dict[str, Any]) -> int | None:
+    target = overall - 1  # chart is 0-indexed
+    for row in pick_values.get("current", []):
+        if row.get("Pick") == target:
+            v = row.get("ValueNextYear") if year_offset else row.get("Value")
+            return int(v) if v is not None else None
+    return None
+
+
+def _annotate_pick(d: dict[str, Any], pick_slot: int, nfl_logos: dict, pick_values: dict) -> None:
+    d["original_team_logo"] = nfl_logos.get(d["original_team"])
+    d["current_team_logo"] = nfl_logos.get(d["current_team"])
+    d["value"] = _pick_point_value(pick_slot, d.get("year_offset", 0), pick_values)
+
+
 def _board_payload(session: DraftSession) -> list[dict[str, Any]]:
     nfl_logos = session.data.get("nfl_logo_map", {})
+    pick_values = session.data.get("pick_values", {})
     out = []
     for p in session.board():
         d = _pick_to_dict(p)
         if d:
-            d["original_team_logo"] = nfl_logos.get(d["original_team"])
-            d["current_team_logo"] = nfl_logos.get(d["current_team"])
+            _annotate_pick(d, p.draft_slot or p.overall, nfl_logos, pick_values)
+        out.append(d)
+    return out
+
+
+def _future_picks_payload(session: DraftSession) -> list[dict[str, Any]]:
+    nfl_logos = session.data.get("nfl_logo_map", {})
+    pick_values = session.data.get("pick_values", {})
+    out = []
+    for p in session.future_picks():
+        d = _pick_to_dict(p)
+        if d:
+            _annotate_pick(d, p.draft_slot, nfl_logos, pick_values)
         out.append(d)
     return out
 
@@ -197,7 +224,7 @@ def api_board():
     sess, err = _require_session()
     if err:
         return err
-    return jsonify({"picks": _board_payload(sess)})
+    return jsonify({"picks": _board_payload(sess), "future_picks": _future_picks_payload(sess)})
 
 
 @app.get("/api/big-board/public")
