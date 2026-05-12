@@ -29,13 +29,19 @@ class PickRecord:
     where YearOffset == 0. Trades mutate ``current_team`` and append
     entries to the session's trade log; selections set
     ``selected_player_id``.
+
+    ``draft_slot`` is the 1-indexed pick number within that pick's own
+    draft year (used for Jimmy Johnson value lookup). For current-year
+    picks it equals ``overall``; for future picks it is the projected
+    slot from DraftPicks.xlsx, independent of the fake overall ID.
     """
-    overall: int            # 1-indexed pick number across all rounds
+    overall: int            # 1-indexed pick number across all rounds (unique ID)
     round_1: int            # 1-indexed round
     pick_in_round_1: int    # 1-indexed pick within the round
     original_team: str
     current_team: str
     year_offset: int
+    draft_slot: int = 0     # slot within the pick's own draft year for value lookup
     selected_player_id: str | None = None
     selected_player_name: str | None = None
 
@@ -59,6 +65,7 @@ class DraftSession:
         self.data = data
         self.lock = threading.Lock()
         self._pick_order: list[PickRecord] = self._build_initial_order(data)
+        self._future_picks: list[PickRecord] = self._build_future_picks(data)
         self._team_boards: dict[str, list[str]] = self._build_team_boards(data)
         self._weighted_needs: list[dict[str, Any]] = self._build_weighted_needs(data)
         self._gm_index_map: dict[str, int] = {
@@ -68,7 +75,7 @@ class DraftSession:
         }
         self._roster_lookup: dict[tuple[str, str, str, str], dict[str, Any]] = {
             (p.get("FirstName"), p.get("LastName"),
-             p.get("ContractStatus"), p.get("Position")): p
+             p.get("PLYR_DRAFTROUND"), p.get("PLYR_DRAFTPICK")): p
             for p in data.get("players", [])
             if p.get("FirstName") and p.get("LastName")
         }
@@ -110,8 +117,40 @@ class DraftSession:
                 original_team=orig,
                 current_team=curr,
                 year_offset=row.get("YearOffset") or 0,
+                draft_slot=i,
             ))
         return out
+
+    def _build_future_picks(self, data: dict[str, Any]) -> list[PickRecord]:
+        """Year-offset-1 picks that can be traded but never come on the clock.
+
+        These are given unique overall IDs starting after all current picks
+        so they don't collide with the pick order. ``draft_slot`` preserves
+        the actual 1-indexed slot within the future draft for value lookup.
+        """
+        name_by_idx = self._build_team_name_map(data)
+        raw = [p for p in data["draft_picks"] if (p.get("YearOffset") or 0) == 1]
+        raw.sort(key=lambda p: (p.get("Round") or 0, p.get("PickNumber") or 0))
+        base = len(self._pick_order)
+        out: list[PickRecord] = []
+        for i, row in enumerate(raw, start=1):
+            orig_idx = row.get("OriginalTeamIndex")
+            curr_idx = row.get("CurrentTeamIndex")
+            orig = name_by_idx.get(orig_idx, f"Team {orig_idx}" if orig_idx is not None else "?")
+            curr = name_by_idx.get(curr_idx, orig)
+            out.append(PickRecord(
+                overall=base + i,
+                round_1=row["round_1"],
+                pick_in_round_1=row["pick_1"],
+                original_team=orig,
+                current_team=curr,
+                year_offset=1,
+                draft_slot=i,
+            ))
+        return out
+
+    def future_picks(self) -> list[PickRecord]:
+        return list(self._future_picks)
 
     def _build_weighted_needs(self, data: dict[str, Any]) -> list[dict[str, Any]]:
         """Pre-compute TrueWeight for every PositionNeeds row once at session start.
@@ -376,7 +415,7 @@ class DraftSession:
         pick.selected_player_id = player.get("Player_ID")
         pick.selected_player_name = f"{player.get('FirstName','')} {player.get('LastName','')}".strip()
         key = (player.get("FirstName"), player.get("LastName"),
-               player.get("contract_status"), player.get("position"))
+               player.get("PLYR_DRAFTROUND"), player.get("PLYR_DRAFTPICK"))
         roster_entry = self._roster_lookup.get(key)
         if roster_entry is not None:
             team_index = self._gm_index_map.get(pick.current_team)

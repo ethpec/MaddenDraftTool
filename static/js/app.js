@@ -126,6 +126,7 @@ async function refreshAll() {
     api.get('/api/gm-info'),
   ]);
   state.board = board.picks;
+  state.futurePicks = board.future_picks || [];
   state.publicBoard = pub.players;
   invalidatePositionLookup();
 
@@ -559,6 +560,7 @@ async function reloadSessionAndRender() {
   ]);
   state.session = s.session;
   state.board = b.picks;
+  state.futurePicks = b.future_picks || [];
   state.publicBoard = pub.players;
   invalidatePositionLookup();
   if (state.session.current_pick) {
@@ -644,33 +646,6 @@ async function openTradeHub() {
   //  - Draft complete: empty state.
   const c = state.session?.current_pick;
   const isUserPick = c?.current_team === state.userTeam;
-  const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
-  const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id).slice(0, 200);
-  const preselectOverall = (c && !isUserPick) ? c.overall : null;
-  const targetOpts = targets.map(p => {
-    const sel = preselectOverall === p.overall ? ' selected' : '';
-    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
-  }).join('');
-  const offerCheckboxes = myUnpickedPicks.map(p => `
-    <label class="flex items-center gap-2 text-sm py-1">
-      <input type="checkbox" class="trade-up-offer" value="${p.overall}">
-      <span>R${p.round}.${p.pick_in_round} (overall ${p.overall})</span>
-    </label>
-  `).join('');
-  const tradeForm = `
-    <div class="space-y-2">
-      <div>
-        <label class="text-xs uppercase text-slate-400">Target Pick</label>
-        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts || '<option disabled>No targets available</option>'}</select>
-      </div>
-      <div>
-        <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
-        <div class="mt-1 max-h-40 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
-      </div>
-      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
-      <div id="trade-up-result" class="text-sm text-slate-400"></div>
-    </div>
-  `;
 
   let body, subtitle;
   if (!c) {
@@ -690,7 +665,7 @@ async function openTradeHub() {
         </div>
         <div class="border-t border-ink-700 pt-4">
           <div class="card-eyebrow mb-2">Offer Manual Trade</div>
-          ${tradeForm}
+          ${buildTradeForm(c, isUserPick)}
         </div>
       </div>
     `;
@@ -700,22 +675,140 @@ async function openTradeHub() {
       <div class="space-y-3">
         <div class="card-eyebrow">Trade Up to ${escapeHtml(c.current_team)}'s Pick</div>
         <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · overall #${c.overall}</div>
-        ${tradeForm}
+        ${buildTradeForm(c, isUserPick)}
       </div>
     `;
-    subtitle = `Propose a trade for the ${c.current_team}'s pick`;
+    subtitle = `Propose a trade for ${escapeHtml(c.current_team)}'s pick`;
   }
   openModal('Trade Hub', subtitle, body);
+
+  const targetSel = document.getElementById('trade-up-target');
+  if (targetSel) {
+    updateTargetTeamPicks(targetSel.value);
+    targetSel.addEventListener('change', e => updateTargetTeamPicks(e.target.value));
+  }
   const submitBtn = document.getElementById('submit-trade-up');
   if (submitBtn) submitBtn.addEventListener('click', submitTradeUp);
+}
+
+function buildTradeForm(currentPick, isUserPick) {
+  const sortPicks = picks => [...picks].sort((a, b) => (a.year_offset || 0) - (b.year_offset || 0) || a.overall - b.overall);
+  const nyBadge = '<span class="text-[10px] font-semibold text-amber-400 border border-amber-700 rounded px-1 leading-tight">NY</span>';
+
+  const allPicks = [...state.board, ...(state.futurePicks || [])];
+  const myUnpickedPicks = sortPicks(allPicks.filter(p => p.current_team === state.userTeam && !p.selected_player_id));
+  const targets = sortPicks(allPicks.filter(p => p.current_team !== state.userTeam && !p.selected_player_id)).slice(0, 200);
+  const preselectOverall = (currentPick && !isUserPick) ? currentPick.overall : null;
+
+  const targetOpts = targets.map(p => {
+    const sel = preselectOverall === p.overall ? ' selected' : '';
+    const valStr = p.value != null ? ` · ${p.value.toLocaleString()} pts` : '';
+    const nyStr = p.year_offset ? ' [NY]' : '';
+    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round}${nyStr} · ${escapeHtml(p.current_team)} (#${p.overall}${valStr})</option>`;
+  }).join('');
+
+  const myPicksHtml = myUnpickedPicks.length
+    ? myUnpickedPicks.map(p => {
+        const valStr = p.value != null ? ` <span class="text-slate-500">${p.value.toLocaleString()} pts</span>` : '';
+        const badge = p.year_offset ? ' ' + nyBadge : '';
+        return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
+          <span class="flex items-center gap-2">
+            <input type="checkbox" class="trade-up-offer" value="${p.overall}" data-value="${p.value ?? 0}" onchange="updateTradeTotals()">
+            R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.overall}</span>
+          </span>
+          ${valStr}
+        </label>`;
+      }).join('')
+    : '<div class="text-xs text-slate-500">No picks left to offer.</div>';
+
+  return `
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs uppercase text-slate-400">Target Pick</label>
+        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">
+          ${targetOpts || '<option disabled>No targets available</option>'}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <div class="text-xs uppercase text-slate-400">${escapeHtml(state.userTeam)} Sends</div>
+          <div class="max-h-44 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2 space-y-0.5">
+            ${myPicksHtml}
+          </div>
+          <div class="text-xs text-right text-slate-400 pt-0.5">Total: <span id="trade-my-total" class="text-accent-400 font-mono">0 pts</span></div>
+        </div>
+        <div class="space-y-1">
+          <div id="trade-target-label" class="text-xs uppercase text-slate-400">— Sends</div>
+          <div id="trade-target-picks" class="max-h-44 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2 space-y-0.5">
+            <div class="text-xs text-slate-500">Select a target pick.</div>
+          </div>
+          <div class="text-xs text-right text-slate-400 pt-0.5">Total: <span id="trade-their-total" class="text-accent-400 font-mono">0 pts</span></div>
+        </div>
+      </div>
+      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
+      <div id="trade-up-result" class="text-sm text-slate-400"></div>
+    </div>
+  `;
+}
+
+function updateTargetTeamPicks(targetOverall) {
+  const overall = parseInt(targetOverall, 10);
+  const allPicks = [...state.board, ...(state.futurePicks || [])];
+  const targetPick = allPicks.find(p => p.overall === overall);
+  if (!targetPick) return;
+  const teamName = targetPick.current_team;
+
+  document.getElementById('trade-target-label').textContent = `${teamName} Sends`;
+
+  const nyBadge = '<span class="text-[10px] font-semibold text-amber-400 border border-amber-700 rounded px-1 leading-tight">NY</span>';
+  const teamPicks = [...allPicks.filter(p => p.current_team === teamName && !p.selected_player_id)]
+    .sort((a, b) => (a.year_offset || 0) - (b.year_offset || 0) || a.overall - b.overall);
+
+  const html = teamPicks.map(p => {
+    const isTarget = p.overall === overall;
+    const valStr = p.value != null ? ` <span class="text-slate-500">${p.value.toLocaleString()} pts</span>` : '';
+    const badge = p.year_offset ? ' ' + nyBadge : '';
+    if (isTarget) {
+      return `<label class="flex items-center justify-between gap-2 text-sm py-1 text-slate-300">
+        <span class="flex items-center gap-2">
+          <input type="checkbox" class="trade-their-pick" value="${p.overall}" data-value="${p.value ?? 0}" checked disabled>
+          R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.overall}</span>
+          <span class="text-xs text-accent-400">(target)</span>
+        </span>
+        ${valStr}
+      </label>`;
+    }
+    return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
+      <span class="flex items-center gap-2">
+        <input type="checkbox" class="trade-their-pick" value="${p.overall}" data-value="${p.value ?? 0}" onchange="updateTradeTotals()">
+        R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.overall}</span>
+      </span>
+      ${valStr}
+    </label>`;
+  }).join('');
+
+  document.getElementById('trade-target-picks').innerHTML = html || '<div class="text-xs text-slate-500">No picks available.</div>';
+  updateTradeTotals();
+}
+
+function updateTradeTotals() {
+  const myTotal = Array.from(document.querySelectorAll('.trade-up-offer:checked'))
+    .reduce((sum, cb) => sum + (parseInt(cb.dataset.value, 10) || 0), 0);
+  const theirTotal = Array.from(document.querySelectorAll('.trade-their-pick:checked'))
+    .reduce((sum, cb) => sum + (parseInt(cb.dataset.value, 10) || 0), 0);
+  const myEl = document.getElementById('trade-my-total');
+  const theirEl = document.getElementById('trade-their-total');
+  if (myEl) myEl.textContent = myTotal.toLocaleString() + ' pts';
+  if (theirEl) theirEl.textContent = theirTotal.toLocaleString() + ' pts';
 }
 
 async function submitTradeUp() {
   const target = parseInt(document.getElementById('trade-up-target').value, 10);
   const offered = Array.from(document.querySelectorAll('.trade-up-offer:checked')).map(c => parseInt(c.value, 10));
+  const theirExtra = Array.from(document.querySelectorAll('.trade-their-pick:checked:not([disabled])')).map(c => parseInt(c.value, 10));
   const result = document.getElementById('trade-up-result');
   if (!offered.length) { result.textContent = 'Select at least one pick to offer.'; return; }
-  const res = await api.post('/api/trade/up', { target_overall: target, offered_overalls: offered });
+  const res = await api.post('/api/trade/up', { target_overall: target, offered_overalls: offered, target_also_sends: theirExtra });
   if (!res.ok) { result.textContent = 'Error: ' + res.error; return; }
   if (res.decision.accepted) {
     result.innerHTML = '<span class="text-emerald-400">Offer accepted!</span> Refreshing…';

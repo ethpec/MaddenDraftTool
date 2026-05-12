@@ -116,10 +116,10 @@ to `"Signed"`. This makes `compute_team_needs` reflect the pick on the next
 call without any re-load.
 
 The lookup uses a pre-built dict `DraftSession._roster_lookup` keyed by
-`(FirstName, LastName, ContractStatus, Position)` for O(1) access. Rookies
-in BigBoard get `contract_status` joined from Player.xlsx during `load_all`
-so the key matches. If a player isn't in the roster (no Player.xlsx entry),
-the update is silently skipped.
+`(FirstName, LastName, PLYR_DRAFTROUND, PLYR_DRAFTPICK)` for O(1) access. Rookies
+in BigBoard already carry `PLYR_DRAFTROUND`/`PLYR_DRAFTPICK` from `keep_cols`
+in `load_big_board`, so the key matches Player.xlsx directly. If a player
+isn't in the roster (no Player.xlsx entry), the update is silently skipped.
 
 ### 4. Year folders
 The user picks a year on the setup screen. `data_loader.resolve_year_folder`

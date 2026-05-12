@@ -48,6 +48,8 @@ PLAYER_COLUMNS_OF_INTEREST: tuple[str, ...] = (
     "YearDrafted",
     "College",
     "PLYR_ASSETNAME",
+    "PLYR_DRAFTROUND",
+    "PLYR_DRAFTPICK",
 )
 
 
@@ -438,7 +440,6 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             college_name = college_by_id.get(college_id)
             p["college"] = college_name
             p["position"] = match.get("Position")
-            p["contract_status"] = match.get("ContractStatus")
             if college_name:
                 p["college_logo"] = college_logo_map.get(college_name)
 

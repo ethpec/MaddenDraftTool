@@ -17,6 +17,18 @@ import random
 from typing import Any
 
 
+# Maps raw Madden positions to the need-group used in PositionNeeds.xlsx.
+# Both compute_team_needs (collection) and sim_pick (matching) use this
+# so a player at LE/RE is correctly recognized as satisfying an EDGE need.
+POSITION_GROUPS: dict[str, str] = {
+    "LT": "OT", "RT": "OT",
+    "LG": "OG", "RG": "OG",
+    "LE": "EDGE", "RE": "EDGE",
+    "LOLB": "OLB", "ROLB": "OLB",
+    "MLB": "ILB",
+}
+
+
 # -----------------------------------------------------------------------------
 # Big board / player ranking
 # -----------------------------------------------------------------------------
@@ -30,7 +42,7 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     positions so there are no ties or out-of-bounds values.
 
     Noise window: ±max(10, rank/3) spots, scaled by BigBoardSkill
-    (1=widest variance → 1.5x, 3=default → 1.0x, 5=tightest → 0.5x).
+    (1=widest variance → 1.375x, 3=default → 1.125x, 5=tightest → 0.875x).
     At rank 150 with skill 3 this gives roughly ±50 spots.
     """
     # Can'tMiss / BlueChip prospects are protected from falling too far.
@@ -38,7 +50,7 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     PROSPECT_FACTOR: dict[str, float] = {"Can'tMiss": 0.00, "BlueChip": 0.1}
 
     skill = max(1, min(5, int(gm_info.get("BigBoardSkill") or 3)))
-    skill_factor = 1.0 + (3 - skill) * 0.25
+    skill_factor = 1.0 + (4 - skill) * 0.125
 
     noisy: list[tuple[float, int | float, dict[str, Any]]] = []
     for p in draftable_players:
@@ -66,6 +78,7 @@ def compute_team_needs(team_name: str, team_index: int,
     random(DefaultWeight * 0.25). Returns rows sorted by TrueWeight desc.
     """
     # Collect each position's OVRs for this team, sorted descending.
+    # Split positions (LT/RT, LG/RG, etc.) are combined into their group.
     by_pos: dict[str, list[int]] = {}
     for player in roster:
         if player.get("TeamIndex") != team_index:
@@ -74,7 +87,8 @@ def compute_team_needs(team_name: str, team_index: int,
         ovr = player.get("OverallRating")
         if not pos or ovr is None:
             continue
-        by_pos.setdefault(pos, []).append(int(ovr))
+        group = POSITION_GROUPS.get(pos, pos)
+        by_pos.setdefault(group, []).append(int(ovr))
     for pos in by_pos:
         by_pos[pos].sort(reverse=True)
 
