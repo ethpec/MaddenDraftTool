@@ -68,7 +68,7 @@ class DraftSession:
         }
         self._roster_lookup: dict[tuple[str, str, str, str], dict[str, Any]] = {
             (p.get("FirstName"), p.get("LastName"),
-             p.get("ContractStatus"), p.get("Position")): p
+             p.get("PLYR_DRAFTROUND"), p.get("PLYR_DRAFTPICK")): p
             for p in data.get("players", [])
             if p.get("FirstName") and p.get("LastName")
         }
@@ -376,7 +376,7 @@ class DraftSession:
         pick.selected_player_id = player.get("Player_ID")
         pick.selected_player_name = f"{player.get('FirstName','')} {player.get('LastName','')}".strip()
         key = (player.get("FirstName"), player.get("LastName"),
-               player.get("contract_status"), player.get("position"))
+               player.get("PLYR_DRAFTROUND"), player.get("PLYR_DRAFTPICK"))
         roster_entry = self._roster_lookup.get(key)
         if roster_entry is not None:
             team_index = self._gm_index_map.get(pick.current_team)
