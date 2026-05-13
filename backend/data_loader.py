@@ -28,7 +28,7 @@ NFL_LOGOS_DIR = REPO_ROOT / "static" / "nfl_logos"
 COLLEGE_LOGOS_DIR = REPO_ROOT / "static" / "college_logos"
 DATA_CACHE_DIRNAME = ".cache"
 PLAYER_CACHE_VERSION = 1
-LOAD_ALL_CACHE_VERSION = 1
+LOAD_ALL_CACHE_VERSION = 2
 _LOAD_ALL_CACHE_LOCK = threading.Lock()
 _LOAD_ALL_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 
@@ -427,13 +427,15 @@ def load_all(year: str | int | None) -> dict[str, Any]:
     # looking them up in Player.xlsx by FirstName+LastName (BigBoard
     # uses the same identifier shape — "FirstName LastName_id" — but
     # Player.xlsx joins more reliably on the (First, Last) tuple).
-    player_lookup: dict[tuple[str, str], dict[str, Any]] = {}
+    player_lookup: dict[tuple, dict[str, Any]] = {}
     for pl in players:
-        key = (pl.get("FirstName"), pl.get("LastName"))
+        key = (pl.get("FirstName"), pl.get("LastName"),
+               pl.get("PLYR_DRAFTROUND"), pl.get("PLYR_DRAFTPICK"))
         if key not in player_lookup:
             player_lookup[key] = pl
     for p in big_board["players"]:
-        key = (p.get("FirstName"), p.get("LastName"))
+        key = (p.get("FirstName"), p.get("LastName"),
+               p.get("PLYR_DRAFTROUND"), p.get("PLYR_DRAFTPICK"))
         match = player_lookup.get(key)
         if match:
             college_id = match.get("College")

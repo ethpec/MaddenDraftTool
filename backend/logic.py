@@ -42,7 +42,7 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     positions so there are no ties or out-of-bounds values.
 
     Noise window: ±max(10, rank/3) spots, scaled by BigBoardSkill
-    (1=widest variance → 1.375x, 3=default → 1.125x, 5=tightest → 0.875x).
+    (1=widest variance → 1.5x, 3=default → 1.25x, 5=tightest → 1.0x).
     At rank 150 with skill 3 this gives roughly ±50 spots.
     """
     # Can'tMiss / BlueChip prospects are protected from falling too far.
@@ -50,16 +50,16 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     PROSPECT_FACTOR: dict[str, float] = {"Can'tMiss": 0.00, "BlueChip": 0.1}
 
     skill = max(1, min(5, int(gm_info.get("BigBoardSkill") or 3)))
-    skill_factor = 1.0 + (4 - skill) * 0.125
+    gm_skill_factor = 1.0 + (5 - skill) * 0.125
 
     noisy: list[tuple[float, int | float, dict[str, Any]]] = []
     for p in draftable_players:
         if p.get("drafted"):
             continue
         rank = p.get("BigBoardRank") or 9999
-        swing = max(10.0, rank / 2.5) * skill_factor
+        swing = max(10.0, rank / 2.5) * gm_skill_factor
         prospect_factor = PROSPECT_FACTOR.get(p.get("ProspectType") or "Standard", 1.0)
-        noisy_rank = max(1.0, rank + random.uniform(-swing, swing * prospect_factor))
+        noisy_rank = max(1.0, rank + random.uniform(-swing , swing * prospect_factor))
         noisy.append((noisy_rank, rank, p))
 
     noisy.sort(key=lambda x: (x[0], x[1]))
