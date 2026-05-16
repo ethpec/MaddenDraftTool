@@ -82,6 +82,10 @@ class DraftSession:
         self._current_idx: int = 0
         self.trades: list[TradeRecord] = []
         self._next_trade_id: int = 1
+        # CPU trade-up offers for the current on-clock pick. Generated lazily
+        # on first access per pick and cleared when the pick resolves.
+        self._pending_trade_offers: list[dict[str, Any]] | None = None
+        self._pending_offers_for_overall: int | None = None
         # Default to Steelers if no team is specified (legacy behavior).
         # Validate against GMInfo so we don't accept arbitrary strings.
         valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
@@ -362,37 +366,160 @@ class DraftSession:
 
     def submit_user_trade_up(self, target_overall: int,
                              offered_pick_overalls: list[int]) -> dict[str, Any]:
-        """User attempts to trade up to ``target_overall`` by offering picks."""
+        """User attempts to trade up to ``target_overall`` by offering picks.
+
+        Accepted when the user's offer value:
+        1. Meets the target team's TradeDown threshold (based on GM trait).
+        2. Is at least as high as the best competing CPU offer (if the
+           target is the current on-clock pick with pending CPU offers).
+        """
         with self.lock:
             target = next((p for p in self._pick_order if p.overall == target_overall), None)
             if target is None:
                 return {"ok": False, "error": "unknown_target_pick"}
             if target.current_team == self.user_team:
                 return {"ok": False, "error": "already_own_pick"}
-            offered = [p for p in self._pick_order if p.overall in set(offered_pick_overalls)
+            all_picks = self._pick_order + list(self._future_picks)
+            offered = [p for p in all_picks if p.overall in set(offered_pick_overalls)
                        and p.current_team == self.user_team and p.selected_player_id is None]
             if len(offered) != len(offered_pick_overalls):
                 return {"ok": False, "error": "invalid_offered_picks"}
-            offer = {
+
+            target_dict = _pick_to_dict(target)
+            offered_dicts = [_pick_to_dict(p) for p in offered]
+            evaluated = logic.attempt_user_trade_up(
+                self._snapshot_for_logic(), target_dict, offered_dicts)
+            offer_val = evaluated["offer_value"]
+            target_val = evaluated["target_value"]
+
+            gm = next((g for g in self.data["gm_info"]
+                       if g.get("TeamName") == target.current_team), {})
+            threshold = logic.trade_down_threshold(gm)
+            meets_threshold = target_val > 0 and offer_val >= target_val * threshold
+
+            # Compare against competing CPU offers only for the current on-clock pick.
+            is_current = (self.current_pick() is not None
+                          and self.current_pick().overall == target_overall)
+            if is_current:
+                self._ensure_pending_offers()
+            best_cpu_val = max(
+                (o["offer_value"] for o in (self._pending_trade_offers or []) if is_current),
+                default=0.0,
+            )
+            beats_cpu = offer_val >= best_cpu_val
+
+            offer_summary = {
                 "from_team": self.user_team,
                 "to_team": target.current_team,
-                "from_picks": [_pick_to_dict(p) for p in offered],
-                "to_picks": [_pick_to_dict(target)],
+                "offered_picks": offered_dicts,
+                "target_pick": target_dict,
+                "offer_value": offer_val,
+                "target_value": target_val,
             }
-            decision = logic.attempt_user_trade_up(
-                self._snapshot_for_logic(), _pick_to_dict(target), offer["from_picks"])
-            if decision.get("accepted"):
+
+            if meets_threshold and beats_cpu:
                 self._apply_trade(target, offered, target.current_team, self.user_team, "USER")
-            return {"ok": True, "decision": decision, "offer": offer}
+                return {
+                    "ok": True,
+                    "decision": {"accepted": True, "reason": "offer accepted"},
+                    "offer": offer_summary,
+                    "trade": {
+                        "trading_up": self.user_team,
+                        "trading_down": target.current_team,
+                        "offered_picks": offered_dicts,
+                        "target_pick": target_dict,
+                    },
+                }
+
+            if not meets_threshold:
+                reason = (f"offer value ({offer_val:.0f}) below threshold "
+                          f"({target_val * threshold:.0f} needed)")
+            else:
+                reason = "a competing offer was better"
+            return {
+                "ok": True,
+                "decision": {
+                    "accepted": False,
+                    "reason": reason,
+                    "offer_value": offer_val,
+                    "target_value": target_val,
+                    "threshold": threshold,
+                },
+                "offer": offer_summary,
+            }
 
     # -- internal ------------------------------------------------------------
 
+    def _ensure_pending_offers(self) -> None:
+        """Generate CPU trade-up offers for the current pick if not yet done."""
+        pick = self.current_pick()
+        if pick is None:
+            self._pending_trade_offers = []
+            return
+        if (self._pending_trade_offers is not None
+                and self._pending_offers_for_overall == pick.overall):
+            return
+        self._pending_trade_offers = logic.generate_trade_offers_for_pick(
+            self._snapshot_for_logic(), _pick_to_dict(pick)
+        )
+        self._pending_offers_for_overall = pick.overall
+
+    def _best_qualifying_cpu_offer(self) -> dict[str, Any] | None:
+        """Return the highest-value CPU offer that clears the threshold, or None."""
+        if not self._pending_trade_offers:
+            return None
+        pick = self.current_pick()
+        if pick is None:
+            return None
+        gm = next((g for g in self.data["gm_info"]
+                   if g.get("TeamName") == pick.current_team), {})
+        threshold = logic.trade_down_threshold(gm)
+        target_val = logic.pick_value(_pick_to_dict(pick), self.data["pick_values"])
+        if target_val <= 0:
+            return None
+        for offer in self._pending_trade_offers:  # already sorted by value desc
+            if offer["offer_value"] >= target_val * threshold:
+                return offer
+        return None
+
+    def _execute_cpu_trade(self, offer: dict[str, Any]) -> dict[str, Any]:
+        """Apply a CPU-to-CPU trade offer, returning a summary dict for the UI."""
+        pick = self.current_pick()
+        trading_down = pick.current_team
+        trading_up = offer["from_team"]
+        offered_overalls = {p["overall"] for p in offer["offered_picks"]}
+        offered_records = [
+            p for p in self._pick_order + list(self._future_picks)
+            if p.overall in offered_overalls
+        ]
+        self._apply_trade(pick, offered_records, trading_down, trading_up, "AI")
+        return {
+            "trading_up": trading_up,
+            "trading_down": trading_down,
+            "offered_picks": offer["offered_picks"],
+            "target_pick": offer["target_pick"],
+            "offer_value": offer["offer_value"],
+            "target_value": offer["target_value"],
+        }
+
     def _sim_one_locked(self) -> dict[str, Any]:
-        """Caller MUST hold ``self.lock``. Simulates the current pick."""
+        """Caller MUST hold ``self.lock``. Simulates the current pick.
+
+        Before making the selection, checks for a qualifying CPU trade-up
+        offer. If one exists, executes the trade (ownership swap) first,
+        then sims the pick for whichever team now owns it.
+        """
         pick = self.current_pick()
         if pick is None:
             return {"ok": False, "error": "draft_complete"}
-        team = pick.current_team
+
+        self._ensure_pending_offers()
+        trade_event: dict[str, Any] | None = None
+        best_offer = self._best_qualifying_cpu_offer()
+        if best_offer:
+            trade_event = self._execute_cpu_trade(best_offer)
+
+        team = pick.current_team  # may have changed after trade
         decision = logic.sim_pick(self._snapshot_for_logic(), team)
         if decision.get("outcome") == "select":
             player = self._find_player(decision["player_id"])
@@ -401,12 +528,7 @@ class DraftSession:
             self._record_selection(pick, player)
             self._advance()
             return {"ok": True, "type": "select", "pick": _pick_to_dict(pick),
-                    "decision": decision}
-        if decision.get("outcome") == "trade":
-            # Trades from sim_pick aren't wired up in placeholder logic;
-            # when implemented this branch will look up the chosen offer
-            # and call _apply_trade.
-            return {"ok": True, "type": "trade_pending", "decision": decision}
+                    "decision": decision, "trade": trade_event}
         return {"ok": False, "error": "unknown_decision", "decision": decision}
 
     def _record_selection(self, pick: PickRecord, player: dict[str, Any]) -> None:
@@ -425,6 +547,8 @@ class DraftSession:
 
     def _advance(self) -> None:
         self._current_idx += 1
+        self._pending_trade_offers = None
+        self._pending_offers_for_overall = None
 
     def _find_player(self, player_id: str | None) -> dict[str, Any] | None:
         if not player_id:
@@ -465,6 +589,7 @@ class DraftSession:
             "team_boards": self._team_boards,
             "current_pick": _pick_to_dict(self.current_pick()) if self.current_pick() else None,
             "remaining_picks": [_pick_to_dict(p) for p in self._pick_order if p.selected_player_id is None],
+            "future_picks": [_pick_to_dict(p) for p in self._future_picks],
         }
 
 
@@ -473,6 +598,7 @@ def _pick_to_dict(pick: PickRecord | None) -> dict[str, Any] | None:
         return None
     return {
         "overall": pick.overall,
+        "draft_slot": pick.draft_slot,
         "round": pick.round_1,
         "pick_in_round": pick.pick_in_round_1,
         "original_team": pick.original_team,

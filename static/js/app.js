@@ -468,18 +468,100 @@ async function simPick() {
   const c = state.session.current_pick;
   if (!c) return toast('Draft complete.');
   if (c.current_team === state.userTeam) {
-    return toast("Steelers are on the clock — pick or trade.");
+    return toast("You are on the clock — pick or trade.");
   }
   const res = await api.post('/api/pick/sim');
   if (!res.ok) return toast('Sim failed: ' + (res.error || 'unknown'));
   await reloadSessionAndRender();
-  if (res.pick) toast(`R${res.pick.round}.${res.pick.pick_in_round}: ${res.pick.current_team} → ${res.pick.selected_player_name}`);
+  if (res.trade) {
+    showTradeModal(res.trade, res.pick);
+  } else if (res.pick) {
+    toast(`R${res.pick.round}.${res.pick.pick_in_round}: ${res.pick.current_team} → ${res.pick.selected_player_name}`);
+  }
+}
+
+function buildTeamLogoMap() {
+  const map = {};
+  for (const p of [...state.board, ...(state.futurePicks || [])]) {
+    if (p.current_team && p.current_team_logo) map[p.current_team] = p.current_team_logo;
+    if (p.original_team && p.original_team_logo) map[p.original_team] = p.original_team_logo;
+  }
+  return map;
+}
+
+function showTradeModal(trade, pick) {
+  const allPicks = [...state.board, ...(state.futurePicks || [])];
+  const logoMap = buildTeamLogoMap();
+  const getVal = overall => allPicks.find(p => p.overall === overall)?.value ?? null;
+
+  const formatPickRow = p => {
+    const val = getVal(p.overall);
+    const nyBadge = p.year_offset
+      ? ' <span class="text-[10px] font-semibold text-amber-400 border border-amber-700 rounded px-1 leading-tight">NY</span>'
+      : '';
+    const valStr = val != null
+      ? `<span class="font-mono text-accent-400">${val.toLocaleString()}</span>`
+      : '<span class="text-slate-600">—</span>';
+    return `<div class="flex items-center justify-between py-1 text-sm">
+      <span>R${p.round}.${p.pick_in_round}${nyBadge} <span class="text-slate-500 text-xs">#${p.draft_slot ?? p.overall}</span></span>
+      <span class="ml-3">${valStr} pts</span>
+    </div>`;
+  };
+
+  const teamPanel = (teamName, sends, totalVal, direction) => {
+    const logo = logoMap[teamName];
+    const logoEl = logo
+      ? `<img src="${logo}" class="w-10 h-10 object-contain flex-shrink-0" onerror="this.style.display='none'">`
+      : `<div class="w-10 h-10 rounded-full bg-ink-700 flex-shrink-0"></div>`;
+    const dirColor = direction === 'up' ? 'text-emerald-400' : 'text-amber-400';
+    const dirLabel = direction === 'up' ? '▲ Trades Up' : '▼ Trades Down';
+    return `
+      <div class="flex-1 min-w-0 space-y-2">
+        <div class="flex items-center gap-2">
+          ${logoEl}
+          <div>
+            <div class="font-semibold text-sm">${escapeHtml(teamName)}</div>
+            <div class="text-xs ${dirColor}">${dirLabel}</div>
+          </div>
+        </div>
+        <div class="text-xs uppercase text-slate-400">Sends</div>
+        <div class="border border-ink-700 rounded p-2 bg-ink-900 divide-y divide-ink-800">
+          ${sends.map(formatPickRow).join('')}
+        </div>
+        <div class="text-xs text-right text-slate-400">
+          Total: <span class="text-accent-400 font-mono font-semibold">${totalVal.toLocaleString()} pts</span>
+        </div>
+      </div>`;
+  };
+
+  const player = pick?.selected_player_id
+    ? state.publicBoard.find(p => p.player_id === pick.selected_player_id)
+    : null;
+  const selectionLine = pick?.selected_player_name
+    ? `<div class="mt-4 pt-3 border-t border-ink-700 text-sm text-center text-slate-300">
+        ${escapeHtml(trade.trading_up)} selected
+        <span class="text-white font-semibold">${escapeHtml(pick.selected_player_name)}</span>${player?.position ? ` <span class="text-slate-500">· ${player.position}</span>` : ''}
+      </div>`
+    : '';
+
+  const body = `
+    <div class="space-y-4">
+      <div class="flex gap-3 items-start">
+        ${teamPanel(trade.trading_down, [trade.target_pick], trade.target_value, 'down')}
+        <div class="pt-10 text-slate-500 text-lg flex-shrink-0">⇄</div>
+        ${teamPanel(trade.trading_up, trade.offered_picks, trade.offer_value, 'up')}
+      </div>
+      ${selectionLine}
+    </div>`;
+
+  openModal('Trade Executed', `${escapeHtml(trade.trading_up)} acquires pick #${trade.target_pick?.draft_slot ?? trade.target_pick?.overall}`, body);
 }
 
 async function simUntilUser() {
-  await api.post('/api/pick/sim-until-user');
+  const res = await api.post('/api/pick/sim-until-user');
   await reloadSessionAndRender();
-  toast('Sim complete.');
+  const tradeCount = (res.events || []).filter(e => e.trade).length;
+  toast('Sim complete.' + (tradeCount ? ` ${tradeCount} trade${tradeCount > 1 ? 's' : ''} occurred.` : ''));
 }
 
 function renderSimRoundSelect() {
@@ -674,7 +756,7 @@ async function openTradeHub() {
     body = `
       <div class="space-y-3">
         <div class="card-eyebrow">Trade Up to ${escapeHtml(c.current_team)}'s Pick</div>
-        <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · overall #${c.overall}</div>
+        <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · pick #${c.draft_slot ?? c.overall}</div>
         ${buildTradeForm(c, isUserPick)}
       </div>
     `;
@@ -704,7 +786,7 @@ function buildTradeForm(currentPick, isUserPick) {
     const sel = preselectOverall === p.overall ? ' selected' : '';
     const valStr = p.value != null ? ` · ${p.value.toLocaleString()} pts` : '';
     const nyStr = p.year_offset ? ' [NY]' : '';
-    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round}${nyStr} · ${escapeHtml(p.current_team)} (#${p.overall}${valStr})</option>`;
+    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round}${nyStr} · ${escapeHtml(p.current_team)} (#${p.draft_slot ?? p.overall}${valStr})</option>`;
   }).join('');
 
   const myPicksHtml = myUnpickedPicks.length
@@ -714,7 +796,7 @@ function buildTradeForm(currentPick, isUserPick) {
         return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
           <span class="flex items-center gap-2">
             <input type="checkbox" class="trade-up-offer" value="${p.overall}" data-value="${p.value ?? 0}" onchange="updateTradeTotals()">
-            R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.overall}</span>
+            R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
           </span>
           ${valStr}
         </label>`;
@@ -772,7 +854,7 @@ function updateTargetTeamPicks(targetOverall) {
       return `<label class="flex items-center justify-between gap-2 text-sm py-1 text-slate-300">
         <span class="flex items-center gap-2">
           <input type="checkbox" class="trade-their-pick" value="${p.overall}" data-value="${p.value ?? 0}" checked disabled>
-          R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.overall}</span>
+          R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
           <span class="text-xs text-accent-400">(target)</span>
         </span>
         ${valStr}
@@ -781,7 +863,7 @@ function updateTargetTeamPicks(targetOverall) {
     return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
       <span class="flex items-center gap-2">
         <input type="checkbox" class="trade-their-pick" value="${p.overall}" data-value="${p.value ?? 0}" onchange="updateTradeTotals()">
-        R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.overall}</span>
+        R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
       </span>
       ${valStr}
     </label>`;
@@ -815,7 +897,14 @@ async function submitTradeUp() {
     await reloadSessionAndRender();
     setTimeout(closeModal, 800);
   } else {
-    result.textContent = 'Offer refused: ' + (res.decision.reason || 'no reason given');
+    const d = res.decision;
+    let msg = 'Offer refused: ' + (d.reason || 'no reason given');
+    if (d.offer_value != null && d.target_value != null) {
+      msg += ` (your offer: ${d.offer_value.toLocaleString()} pts`;
+      if (d.threshold != null) msg += `, need: ${Math.ceil(d.target_value * d.threshold).toLocaleString()} pts`;
+      msg += ')';
+    }
+    result.textContent = msg;
   }
 }
 

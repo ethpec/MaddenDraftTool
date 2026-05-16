@@ -227,88 +227,168 @@ def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
 # Trades
 # -----------------------------------------------------------------------------
 
+# TradeDown trait (1–5) -> minimum offer/pick-value ratio for acceptance.
+# Higher trait = more willing to trade down = accepts a lower ratio.
+_TRADE_DOWN_THRESHOLD: dict[int, float] = {1: 1.15, 2: 1.10, 3: 1.00, 4: 0.95, 5: 0.90}
+
+# TradeUp trait (1–5) -> probability a team makes a trade-up offer.
+_TRADE_UP_PROB: dict[int, float] = {1: 0.05, 2: 0.20, 3: 0.40, 4: 0.60, 5: 0.80}
+
+# TradeDown trait (1–5) -> probability the on-clock team considers trading down.
+_TRADE_DOWN_PROB: dict[int, float] = {1: 0.05, 2: 0.15, 3: 0.30, 4: 0.50, 5: 0.70}
+
+
+def trade_down_threshold(gm: dict[str, Any]) -> float:
+    """Return the minimum offer/pick-value ratio the team will accept."""
+    trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
+    return _TRADE_DOWN_THRESHOLD[trait]
+
+
 def pick_value(pick: dict[str, Any], pick_value_table: dict[str, list[dict[str, Any]]]) -> float:
     """Return the Jimmy-Johnson-style value of a single pick.
 
-    ``pick`` carries Round, PickNumber, YearOffset. ``pick_value_table``
-    is the parsed DraftPickValue workbook (Current + Future sheets).
-    Future-year picks are valued via the ``Future`` sheet (or by
-    discounting Current values for years > 1).
+    Accepts both raw DraftPicks.xlsx dicts (keys ``PickNumber``, ``YearOffset``)
+    and the internal ``_pick_to_dict`` format (keys ``draft_slot``, ``year_offset``).
+    Future-year picks use the ``Future`` sheet.
     """
-    overall = pick.get("PickNumber")
+    overall = pick.get("draft_slot") or pick.get("PickNumber") or pick.get("overall")
     if overall is None:
         return 0.0
-    year_offset = pick.get("YearOffset", 0) or 0
-    sheet = pick_value_table["current"] if year_offset == 0 else pick_value_table["future"]
+    raw_offset = pick.get("YearOffset")
+    year_offset = raw_offset if raw_offset is not None else (pick.get("year_offset") or 0)
+    sheet = pick_value_table["current"] if not year_offset else pick_value_table["future"]
+    target = int(overall) - 1  # DraftPickValue.xlsx Pick column is 0-indexed
     for row in sheet:
-        if row.get("Pick") == overall:
+        if row.get("Pick") == target:
             return float(row.get("Value") or 0)
     return 0.0
 
 
 def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return a list of trade-up offers other teams would make for this pick.
+    """Return CPU trade-up offers for the current on-clock pick, or [] if the
+    team isn't willing to trade down.
 
-    Real implementation should:
-    - Iterate every team that does not already own this pick.
-    - For each, decide based on GM ``TradeUp`` trait whether they're in
-      the market, and whether their personal big board has a target
-      sliding to this pick.
-    - Construct a package of their own picks (current + future) whose
-      total value approximates the target pick's value plus a premium
-      proportional to how much they want to move up.
-    - Return offers sorted by value to the picking team.
-
-    Current placeholder: returns an empty list.
+    Flow:
+    1. Roll the on-clock team's TradeDown trait to decide willingness.
+    2. For every other team, roll their TradeUp trait for interest.
+    3. Interested teams build the cheapest pick package (≤ 3 picks, only
+       picks after the target overall or future-year picks) that reaches
+       at least 85% of the target pick's Jimmy-Johnson value.
+    4. Return offers sorted by total offered value descending.
     """
-    return []
+    if not pick:
+        return []
+
+    on_clock_team = pick.get("current_team")
+    on_clock_gm = next((g for g in state["gm_info"] if g.get("TeamName") == on_clock_team), {})
+
+    trade_down_trait = max(1, min(5, int(on_clock_gm.get("TradeDown") or 3)))
+    if random.random() > _TRADE_DOWN_PROB[trade_down_trait]:
+        return []
+
+    target_val = pick_value(pick, state["pick_values"])
+    if target_val <= 0:
+        return []
+
+    min_offer = target_val * 0.85
+    target_overall = pick.get("overall", 0)
+    all_picks = state.get("remaining_picks", []) + state.get("future_picks", [])
+
+    offers: list[dict[str, Any]] = []
+    for gm in state["gm_info"]:
+        team = gm.get("TeamName")
+        if not team or team == on_clock_team:
+            continue
+        trade_up_trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
+        if random.random() > _TRADE_UP_PROB[trade_up_trait]:
+            continue
+
+        # Picks this team can trade: future picks + current picks after the target.
+        tradeable = [
+            p for p in all_picks
+            if p.get("current_team") == team
+            and not p.get("selected_player_id")
+            and (p.get("year_offset", 0) > 0 or p.get("overall", 0) > target_overall)
+        ]
+        if not tradeable:
+            continue
+
+        # Build cheapest package that reaches target_val, capped at 3 picks.
+        valued = sorted(
+            [(p, pick_value(p, state["pick_values"])) for p in tradeable],
+            key=lambda x: x[1], reverse=True,
+        )
+        package: list[dict[str, Any]] = []
+        total = 0.0
+        for p, val in valued:
+            if total >= target_val or len(package) >= 3:
+                break
+            if val > 0:
+                package.append(p)
+                total += val
+
+        if total < min_offer or not package:
+            continue
+
+        offers.append({
+            "from_team": team,
+            "to_team": on_clock_team,
+            "offered_picks": package,
+            "target_pick": pick,
+            "offer_value": round(total, 1),
+            "target_value": round(target_val, 1),
+        })
+
+    offers.sort(key=lambda o: o["offer_value"], reverse=True)
+    return offers
 
 
 def evaluate_trade_offer(state: dict[str, Any], offer: dict[str, Any],
                          receiving_team: str) -> dict[str, Any]:
     """Decide whether ``receiving_team`` accepts a given trade offer.
 
-    Real implementation should:
-    - Sum the value of picks offered vs picks given up using
-      ``pick_value``.
-    - Apply the receiving GM's TradeDown trait as a threshold (better
-      trait -> more willing to move down even at marginal value).
-    - Optionally compare offer to all other live offers for the same pick.
-    - Return ``{"accepted": bool, "counter": {...}|None, "reason": str}``.
-
-    Current placeholder: refuses everything.
+    Compares total offered value against the pick's Jimmy-Johnson value
+    scaled by the receiving GM's TradeDown threshold.
     """
-    return {"accepted": False, "counter": None, "reason": "placeholder logic"}
+    gm = next((g for g in state["gm_info"] if g.get("TeamName") == receiving_team), {})
+    threshold = trade_down_threshold(gm)
+    target_val = float(offer.get("target_value") or 0)
+    offer_val = float(offer.get("offer_value") or 0)
+    if target_val <= 0:
+        return {"accepted": False, "counter": None, "reason": "no_pick_value"}
+    ratio = offer_val / target_val
+    if ratio >= threshold:
+        return {"accepted": True, "counter": None, "reason": f"meets threshold ({ratio:.2f}x)"}
+    return {"accepted": False, "counter": None,
+            "reason": f"below threshold ({ratio:.2f}x, need {threshold:.2f}x)"}
 
 
 def attempt_user_trade_up(state: dict[str, Any], target_pick: dict[str, Any],
                           offered_picks: list[dict[str, Any]]) -> dict[str, Any]:
-    """Process the user's trade-up attempt against another team's pick.
+    """Evaluate the value of the user's trade-up offer.
 
-    Real implementation should:
-    - Build the same trade-evaluation flow used by AI: compare the user's
-      offer to other live AI offers for the same pick, factor in the
-      receiving GM's traits, and either accept, counter, or refuse.
-
-    Current placeholder: refuses every attempt with a stub reason.
+    Returns offer_value and target_value so the caller (draft_state) can
+    compare against competing CPU offers and the threshold.  Acceptance
+    is decided in ``DraftSession.submit_user_trade_up``, not here.
     """
+    offer_val = sum(pick_value(p, state["pick_values"]) for p in offered_picks)
+    target_val = pick_value(target_pick, state["pick_values"])
     return {
-        "accepted": False,
-        "counter": None,
-        "reason": "trade evaluation not implemented yet",
+        "offer_value": round(offer_val, 1),
+        "target_value": round(target_val, 1),
     }
 
 
 def attempt_user_trade_down(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Return AI-generated trade-up offers targeted at the user's current pick.
 
-    Real implementation should call ``generate_trade_offers_for_pick`` for
-    the user's pick and return those offers verbatim so the UI can show
-    them to the user.
-
-    Current placeholder: returns an empty list.
+    Delegates to ``generate_trade_offers_for_pick`` for the user's pick.
+    Still a placeholder until the user-on-clock trade flow is wired up.
     """
-    return []
+    current = state.get("current_pick")
+    if not current:
+        return []
+    return generate_trade_offers_for_pick(state, current)
 
 
 # -----------------------------------------------------------------------------

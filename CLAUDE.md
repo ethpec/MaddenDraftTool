@@ -115,8 +115,22 @@ Implemented:
   skips QB via BPA if QB is not a current need. Returns a dict with
   `outcome`, `player_id`, and `rationale` describing the path taken.
 
+- `generate_trade_offers_for_pick` — rolls the on-clock team's `TradeDown`
+  trait to check willingness, then for every other team rolls their `TradeUp`
+  trait and builds a pick package (≤ 3 picks, only picks after the target or
+  future-year picks) worth ≥ 85% of the target's Jimmy-Johnson value. Returns
+  offers sorted by value descending.
+- `evaluate_trade_offer` — compares offer value against `trade_down_threshold`,
+  which maps the receiving team's `TradeDown` trait (1–5) to a required ratio
+  (1.15× down to 0.90×).
+- `trade_down_threshold(gm)` — helper used by both `evaluate_trade_offer` and
+  `DraftSession._best_qualifying_cpu_offer` so the threshold lives in one place.
+- `attempt_user_trade_up` — calculates offer/target values; acceptance logic
+  lives in `DraftSession.submit_user_trade_up` (needs access to pending offers).
+
 Still placeholder:
-- All trade functions refuse / return empty.
+- `attempt_user_trade_down` — delegates to `generate_trade_offers_for_pick` for
+  the user's pick, but the Trade Hub "Incoming Offers" flow is not wired up yet.
 
 ### 3a. Roster mutation during the draft
 When a player is drafted (`DraftSession._record_selection`), their entry in
@@ -156,6 +170,25 @@ scans `Files/` for subdirs (excluding `Exports`).
 - `sim_until_end` deliberately **ignores** the user team — it pushes
   through every remaining pick, AI-filling the user team's slots too,
   for end-of-draft convenience.
+
+### 5a. CPU trade-down flow
+
+When a CPU pick is simmed (`_sim_one_locked`):
+1. `_ensure_pending_offers()` generates CPU trade-up offers lazily for the
+   current pick (keyed by `overall`; not re-generated until the pick changes).
+2. `_best_qualifying_cpu_offer()` finds the highest-value offer that clears the
+   on-clock team's `trade_down_threshold`.
+3. If a qualifying offer exists, `_execute_cpu_trade()` swaps pick ownership and
+   appends a `TradeRecord` before `sim_pick` chooses the player.
+4. The sim response includes a `"trade"` key with the summary; the UI toasts it.
+
+When the user submits a trade-up offer (`submit_user_trade_up`):
+- If targeting the current on-clock pick, `_ensure_pending_offers()` is called
+  so the user's offer is compared against the best CPU offer value.
+- Accepted when offer value ≥ threshold AND ≥ best CPU offer.
+- Declined with a reason and the threshold value so the UI can show it.
+
+Pending offers are cleared in `_advance()` each time a pick resolves.
 
 ### 6. Single global session
 `app.py` keeps **one** `DraftSession` in module-level state. There's no
@@ -319,8 +352,17 @@ stays the same. See `renderConsensusDelta` in `app.js`.
 - BPA/need probability tuning in `sim_pick` — the round/pick-bucket
   values (`bpa_prob`, `need_window`, `reach_limit`) are initial guesses
   and will be refined based on play-testing.
-- Trade heuristics (see `logic.py` docstrings for `generate_trade_offers_for_pick`,
-  `evaluate_trade_offer`, `attempt_user_trade_up`, `attempt_user_trade_down`).
+- CPU trade probability tuning (`_TRADE_DOWN_PROB`, `_TRADE_UP_PROB`,
+  `_TRADE_DOWN_THRESHOLD` in `logic.py`) — initial values, refine via play-testing.
+- Trade Hub "Incoming Offers" for user's pick — offer generation works
+  (`attempt_user_trade_down` → `generate_trade_offers_for_pick`), but three
+  things are missing before it's functional:
+  1. `renderOffersTable` uses wrong field names: fix `o.from_picks` →
+     `o.offered_picks` and `o.value` → `o.offer_value`.
+  2. No backend accept path: need `DraftSession.accept_trade_down_offer` and
+     `POST /api/trade/accept-offer` (user gives up current pick, receives
+     the CPU team's offered picks via `_apply_trade`).
+  3. The Accept button in `renderOffersTable` has no click handler.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
 - AI trade-up offers are not generated yet — the Trade Hub's "Incoming
