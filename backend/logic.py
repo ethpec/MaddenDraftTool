@@ -233,10 +233,10 @@ def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
 
 # TradeDown trait (1–5) -> minimum offer/pick-value ratio for acceptance.
 # Higher trait = more willing to trade down = accepts a lower ratio.
-_TRADE_DOWN_THRESHOLD: dict[int, float] = {1: 1.10, 2: 1.05, 3: 1.00, 4: 0.95, 5: 0.90}
+_TRADE_DOWN_THRESHOLD: dict[int, float] = {1: 1.05, 2: 1.025, 3: 1.00, 4: 0.975, 5: 0.95}
 
 # TradeUp trait (1–5) -> probability a team makes a trade-up offer.
-_TRADE_UP_PROB: dict[int, float] = {1: 0.05, 2: 0.15, 3: 0.25, 4: 0.35, 5: 0.45}
+_TRADE_UP_PROB: dict[int, float] = {1: 0.025, 2: 0.075, 3: 0.125, 4: 0.175, 5: 0.225}
 
 
 def _slide_prob(current_slot: int, rank: int | None) -> float:
@@ -256,7 +256,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     Two components, each contributing 0.05 / 0.15 / 0.25:
       1. BPA slide: how far the team's #1 available player has slid vs. the pick.
       2. Need slide: how far the best board player that fills an eligible need
-         has slid vs. the pick (75% if no eligible need match exists).
+         has slid vs. the pick (25% if no eligible need match exists).
     The two are summed, then the GM TradeDown trait adds/subtracts ±5–10 pp,
     and the result is clamped to [5%, 95%].
     """
@@ -267,14 +267,17 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
 
     player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
     team_board = state.get("team_boards", {}).get(on_clock_team, [])
+    # 1-indexed rank of each player on this team's private board (all players,
+    # including drafted, so the rank reflects their pre-draft assessment).
+    team_rank = {pid: i + 1 for i, pid in enumerate(team_board)}
     available = [player_map[pid] for pid in team_board
                  if pid in player_map and not player_map[pid].get("drafted")]
 
-    # Component 1: BPA slide.
+    # Component 1: BPA slide using team's private rank.
     bpa = available[0] if available else None
-    bpa_prob = _slide_prob(current_slot, bpa.get("BigBoardRank") if bpa else None)
+    bpa_prob = _slide_prob(current_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None)
 
-    # Component 2: Best eligible need player slide.
+    # Component 2: Best eligible need player slide using team's private rank.
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
     gm = next((g for g in state["gm_info"] if g.get("TeamName") == on_clock_team), {})
     gm_index = gm.get("TeamIndex")
@@ -286,7 +289,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
          if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
         None,
     )
-    need_prob = _slide_prob(current_slot, best_need.get("BigBoardRank") if best_need else None)
+    need_prob = _slide_prob(current_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None)
 
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
     adj = {1: -0.10, 2: -0.05, 3: 0.0, 4: 0.05, 5: 0.10}[trait]
