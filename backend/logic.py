@@ -120,6 +120,30 @@ def compute_team_needs(team_name: str, team_index: int,
 # Pick simulation
 # -----------------------------------------------------------------------------
 
+def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float, float], int]:
+    """Return (bpa_probability, (need_window_min, need_window_max), reach_limit) for a pick.
+
+    Round 1 is split into pick-range sub-buckets. Used by both sim_pick and
+    the trade-down willingness check so they share the same need window.
+    """
+    if round_1 == 1:
+        if pick_in_round <= 5:
+            return 0.05, (2.50, 100), 3
+        if pick_in_round <= 10:
+            return 0.10, (2.50, 100), 3
+        if pick_in_round <= 16:
+            return 0.15, (2.50, 100), 5
+        return 0.20, (2.50, 100), 5
+    return {
+        2: (0.30, (2.00, 100), 5),
+        3: (0.40, (1.75, 100), 8),
+        4: (0.60, (1.50, 2.50), 10),
+        5: (0.70, (1.25, 2.25), 12),
+        6: (0.80, (1.00, 2.00), 15),
+        7: (0.90, (0.75, 1.75), 16),
+    }.get(round_1, (0.50, (1.50, 100), 10))
+
+
 def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     """Decide what ``team_name`` does with their current pick.
 
@@ -140,26 +164,6 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     round_1 = current_pick.get("round", 1)
     pick_in_round = current_pick.get("pick_in_round", 1)
 
-    # Returns (bpa_probability, (need_window_min, need_window_max), reach_limit)
-    # for the current pick. Round 1 is split into pick-range sub-buckets.
-    def _bucket() -> tuple[float, tuple[float, float], int]:
-        if round_1 == 1:
-            if pick_in_round <= 5:
-                return 0.05, (2.50, 100), 3
-            if pick_in_round <= 10:
-                return 0.10, (2.50, 100), 3
-            if pick_in_round <= 16:
-                return 0.15, (2.50, 100), 5
-            return 0.20, (2.50, 100), 5
-        return {
-            2: (0.30, (2.00, 100), 5),
-            3: (0.40, (1.75, 100), 8),
-            4: (0.60, (1.50, 2.50), 10),
-            5: (0.70, (1.25, 2.25), 12),
-            6: (0.80, (1.00, 2.00), 15),
-            7: (0.90, (0.75, 1.75), 16),
-        }.get(round_1, (0.50, (1.50, 100), 10))
-
     player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
     board = state.get("team_boards", {}).get(team_name, [])
     available = [player_map[pid] for pid in board
@@ -168,7 +172,7 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     if not available:
         return {"outcome": "skip", "reason": "no_players_left"}
 
-    base_bpa, (win_min, win_max), reach = _bucket()
+    base_bpa, (win_min, win_max), reach = _round_bucket(round_1, pick_in_round)
 
     # NeedvsBPA trait: 1 = extreme BPA, 5 = extreme need. Each step from
     # the midpoint (3) shifts the base probability by 10 percentage points.
@@ -229,13 +233,69 @@ def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
 
 # TradeDown trait (1–5) -> minimum offer/pick-value ratio for acceptance.
 # Higher trait = more willing to trade down = accepts a lower ratio.
-_TRADE_DOWN_THRESHOLD: dict[int, float] = {1: 1.15, 2: 1.10, 3: 1.00, 4: 0.95, 5: 0.90}
+_TRADE_DOWN_THRESHOLD: dict[int, float] = {1: 1.10, 2: 1.05, 3: 1.00, 4: 0.95, 5: 0.90}
 
 # TradeUp trait (1–5) -> probability a team makes a trade-up offer.
-_TRADE_UP_PROB: dict[int, float] = {1: 0.05, 2: 0.20, 3: 0.40, 4: 0.60, 5: 0.80}
+_TRADE_UP_PROB: dict[int, float] = {1: 0.05, 2: 0.15, 3: 0.25, 4: 0.35, 5: 0.45}
 
-# TradeDown trait (1–5) -> probability the on-clock team considers trading down.
-_TRADE_DOWN_PROB: dict[int, float] = {1: 0.05, 2: 0.15, 3: 0.30, 4: 0.50, 5: 0.70}
+
+def _slide_prob(current_slot: int, rank: int | None) -> float:
+    """Convert a board-slide ratio into a trade-down probability component."""
+    effective_rank = rank or current_slot
+    ratio = (current_slot - effective_rank) / current_slot
+    if ratio >= 0.25:
+        return 0.05
+    if ratio >= 0.125:
+        return 0.15
+    return 0.25
+
+
+def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> float:
+    """Return the probability (0–1) that the on-clock team is willing to trade down.
+
+    Two components, each contributing 0.05 / 0.15 / 0.25:
+      1. BPA slide: how far the team's #1 available player has slid vs. the pick.
+      2. Need slide: how far the best board player that fills an eligible need
+         has slid vs. the pick (75% if no eligible need match exists).
+    The two are summed, then the GM TradeDown trait adds/subtracts ±5–10 pp,
+    and the result is clamped to [5%, 95%].
+    """
+    on_clock_team = pick.get("current_team")
+    current_slot = pick.get("draft_slot") or pick.get("overall") or 1
+    round_1 = pick.get("round", 1)
+    pick_in_round = pick.get("pick_in_round", 1)
+
+    player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
+    team_board = state.get("team_boards", {}).get(on_clock_team, [])
+    available = [player_map[pid] for pid in team_board
+                 if pid in player_map and not player_map[pid].get("drafted")]
+
+    # Component 1: BPA slide.
+    bpa = available[0] if available else None
+    bpa_prob = _slide_prob(current_slot, bpa.get("BigBoardRank") if bpa else None)
+
+    # Component 2: Best eligible need player slide.
+    _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
+    gm = next((g for g in state["gm_info"] if g.get("TeamName") == on_clock_team), {})
+    gm_index = gm.get("TeamIndex")
+    needs = (compute_team_needs(on_clock_team, int(gm_index), state["players"], state["position_needs"])
+             if gm_index is not None else [])
+    eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
+    best_need = next(
+        (p for p in available
+         if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
+        None,
+    )
+    need_prob = _slide_prob(current_slot, best_need.get("BigBoardRank") if best_need else None)
+
+    trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
+    adj = {1: -0.10, 2: -0.05, 3: 0.0, 4: 0.05, 5: 0.10}[trait]
+    return max(0.05, min(0.95, bpa_prob + need_prob + adj))
+
+
+def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:
+    """Roll to decide if the on-clock team considers trading down."""
+    return random.random() <= _trade_down_probability(state, pick)
 
 
 def trade_down_threshold(gm: dict[str, Any]) -> float:
@@ -269,28 +329,30 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any]) 
     team isn't willing to trade down.
 
     Flow:
-    1. Roll the on-clock team's TradeDown trait to decide willingness.
+    1. Board-slide check: measure how far the team's BPA has slid relative
+       to the current pick. A player right at or below the pick means the
+       team can afford to slide; a top talent sitting at a late pick means
+       they must take him now.
+         ratio = (current_slot - bpa_consensus_rank) / current_slot
+         ratio >= 0.25  → 25% trade-down probability
+         0.125–0.25     → 50%
+         < 0.125        → 75%
     2. For every other team, roll their TradeUp trait for interest.
     3. Interested teams build the cheapest pick package (≤ 3 picks, only
        picks after the target overall or future-year picks) that reaches
-       at least 85% of the target pick's Jimmy-Johnson value.
+       at least 95% of the target pick's Jimmy-Johnson value.
     4. Return offers sorted by total offered value descending.
     """
     if not pick:
         return []
 
     on_clock_team = pick.get("current_team")
-    on_clock_gm = next((g for g in state["gm_info"] if g.get("TeamName") == on_clock_team), {})
-
-    trade_down_trait = max(1, min(5, int(on_clock_gm.get("TradeDown") or 3)))
-    if random.random() > _TRADE_DOWN_PROB[trade_down_trait]:
-        return []
 
     target_val = pick_value(pick, state["pick_values"])
     if target_val <= 0:
         return []
 
-    min_offer = target_val * 0.85
+    min_offer = target_val * 0.95
     target_overall = pick.get("overall", 0)
     all_picks = state.get("remaining_picks", []) + state.get("future_picks", [])
 

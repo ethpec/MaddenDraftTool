@@ -84,8 +84,11 @@ class DraftSession:
         self._next_trade_id: int = 1
         # CPU trade-up offers for the current on-clock pick. Generated lazily
         # on first access per pick and cleared when the pick resolves.
+        # _trade_down_willing caches the single willingness roll so that the
+        # user trade path and CPU trade path share the same result.
         self._pending_trade_offers: list[dict[str, Any]] | None = None
         self._pending_offers_for_overall: int | None = None
+        self._trade_down_willing: bool | None = None
         # Default to Steelers if no team is specified (legacy behavior).
         # Validate against GMInfo so we don't accept arbitrary strings.
         valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
@@ -387,8 +390,35 @@ class DraftSession:
 
             target_dict = _pick_to_dict(target)
             offered_dicts = [_pick_to_dict(p) for p in offered]
-            evaluated = logic.attempt_user_trade_up(
-                self._snapshot_for_logic(), target_dict, offered_dicts)
+
+            snap = self._snapshot_for_logic()
+
+            # Check whether the target team is willing to trade down at all.
+            # For the current on-clock pick, reuse the cached roll so the
+            # answer is consistent with whether CPU offers were generated.
+            is_current = (self.current_pick() is not None
+                          and self.current_pick().overall == target_overall)
+            if is_current:
+                self._ensure_pending_offers()
+                willing = self._trade_down_willing
+            else:
+                willing = logic.willing_to_trade_down(snap, target_dict)
+            if not willing:
+                return {
+                    "ok": True,
+                    "decision": {
+                        "accepted": False,
+                        "reason": f"the {target.current_team} aren't looking to trade down right now",
+                    },
+                    "offer": {
+                        "from_team": self.user_team,
+                        "to_team": target.current_team,
+                        "offered_picks": offered_dicts,
+                        "target_pick": target_dict,
+                    },
+                }
+
+            evaluated = logic.attempt_user_trade_up(snap, target_dict, offered_dicts)
             offer_val = evaluated["offer_value"]
             target_val = evaluated["target_value"]
 
@@ -398,10 +428,7 @@ class DraftSession:
             meets_threshold = target_val > 0 and offer_val >= target_val * threshold
 
             # Compare against competing CPU offers only for the current on-clock pick.
-            is_current = (self.current_pick() is not None
-                          and self.current_pick().overall == target_overall)
-            if is_current:
-                self._ensure_pending_offers()
+            # is_current and _ensure_pending_offers already handled above.
             best_cpu_val = max(
                 (o["offer_value"] for o in (self._pending_trade_offers or []) if is_current),
                 default=0.0,
@@ -459,8 +486,12 @@ class DraftSession:
         if (self._pending_trade_offers is not None
                 and self._pending_offers_for_overall == pick.overall):
             return
-        self._pending_trade_offers = logic.generate_trade_offers_for_pick(
-            self._snapshot_for_logic(), _pick_to_dict(pick)
+        snap = self._snapshot_for_logic()
+        pick_dict = _pick_to_dict(pick)
+        self._trade_down_willing = logic.willing_to_trade_down(snap, pick_dict)
+        self._pending_trade_offers = (
+            logic.generate_trade_offers_for_pick(snap, pick_dict)
+            if self._trade_down_willing else []
         )
         self._pending_offers_for_overall = pick.overall
 
@@ -549,6 +580,7 @@ class DraftSession:
         self._current_idx += 1
         self._pending_trade_offers = None
         self._pending_offers_for_overall = None
+        self._trade_down_willing = None
 
     def _find_player(self, player_id: str | None) -> dict[str, Any] | None:
         if not player_id:
