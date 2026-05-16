@@ -103,9 +103,19 @@ Implemented:
   stays fixed for the draft. Roster updates as players are drafted — see
   section on roster mutation below.
 
+- `sim_pick` — round-aware BPA vs. need decision engine. Each round
+  (and each pick sub-range within round 1) has a `(bpa_prob,
+  need_window, reach_limit)` bucket that sets the base probability of
+  going BPA. The GM's `NeedvsBPA` trait (1–5) shifts that probability
+  by ±10 pp per step from the midpoint. The need path filters
+  `compute_team_needs` output to weights within `[need_window_min,
+  need_window_max]` for the current round; it then scans the top
+  `reach_limit` players on the team's board for a match. If no match
+  is found within reach, falls back to BPA. Round-1 special case:
+  skips QB via BPA if QB is not a current need. Returns a dict with
+  `outcome`, `player_id`, and `rationale` describing the path taken.
+
 Still placeholder:
-- `sim_pick` picks the top available player on the team's board (no
-  need/BPA blending yet).
 - All trade functions refuse / return empty.
 
 ### 3a. Roster mutation during the draft
@@ -306,7 +316,11 @@ stays the same. See `renderConsensusDelta` in `app.js`.
 
 ## Open work / known gaps
 
-- Real draft and trade heuristics (see `logic.py` docstrings).
+- BPA/need probability tuning in `sim_pick` — the round/pick-bucket
+  values (`bpa_prob`, `need_window`, `reach_limit`) are initial guesses
+  and will be refined based on play-testing.
+- Trade heuristics (see `logic.py` docstrings for `generate_trade_offers_for_pick`,
+  `evaluate_trade_offer`, `attempt_user_trade_up`, `attempt_user_trade_down`).
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
 - AI trade-up offers are not generated yet — the Trade Hub's "Incoming

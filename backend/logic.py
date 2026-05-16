@@ -130,6 +130,9 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     (the window has passed). If the need path produces no match within
     the reach limit, falls back to BPA.
 
+    Specialist guard: K and P are never taken via BPA in any round
+    unless they are an explicit need. Round-1 QB guard works the same way.
+
     Trade logic is not yet implemented; the TRADE outcome path is a
     placeholder for a future step.
     """
@@ -142,19 +145,19 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     def _bucket() -> tuple[float, tuple[float, float], int]:
         if round_1 == 1:
             if pick_in_round <= 5:
-                return 0.25, (2.50, 100), 2
+                return 0.05, (2.50, 100), 3
             if pick_in_round <= 10:
-                return 0.30, (2.50, 100), 2
+                return 0.10, (2.50, 100), 3
             if pick_in_round <= 16:
-                return 0.30, (2.25, 100), 5
-            return 0.25, (2.25, 100), 5
+                return 0.15, (2.50, 100), 5
+            return 0.20, (2.50, 100), 5
         return {
-            2: (0.30, (2.00, 100), 10),
-            3: (0.40, (1.75, 100), 10),
-            4: (0.60, (1.50, 2.50), 15),
-            5: (0.70, (1.25, 2.25), 15),
+            2: (0.30, (2.00, 100), 5),
+            3: (0.40, (1.75, 100), 8),
+            4: (0.60, (1.50, 2.50), 10),
+            5: (0.70, (1.25, 2.25), 12),
             6: (0.80, (1.00, 2.00), 15),
-            7: (0.90, (0.75, 1.75), 15),
+            7: (0.90, (0.75, 1.75), 16),
         }.get(round_1, (0.50, (1.50, 100), 10))
 
     player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
@@ -164,8 +167,6 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
 
     if not available:
         return {"outcome": "skip", "reason": "no_players_left"}
-
-    bpa_player = available[0]
 
     base_bpa, (win_min, win_max), reach = _bucket()
 
@@ -178,18 +179,26 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     # Need path — compute needs and filter to this round's weight window.
     gm_index = gm.get("TeamIndex")
     needs = compute_team_needs(team_name, int(gm_index), state["players"], state["position_needs"]) if gm_index is not None else []
-    need_positions = {n["position"] for n in needs}
     eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
 
+    def _bpa(rationale: str) -> dict[str, Any]:
+        """Pick BPA with QB (round 1) and specialist (all rounds) guards applied."""
+        player = available[0]
+        _SPECIALISTS = {"K", "P"}
+        if round_1 == 1 and player.get("position") == "QB" and "QB" not in eligible:
+            player = next((p for p in available if p.get("position") != "QB"), player)
+            return _make_select(player, "BPA (QB skipped — not a need)")
+        if player.get("position") in _SPECIALISTS and player.get("position") not in eligible:
+            pos = player.get("position")
+            player = next((p for p in available if p.get("position") not in _SPECIALISTS), player)
+            return _make_select(player, f"BPA ({pos} skipped — not a need)")
+        return _make_select(player, rationale)
+
     if random.random() < bpa_prob:
-        # In round 1, don't take a QB via BPA unless QB is actually a need.
-        if round_1 == 1 and bpa_player.get("position") == "QB" and "QB" not in need_positions:
-            non_qb = next((p for p in available if p.get("position") != "QB"), bpa_player)
-            return _make_select(non_qb, "BPA (QB skipped — not a need)")
-        return _make_select(bpa_player, "BPA")
+        return _bpa("BPA")
 
     if not eligible or gm_index is None:
-        return _make_select(bpa_player, "BPA (no eligible needs this round)")
+        return _bpa("BPA (no eligible needs this round)")
 
     need_pick = next(
         (p for p in available[:reach]
@@ -198,7 +207,7 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     )
 
     if need_pick is None:
-        return _make_select(bpa_player, "BPA (no need match in reach)")
+        return _bpa("BPA (no need match in reach)")
 
     raw_pos = need_pick.get("position")
     return _make_select(need_pick, f"need ({POSITION_GROUPS.get(raw_pos, raw_pos)})")
