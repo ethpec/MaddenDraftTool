@@ -123,37 +123,103 @@ def compute_team_needs(team_name: str, team_index: int,
 def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     """Decide what ``team_name`` does with their current pick.
 
-    Real implementation should:
-    1. Build the team's personal big board (compute_team_big_board).
-    2. Compute team needs (compute_team_needs).
-    3. With probability driven by GM ``TradeDown`` trait, evaluate any
-       trade-up offers from other teams (generate_trade_offers_for_pick).
-       If best offer's value beats keeping the pick, return a TRADE
-       outcome.
-    4. Otherwise, choose between "best player available" and "best player
-       at a position of need" using the GM's NeedvsBPA bias and the
-       phase of the draft (early rounds lean BPA, later lean need).
-       Respect DraftMaxPerPosition.
-    5. Return a SELECT outcome with the chosen player.
+    Uses a round-based BPA vs need probability, modified by the GM's
+    NeedvsBPA trait. Each round has a TrueWeight window that determines
+    which needs are eligible — too low a weight isn't worth a pick at
+    that stage, and in later rounds very high-weight needs are excluded
+    (the window has passed). If the need path produces no match within
+    the reach limit, falls back to BPA.
 
-    Current placeholder: picks the top still-available player from this
-    team's pre-built big board.
+    Specialist guard: K and P are never taken via BPA in any round
+    unless they are an explicit need. Round-1 QB guard works the same way.
+
+    Trade logic is not yet implemented; the TRADE outcome path is a
+    placeholder for a future step.
     """
+    current_pick = state.get("current_pick") or {}
+    round_1 = current_pick.get("round", 1)
+    pick_in_round = current_pick.get("pick_in_round", 1)
+
+    # Returns (bpa_probability, (need_window_min, need_window_max), reach_limit)
+    # for the current pick. Round 1 is split into pick-range sub-buckets.
+    def _bucket() -> tuple[float, tuple[float, float], int]:
+        if round_1 == 1:
+            if pick_in_round <= 5:
+                return 0.05, (2.50, 100), 3
+            if pick_in_round <= 10:
+                return 0.10, (2.50, 100), 3
+            if pick_in_round <= 16:
+                return 0.15, (2.50, 100), 5
+            return 0.20, (2.50, 100), 5
+        return {
+            2: (0.30, (2.00, 100), 5),
+            3: (0.40, (1.75, 100), 8),
+            4: (0.60, (1.50, 2.50), 10),
+            5: (0.70, (1.25, 2.25), 12),
+            6: (0.80, (1.00, 2.00), 15),
+            7: (0.90, (0.75, 1.75), 16),
+        }.get(round_1, (0.50, (1.50, 100), 10))
+
     player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
     board = state.get("team_boards", {}).get(team_name, [])
-    pick = next(
-        (player_map[pid] for pid in board
-         if pid in player_map and not player_map[pid].get("drafted")),
+    available = [player_map[pid] for pid in board
+                 if pid in player_map and not player_map[pid].get("drafted")]
+
+    if not available:
+        return {"outcome": "skip", "reason": "no_players_left"}
+
+    base_bpa, (win_min, win_max), reach = _bucket()
+
+    # NeedvsBPA trait: 1 = extreme BPA, 5 = extreme need. Each step from
+    # the midpoint (3) shifts the base probability by 10 percentage points.
+    gm = next((g for g in state["gm_info"] if g.get("TeamName") == team_name), {})
+    need_vs_bpa = max(1, min(5, int(gm.get("NeedvsBPA") or 3)))
+    bpa_prob = max(0.05, min(0.95, base_bpa + (3 - need_vs_bpa) * 0.10))
+
+    # Need path — compute needs and filter to this round's weight window.
+    gm_index = gm.get("TeamIndex")
+    needs = compute_team_needs(team_name, int(gm_index), state["players"], state["position_needs"]) if gm_index is not None else []
+    eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
+
+    def _bpa(rationale: str) -> dict[str, Any]:
+        """Pick BPA with QB (round 1) and specialist (all rounds) guards applied."""
+        player = available[0]
+        _SPECIALISTS = {"K", "P"}
+        if round_1 == 1 and player.get("position") == "QB" and "QB" not in eligible:
+            player = next((p for p in available if p.get("position") != "QB"), player)
+            return _make_select(player, "BPA (QB skipped — not a need)")
+        if player.get("position") in _SPECIALISTS and player.get("position") not in eligible:
+            pos = player.get("position")
+            player = next((p for p in available if p.get("position") not in _SPECIALISTS), player)
+            return _make_select(player, f"BPA ({pos} skipped — not a need)")
+        return _make_select(player, rationale)
+
+    if random.random() < bpa_prob:
+        return _bpa("BPA")
+
+    if not eligible or gm_index is None:
+        return _bpa("BPA (no eligible needs this round)")
+
+    need_pick = next(
+        (p for p in available[:reach]
+         if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
         None,
     )
-    if pick is None:
-        return {"outcome": "skip", "reason": "no_players_left"}
+
+    if need_pick is None:
+        return _bpa("BPA (no need match in reach)")
+
+    raw_pos = need_pick.get("position")
+    return _make_select(need_pick, f"need ({POSITION_GROUPS.get(raw_pos, raw_pos)})")
+
+
+def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
     return {
         "outcome": "select",
-        "player_id": pick.get("Player_ID"),
-        "first_name": pick.get("FirstName"),
-        "last_name": pick.get("LastName"),
-        "rationale": f"top of {team_name}'s board",
+        "player_id": player.get("Player_ID"),
+        "first_name": player.get("FirstName"),
+        "last_name": player.get("LastName"),
+        "rationale": rationale,
     }
 
 
