@@ -685,7 +685,8 @@ async function showTradeDownOffers() {
     !res.ok ? '<div class="text-xs text-rose-400">' + (res.error || 'error') + '</div>'
     : (res.offers && res.offers.length
         ? renderOffersTable(res.offers)
-        : '<div class="text-sm text-slate-400">No teams are interested in trading up right now. (Trade logic is a placeholder — once implemented this will populate.)</div>'));
+        : '<div class="text-sm text-slate-400">No teams are interested in trading up right now.</div>'));
+  wireAcceptOfferButtons();
 }
 
 function openTradeUpModal(opts = {}) {
@@ -740,13 +741,18 @@ async function openTradeHub() {
   } else if (isUserPick) {
     const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
     const offers = (res.ok && res.offers) || [];
+    const targetLabel = `R${c.round}.${c.pick_in_round} · pick #${c.draft_slot ?? c.overall}`;
     const offersBlock = offers.length
       ? renderOffersTable(offers)
-      : '<div class="text-sm text-slate-400">No incoming trade-up offers right now. <span class="text-slate-500">(AI trade logic is still a placeholder.)</span></div>';
+      : '<div class="text-sm text-slate-400">No incoming trade-up offers right now.</div>';
     body = `
       <div class="space-y-5">
         <div>
           <div class="card-eyebrow mb-2">Incoming Offers</div>
+          <div class="text-xs text-slate-400 mb-2">
+            Each offer is to acquire your on-clock pick
+            <span class="text-accent-400 font-mono">${targetLabel}</span>.
+          </div>
           ${offersBlock}
         </div>
         <div class="border-t border-ink-700 pt-4">
@@ -775,6 +781,7 @@ async function openTradeHub() {
   }
   const submitBtn = document.getElementById('submit-trade-up');
   if (submitBtn) submitBtn.addEventListener('click', submitTradeUp);
+  wireAcceptOfferButtons();
 }
 
 function buildTradeForm(currentPick, isUserPick) {
@@ -913,21 +920,57 @@ async function submitTradeUp() {
 }
 
 function renderOffersTable(offers) {
+  const fmtPick = p => `R${p.round}.${p.pick_in_round}${p.year_offset ? ' <span class="text-[9px] text-amber-400">NY</span>' : ''}`;
+  const fmtList = picks => picks && picks.length
+    ? picks.map(fmtPick).join(', ')
+    : '<span class="text-slate-600">—</span>';
   return `
     <table class="w-full text-sm">
       <thead class="text-xs uppercase text-slate-400 border-b border-ink-700">
-        <tr><th class="text-left py-1">From</th><th class="text-left py-1">Offers</th><th class="text-left py-1">Value</th><th></th></tr>
+        <tr>
+          <th class="text-left py-1">Team</th>
+          <th class="text-left py-1">You Receive</th>
+          <th class="text-left py-1">You Send</th>
+          <th class="text-right py-1">Net Value</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
-        ${offers.map(o => `<tr class="border-b border-ink-800">
-          <td class="py-1">${escapeHtml(o.from_team || '?')}</td>
-          <td class="py-1 text-xs">${(o.from_picks || []).map(p => `R${p.round}.${p.pick_in_round}`).join(', ')}</td>
-          <td class="py-1 font-mono text-xs">${o.value ?? '—'}</td>
-          <td class="py-1 text-right"><button class="action-btn">Accept</button></td>
-        </tr>`).join('')}
+        ${offers.map(o => {
+          const youSend = [o.target_pick, ...(o.return_picks || [])].filter(Boolean);
+          const net = ((o.offer_value || 0) - (o.target_value || 0) - (o.return_value || 0));
+          const netStr = (net >= 0 ? '+' : '') + net.toFixed(0);
+          const netClass = net >= 0 ? 'text-accent-400' : 'text-rose-400';
+          return `<tr class="border-b border-ink-800">
+            <td class="py-1 pr-2">${escapeHtml(o.from_team || '?')}</td>
+            <td class="py-1 pr-2 text-xs">${fmtList(o.offered_picks)}</td>
+            <td class="py-1 pr-2 text-xs text-slate-400">${fmtList(youSend)}</td>
+            <td class="py-1 pr-2 text-right font-mono text-xs ${netClass}">${netStr}</td>
+            <td class="py-1 text-right"><button class="action-btn accept-offer-btn" data-from-team="${escapeHtml(o.from_team || '')}">Accept</button></td>
+          </tr>`;
+        }).join('')}
       </tbody>
     </table>
   `;
+}
+
+async function acceptTradeDownOffer(fromTeam) {
+  const res = await api.post('/api/trade/accept-offer', { from_team: fromTeam });
+  if (!res.ok) {
+    toast('Trade failed: ' + (res.error || 'unknown error'));
+    return;
+  }
+  closeModal();
+  await reloadSessionAndRender();
+  if (res.trade) {
+    showTradeModal(res.trade, res.trade.target_pick);
+  }
+}
+
+function wireAcceptOfferButtons() {
+  document.querySelectorAll('.accept-offer-btn').forEach(btn => {
+    btn.addEventListener('click', () => acceptTradeDownOffer(btn.dataset.fromTeam));
+  });
 }
 
 // ---------- Big Board modal ----------

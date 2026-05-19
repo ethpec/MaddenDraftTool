@@ -367,7 +367,24 @@ def api_trade_up():
     body = request.get_json(force=True, silent=True) or {}
     target = int(body.get("target_overall", 0))
     offered = body.get("offered_overalls") or []
-    return jsonify(sess.submit_user_trade_up(target, [int(x) for x in offered]))
+    target_also_sends = body.get("target_also_sends") or []
+    return jsonify(sess.submit_user_trade_up(
+        target,
+        [int(x) for x in offered],
+        [int(x) for x in target_also_sends],
+    ))
+
+
+@app.post("/api/trade/accept-offer")
+def api_trade_accept_offer():
+    sess, err = _require_session()
+    if err:
+        return err
+    body = request.get_json(force=True, silent=True) or {}
+    from_team = body.get("from_team")
+    if not from_team:
+        return jsonify({"ok": False, "error": "missing_from_team"}), 400
+    return jsonify(sess.accept_trade_down_offer(str(from_team)))
 
 
 @app.post("/api/export")
