@@ -284,12 +284,14 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.25:
+        return -0.075
+    if ratio >= 0.25:
         return 0.025
     if ratio >= 0.125:
         return 0.125
     if ratio >= 0.0:
-        return 0.25
-    return 0.375
+        return 0.33
+    return 0.5
 
 
 def _slide_prob_up(current_slot: int, rank: int | None) -> float:
@@ -305,10 +307,12 @@ def _slide_prob_up(current_slot: int, rank: int | None) -> float:
     """
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
+    if ratio >= 0.33:
+        return 0.2
     if ratio >= 0.25:
-        return 0.25
+        return 0.1
     if ratio >= 0.125:
-        return 0.125
+        return 0.025
     if ratio >= 0.0:
         return 0.0
     return -0.125
@@ -412,7 +416,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
 
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}[trait]
-    return max(0.01, min(0.75, (bpa_prob + need_prob) * gm_multiplier))
+    return max(0.001, min(0.5, (bpa_prob + need_prob) * gm_multiplier))
 
 
 def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:
