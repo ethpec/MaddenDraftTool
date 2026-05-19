@@ -115,8 +115,50 @@ Implemented:
   skips QB via BPA if QB is not a current need. Returns a dict with
   `outcome`, `player_id`, and `rationale` describing the path taken.
 
+- `_round_bucket(round_1, pick_in_round)` — returns `(bpa_prob, (need_window_min,
+  need_window_max), reach_limit)` for a pick. Shared by `sim_pick` and the
+  trade-down willingness check so both use the same need window.
+- `_slide_prob(current_slot, rank)` — converts a board-slide ratio
+  `(current_slot - rank) / current_slot` to a probability component:
+  ≥ 0.25 → 0.10, ≥ 0.125 → 0.20, < 0.125 → 0.30.
+- `_trade_down_probability(state, pick)` — computes willingness probability
+  from two components: (1) BPA slide and (2) best board player filling an
+  eligible need for this round's window. Both components use `_slide_prob`;
+  if no eligible need match exists the need component defaults to 0.30.
+  The two are summed, the GM's `TradeDown` trait adds/subtracts ±5–10 pp
+  (tier 5 +10%, tier 4 +5%, tier 3 neutral, tier 2 −5%, tier 1 −10%),
+  then clamped to [5%, 95%].
+- `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
+  Called once per pick in `_ensure_pending_offers`; the result is cached in
+  `DraftSession._trade_down_willing` so CPU and user trade paths share the
+  same answer for the current on-clock pick.
+- `_roll_trade_threshold(round_1, is_trade_up)` — rolls a multiplier from a
+  round-keyed table. `is_trade_up=True` adds `_TRADE_UP_OFFSET` (0.025) so a
+  same-bucket pair (M_down=X, M_up=X+0.025) still leaves a 2.5% acceptance
+  window. Trade-down team rolls M_down once per pick (cached on session as
+  `_trade_down_m_down`); trade-up teams roll M_up per offer.
+- `_trade_up_probability(state, gm, target_pick)` — willingness probability
+  for an offering team to trade up to `target_pick`. Two components scored by
+  `_slide_prob_up`: (1) the team's #1 board player vs. target slot, (2) their
+  best board player filling an eligible need (using target pick's round window)
+  vs. target slot. Sum × GM TradeUp multiplier (0.75–1.25×), clamped to [5%, 95%].
+- `generate_trade_offers_for_pick(state, pick, m_down)` — builds CPU offers.
+  For each other team that passes `_trade_up_probability` AND whose rolled M_up
+  ≥ m_down, enumerates (offered, return) combinations subject to:
+    - 1 ≤ |offered| ≤ 3, 0 ≤ |return| ≤ 2, net pick count for trade-down in [0, 2]
+    - `m_down ≤ offered_val / (target_val + return_val) ≤ M_up`
+    - offered package anchored on team's highest-value current-year pick (`P_high`)
+    - each side capped at 1 future pick AND gated by a 25% future-pick roll
+  Returns offers sorted by net value (offered − return) descending. Caller
+  (`_ensure_pending_offers`) is responsible for rolling/caching `m_down`.
+- `_best_offer_for_team` — inner helper that picks the (offered, return) combo
+  with highest net value to the trade-down team for a given offering team.
+- `attempt_user_trade_up` — calculates offer/target values; acceptance logic
+  lives in `DraftSession.submit_user_trade_up` (which uses the cached `m_down`).
+
 Still placeholder:
-- All trade functions refuse / return empty.
+- `attempt_user_trade_down` — delegates to `generate_trade_offers_for_pick` for
+  the user's pick, but the Trade Hub "Incoming Offers" flow is not wired up yet.
 
 ### 3a. Roster mutation during the draft
 When a player is drafted (`DraftSession._record_selection`), their entry in
@@ -156,6 +198,39 @@ scans `Files/` for subdirs (excluding `Exports`).
 - `sim_until_end` deliberately **ignores** the user team — it pushes
   through every remaining pick, AI-filling the user team's slots too,
   for end-of-draft convenience.
+
+### 5a. CPU trade-down flow
+
+When a CPU pick is simmed (`_sim_one_locked`):
+1. `_ensure_pending_offers()` lazily rolls willingness + M_down, then generates
+   offers (keyed by `overall`; not re-generated until the pick changes).
+   Both `_trade_down_willing` and `_trade_down_m_down` are cached on the session.
+2. Each generated offer is built within the rolled `[m_down, m_up]` window AND
+   the pick-count constraints — see `generate_trade_offers_for_pick` above.
+   Offers may include `return_picks` (the on-clock team sending picks back to
+   balance value when the offering team's package overshoots their M_up).
+3. `_best_qualifying_cpu_offer()` simply returns offers[0] — they're already
+   pre-filtered by ratio and sorted by net value (offered − return) descending.
+4. If a qualifying offer exists, `_execute_cpu_trade()` swaps ownership of the
+   target + return picks + offered picks (bidirectional) and appends a
+   `TradeRecord` before `sim_pick` chooses the player.
+5. The sim response includes a `"trade"` key with the summary; the UI toasts it.
+
+When the user submits a trade-up offer (`submit_user_trade_up`):
+- For the current on-clock pick, `_ensure_pending_offers()` is called first;
+  the cached `_trade_down_willing` + `_trade_down_m_down` results are reused.
+- For non-current picks, `willing_to_trade_down` and `_roll_trade_threshold`
+  are rolled independently (one-shot, not cached).
+- If willing: accepted when `offer_value ≥ target_value × m_down` AND
+  `offer_value ≥ best competing CPU offer's net value (offered − return)`.
+- Declined with a reason and the threshold value so the UI can show it.
+
+User trade-down (Trade Hub "Incoming Offers") calls `attempt_user_trade_down`
+with `m_down=0.0` so every interested AI's best offer surfaces — the user
+decides acceptance manually, no automatic floor.
+
+`_trade_down_willing` and `_trade_down_m_down` are cleared in `_advance()`
+alongside pending offers.
 
 ### 6. Single global session
 `app.py` keeps **one** `DraftSession` in module-level state. There's no
@@ -319,15 +394,26 @@ stays the same. See `renderConsensusDelta` in `app.js`.
 - BPA/need probability tuning in `sim_pick` — the round/pick-bucket
   values (`bpa_prob`, `need_window`, `reach_limit`) are initial guesses
   and will be refined based on play-testing.
-- Trade heuristics (see `logic.py` docstrings for `generate_trade_offers_for_pick`,
-  `evaluate_trade_offer`, `attempt_user_trade_up`, `attempt_user_trade_down`).
+- CPU trade probability tuning — `_slide_prob` / `_slide_prob_up` bucket
+  thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
+  `_TRADE_UP_OFFSET` (0.025), and `_FUTURE_PICK_GATE` (0.25) are initial
+  guesses; refine via play-testing.
+- Trade Hub "Incoming Offers" for user's pick — offer generation works
+  (`attempt_user_trade_down` → `generate_trade_offers_for_pick` with m_down=0),
+  but three things are missing before it's functional:
+  1. `renderOffersTable` uses wrong field names: fix `o.from_picks` →
+     `o.offered_picks` and `o.value` → `o.offer_value`. Also needs to render
+     `o.return_picks` so the user sees what they'd send back (if anything).
+  2. No backend accept path: need `DraftSession.accept_trade_down_offer` and
+     `POST /api/trade/accept-offer` that calls `_apply_trade` with both
+     `offered_picks` (from AI team) and `return_picks` (user's extras).
+  3. The Accept button in `renderOffersTable` has no click handler.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
-- AI trade-up offers are not generated yet — the Trade Hub's "Incoming
-  Offers" section always shows the empty state.
-- Trade-value heuristics in `logic.pick_value` work, but
-  `generate_trade_offers_for_pick` and `attempt_user_trade_up` return
-  empty / refuse.
+- Trade-value heuristics in `logic.pick_value` work; pick value lookup
+  uses 0-indexed `Pick` column in `DraftPickValue.xlsx` (subtract 1 from
+  `draft_slot` before lookup — see `_pick_point_value` in `app.py` for
+  the same pattern).
 - Performance: `_find_player` is O(n) per pick (see prior performance
   audit in conversation history). The full DOM rewrites on each
   render are also the biggest UI cost.

@@ -24,6 +24,7 @@ import openpyxl
 
 from .data_loader import resolve_year_folder
 from .draft_state import DraftSession, _pick_to_dict
+from .logic import pick_value
 
 
 def export_session(session: DraftSession, year: str | int | None) -> dict[str, str]:
@@ -127,19 +128,27 @@ def _write_trades(session: DraftSession, path: Path) -> None:
     ws.append([
         "TradeID", "InitiatedBy", "HeadlinePickOverall",
         "TeamA", "TeamB", "TeamASends", "TeamBSends",
+        "TeamAValueSent", "TeamBValueSent",
     ])
+    pv_table = session.data.get("pick_values", {})
     for t in session.trade_log():
         ws.append([
             t.trade_id, t.initiated_by, t.overall_pick_traded,
             t.team_a, t.team_b,
             _summarize_picks(t.team_a_sends),
             _summarize_picks(t.team_b_sends),
+            _total_pick_value(t.team_a_sends, pv_table),
+            _total_pick_value(t.team_b_sends, pv_table),
         ])
     wb.save(path)
 
 
 def _summarize_picks(picks: list[dict[str, Any]]) -> str:
     return "; ".join(f"R{p['round']}.{p['pick_in_round']} (overall {p['overall']})" for p in picks)
+
+
+def _total_pick_value(picks: list[dict[str, Any]], pv_table: dict[str, Any]) -> float:
+    return round(sum(pick_value(p, pv_table) for p in picks), 1)
 
 
 def _encode_team_id(team_index: int) -> str:
