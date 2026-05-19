@@ -544,10 +544,14 @@ function showTradeModal(trade, pick) {
       </div>`
     : '';
 
+  const returnPicks = trade.return_picks || [];
+  const returnValue = trade.return_value || 0;
+  const downSends = [trade.target_pick, ...returnPicks];
+  const downTotal = trade.target_value + returnValue;
   const body = `
     <div class="space-y-4">
       <div class="flex gap-3 items-start">
-        ${teamPanel(trade.trading_down, [trade.target_pick], trade.target_value, 'down')}
+        ${teamPanel(trade.trading_down, downSends, downTotal, 'down')}
         <div class="pt-10 text-slate-500 text-lg flex-shrink-0">⇄</div>
         ${teamPanel(trade.trading_up, trade.offered_picks, trade.offer_value, 'up')}
       </div>
