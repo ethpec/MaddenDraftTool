@@ -252,6 +252,11 @@ _TRADE_THRESHOLD_TABLE: dict[int, list[tuple[float, float]]] = {
 # acceptance window when both teams roll the same bucket.
 _TRADE_UP_OFFSET: float = 0.025
 
+# When the user is on the clock, each AI team gets a per-team floor of
+# (m_up - offset) instead of the cached m_down=0. Prevents lowball offers
+# while still giving the user every interested AI's best deal to evaluate.
+_USER_TRADE_DOWN_FLOOR_OFFSET: float = 0.05
+
 # Probability that a side will even consider including a future-year pick
 # in their package. Each side rolls independently. If the gate fails, that
 # side's package is current-year-only.
@@ -549,6 +554,7 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
     on_clock_team = pick.get("current_team")
     user_team = state.get("user_team")
+    is_user_pick = on_clock_team == user_team
     round_1 = pick.get("round", 1)
 
     target_val = pick_value(pick, state["pick_values"])
@@ -580,7 +586,11 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
             continue
 
         m_up = _roll_trade_threshold(round_1, is_trade_up=True)
-        if m_up < m_down:
+        # When the user is on clock, derive a per-team floor from this AI's
+        # m_up so they can't lowball — keeps the window 5 percentage points
+        # wide for every interested team.
+        effective_m_down = (m_up - _USER_TRADE_DOWN_FLOOR_OFFSET) if is_user_pick else m_down
+        if m_up < effective_m_down:
             continue
 
         team_picks = [p for p in all_picks
@@ -595,7 +605,7 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         best = _best_offer_for_team(
             value_of, p_high, team_picks, down_team_picks,
-            m_up, m_down, target_val,
+            m_up, effective_m_down, target_val,
         )
         if best is None:
             continue
@@ -610,7 +620,7 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
             "return_value": round(best["return_value"], 1),
             "target_value": round(target_val, 1),
             "m_up": round(m_up, 3),
-            "m_down": round(m_down, 3),
+            "m_down": round(effective_m_down, 3),
         })
 
     offers.sort(key=lambda o: o["offer_value"] - o["return_value"], reverse=True)

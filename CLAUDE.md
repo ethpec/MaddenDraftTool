@@ -225,9 +225,16 @@ When the user submits a trade-up offer (`submit_user_trade_up`):
   `offer_value ≥ best competing CPU offer's net value (offered − return)`.
 - Declined with a reason and the threshold value so the UI can show it.
 
-User trade-down (Trade Hub "Incoming Offers") calls `attempt_user_trade_down`
-with `m_down=0.0` so every interested AI's best offer surfaces — the user
-decides acceptance manually, no automatic floor.
+User trade-down (Trade Hub "Incoming Offers") goes through `_ensure_pending_offers`
+with the same caching: when user is on the clock, willingness defaults to True
+and the cached `_trade_down_m_down` is set to 0.0. Inside
+`generate_trade_offers_for_pick`, the user-on-clock case detects this and
+substitutes a **per-team floor** of `m_up - _USER_TRADE_DOWN_FLOOR_OFFSET`
+(0.05) so each AI's window stays at least 5 pp wide — prevents lowball
+offers while keeping every interested team's cheapest deal visible. The
+user picks one in the UI; `accept_trade_down_offer(from_team)` looks up the
+cached offer by team name and calls `_apply_trade` with `USER` as initiator.
+No auto-acceptance — the user always decides.
 
 `_trade_down_willing` and `_trade_down_m_down` are cleared in `_advance()`
 alongside pending offers.
@@ -352,6 +359,7 @@ POST /api/pick/sim-until-overall         { overall } — stops with that pick on
 POST /api/pick/sim-until-end             Drives the draft to completion (ignores user-team)
 GET  /api/trade/down-offers              AI offers for user's pick (only valid when user on clock)
 POST /api/trade/up                       { target_overall, offered_overalls }
+POST /api/trade/accept-offer             { from_team } — user accepts a cached AI trade-up offer
 POST /api/export                         Write all 3 xlsx files + zip
 GET  /api/export/download/<kind>         kind = outcome | picks | trades | zip
 ```
@@ -398,16 +406,6 @@ stays the same. See `renderConsensusDelta` in `app.js`.
   thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
   `_TRADE_UP_OFFSET` (0.025), and `_FUTURE_PICK_GATE` (0.25) are initial
   guesses; refine via play-testing.
-- Trade Hub "Incoming Offers" for user's pick — offer generation works
-  (`attempt_user_trade_down` → `generate_trade_offers_for_pick` with m_down=0),
-  but three things are missing before it's functional:
-  1. `renderOffersTable` uses wrong field names: fix `o.from_picks` →
-     `o.offered_picks` and `o.value` → `o.offer_value`. Also needs to render
-     `o.return_picks` so the user sees what they'd send back (if anything).
-  2. No backend accept path: need `DraftSession.accept_trade_down_offer` and
-     `POST /api/trade/accept-offer` that calls `_apply_trade` with both
-     `offered_picks` (from AI team) and `return_picks` (user's extras).
-  3. The Accept button in `renderOffersTable` has no click handler.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
 - Trade-value heuristics in `logic.pick_value` work; pick value lookup
