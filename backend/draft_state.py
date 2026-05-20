@@ -91,6 +91,10 @@ class DraftSession:
         self._pending_offers_for_overall: int | None = None
         self._trade_down_willing: bool | None = None
         self._trade_down_m_down: float | None = None
+        # When a user accepts a trade-down, the pick's new owner must select a
+        # player — no further trades on this pick. Set to that pick's overall
+        # in accept_trade_down_offer and cleared in _advance.
+        self._pick_must_select: int | None = None
         # Default to Steelers if no team is specified (legacy behavior).
         # Validate against GMInfo so we don't accept arbitrary strings.
         valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
@@ -403,6 +407,7 @@ class DraftSession:
             self._apply_trade(pick, offered_records, trading_down, trading_up, "USER",
                               return_picks=return_records)
             self._clear_pending_offers()
+            self._pick_must_select = pick.overall
             return {
                 "ok": True,
                 "trade": {
@@ -438,6 +443,19 @@ class DraftSession:
                 return {"ok": False, "error": "unknown_target_pick"}
             if target.current_team == self.user_team:
                 return {"ok": False, "error": "already_own_pick"}
+            if target_overall == self._pick_must_select:
+                return {
+                    "ok": True,
+                    "decision": {
+                        "accepted": False,
+                        "reason": "this pick just changed hands — it must be selected before being traded again",
+                    },
+                    "offer": {
+                        "from_team": self.user_team,
+                        "to_team": target.current_team,
+                        "target_pick": _pick_to_dict(target),
+                    },
+                }
             all_picks = self._pick_order + list(self._future_picks)
             offered = [p for p in all_picks if p.overall in set(offered_pick_overalls)
                        and p.current_team == self.user_team and p.selected_player_id is None]
@@ -640,18 +658,28 @@ class DraftSession:
         """Caller MUST hold ``self.lock``. Simulates the current pick.
 
         Before making the selection, checks for a qualifying CPU trade-up
-        offer. If one exists, executes the trade (ownership swap) first,
-        then sims the pick for whichever team now owns it.
+        offer for non-user picks and executes the trade (ownership swap)
+        first; then sims the pick for whichever team owns it.
+
+        User-owned picks skip the auto-trade pathway entirely — Trade Hub
+        offers for the user are accept-only and must never auto-execute
+        (sim_until_end runs through user picks but only to AI-fill them).
         """
         pick = self.current_pick()
         if pick is None:
             return {"ok": False, "error": "draft_complete"}
 
-        self._ensure_pending_offers()
         trade_event: dict[str, Any] | None = None
-        best_offer = self._best_qualifying_cpu_offer()
-        if best_offer:
-            trade_event = self._execute_cpu_trade(best_offer)
+        # Skip the auto-trade phase if this pick was just acquired via a
+        # user-accepted trade — the new owner must select a player. Other
+        # picks involved in the trade can still be traded later when they
+        # come on the clock.
+        if (pick.current_team != self.user_team
+                and pick.overall != self._pick_must_select):
+            self._ensure_pending_offers()
+            best_offer = self._best_qualifying_cpu_offer()
+            if best_offer:
+                trade_event = self._execute_cpu_trade(best_offer)
 
         team = pick.current_team  # may have changed after trade
         decision = logic.sim_pick(self._snapshot_for_logic(), team)
@@ -682,6 +710,7 @@ class DraftSession:
     def _advance(self) -> None:
         self._current_idx += 1
         self._clear_pending_offers()
+        self._pick_must_select = None
 
     def _clear_pending_offers(self) -> None:
         """Invalidate cached offers + rolls. Called by `_advance` AND after any

@@ -239,7 +239,7 @@ def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
 # The offset guarantees a non-zero acceptance window when both rolls land on
 # the same bucket (e.g. M_down=1.05, M_up=1.075 → 2.5% spread).
 _TRADE_THRESHOLD_TABLE: dict[int, list[tuple[float, float]]] = {
-    1: [(1.00, 0.20), (1.05, 0.60), (1.10, 0.20)],
+    1: [(1.00, 0.20), (1.05, 0.60), (1.10, 0.175), (1.15, 0.025)],
     2: [(0.95, 0.05), (1.00, 0.60), (1.05, 0.30), (1.10, 0.05)],
     3: [(0.95, 0.05), (1.00, 0.60), (1.05, 0.30), (1.10, 0.05)],
     4: [(0.95, 0.10), (1.00, 0.60), (1.05, 0.25), (1.10, 0.05)],
@@ -260,7 +260,7 @@ _USER_TRADE_DOWN_FLOOR_OFFSET: float = 0.05
 # Probability that a side will even consider including a future-year pick
 # in their package. Each side rolls independently. If the gate fails, that
 # side's package is current-year-only.
-_FUTURE_PICK_GATE: float = 0.10
+_FUTURE_PICK_GATE: float = 0.15
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
@@ -288,8 +288,8 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     """Convert a board-slide ratio into a trade-down probability component."""
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
-    if ratio >= 0.25:
-        return -0.075
+    if ratio >= 0.33:
+        return -0.05
     if ratio >= 0.25:
         return 0.025
     if ratio >= 0.125:
@@ -449,87 +449,123 @@ def pick_value(pick: dict[str, Any], pick_value_table: dict[str, list[dict[str, 
     return 0.0
 
 
-def _best_offer_for_team(value_of: dict[int, float], p_high: dict[str, Any],
+# Per-team complexity tiers — (max_offered, max_return). Smaller-package
+# trades are tried first; if no valid combo exists at the rolled tier, the
+# search escalates to the next tier. Biases the league toward 1-for-2 and
+# 2-for-2 deals over 3-for-2 / 3-for-3 monstrosities.
+_COMPLEXITY_TIERS: list[tuple[int, int]] = [(2, 1), (3, 1), (3, 2)]
+_COMPLEXITY_TIER_CUMULATIVE: list[float] = [0.85, 0.95, 1.00]
+
+
+def _roll_complexity_tier() -> int:
+    """Return the starting tier index (0/1/2) for this team's offer."""
+    r = random.random()
+    for i, cum in enumerate(_COMPLEXITY_TIER_CUMULATIVE):
+        if r < cum:
+            return i
+    return len(_COMPLEXITY_TIERS) - 1
+
+
+def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any]],
                          team_picks: list[dict[str, Any]],
                          down_team_picks: list[dict[str, Any]],
                          m_up: float, m_down: float,
                          target_val: float) -> dict[str, Any] | None:
-    """Find the cheapest valid (offered, return) combo for the trade-up team.
+    """Find the trade-up team's chosen (offered, return) combo.
 
-    Minimizes net cost (offered_val − return_val) — i.e. the trade-up team
-    offers the smallest valid package that clears m_down, prefers fewer
-    picks on ties. Subject to:
+    Rolls a complexity tier (75% small / 20% medium / 5% large) that caps
+    how many picks each side can include. If no valid combo exists at the
+    rolled tier, escalates to the next tier until one is found or all
+    tiers exhausted.
+
+    Within the chosen tier, rolls 50/50 between two selection criteria:
+      - Min cost: lowest absolute outlay (offered_val − return_val)
+      - Min ratio: lowest per-unit cost offered_val / (target_val + return_val)
+    Both modes tiebreak on fewer total picks moved.
+
+    ``anchors`` is the list of mandatory-anchor picks (one or two): always
+    includes the highest-value current-year pick; may also include the
+    highest-value future-year pick (when the future-pick gate passed AND
+    that pick's value is less than the target's).
+
+    Subject to:
       - 1 ≤ |offered| ≤ 3, 0 ≤ |return| ≤ 2
       - net pick count for trade-down in [0, 2]
       - m_down ≤ offered_val / (target_val + return_val) ≤ m_up
       - each side capped at _MAX_FUTURE_PICKS_PER_SIDE future picks
 
     Returns dict with offered_picks/return_picks/offer_value/return_value or
-    None if no valid combination exists.
+    None if no valid combination exists at any tier.
     """
-    other_picks = [p for p in team_picks if p is not p_high]
+    use_ratio = random.random() < 0.5
+    tier_start = _roll_complexity_tier()
 
-    # Enumerate offered packages anchored on P_high (1 to 3 picks total).
-    offered_candidates: list[list[dict[str, Any]]] = []
-    for k in range(0, 3):
-        for combo in itertools.combinations(other_picks, k):
-            pkg = [p_high] + list(combo)
-            if sum(1 for p in pkg if p.get("year_offset", 0) > 0) > _MAX_FUTURE_PICKS_PER_SIDE:
-                continue
-            offered_candidates.append(pkg)
+    for tier_idx in range(tier_start, len(_COMPLEXITY_TIERS)):
+        max_offered, max_return = _COMPLEXITY_TIERS[tier_idx]
 
-    best: dict[str, Any] | None = None
-    best_cost = float("inf")
-    best_pick_count = float("inf")
+        # Enumerate offered packages within tier cap; anchor mandatory.
+        offered_candidates: list[list[dict[str, Any]]] = []
+        for anchor in anchors:
+            others = [p for p in team_picks if p is not anchor]
+            for k in range(0, max_offered):
+                for combo in itertools.combinations(others, k):
+                    pkg = [anchor] + list(combo)
+                    if sum(1 for p in pkg if p.get("year_offset", 0) > 0) > _MAX_FUTURE_PICKS_PER_SIDE:
+                        continue
+                    offered_candidates.append(pkg)
 
-    for offered in offered_candidates:
-        offered_val = sum(value_of[id(p)] for p in offered)
-        n_offered = len(offered)
+        best: dict[str, Any] | None = None
+        best_metric = float("inf")
+        best_pick_count = float("inf")
 
-        for n_return in range(0, 3):
-            net_pick_count = n_offered - 1 - n_return
-            if net_pick_count < 0 or net_pick_count > 2:
-                continue
-            return_combos: list[tuple[dict[str, Any], ...]] = (
-                [()] if n_return == 0
-                else list(itertools.combinations(down_team_picks, n_return))
-            )
-            for ret in return_combos:
-                if sum(1 for p in ret if p.get("year_offset", 0) > 0) > _MAX_FUTURE_PICKS_PER_SIDE:
+        for offered in offered_candidates:
+            offered_val = sum(value_of[id(p)] for p in offered)
+            n_offered = len(offered)
+
+            for n_return in range(0, max_return + 1):
+                net_pick_count = n_offered - 1 - n_return
+                if net_pick_count < 0 or net_pick_count > 2:
                     continue
-                # Reject 1-for-1 same-year swaps: a single current-year offered
-                # pick with no return picks is meaningless when pick values are
-                # near-equal (common late in the draft, e.g. picks 204/205).
-                # Future-year picks are allowed since they introduce real asset
-                # variance for the trade-down team.
-                if (n_offered == 1 and n_return == 0
-                        and offered[0].get("year_offset", 0) == 0):
-                    continue
-                return_val = sum(value_of[id(p)] for p in ret)
-                denom = target_val + return_val
-                if denom <= 0:
-                    continue
-                ratio = offered_val / denom
-                if ratio < m_down or ratio > m_up:
-                    continue
-                cost = offered_val - return_val
-                total_picks = n_offered + n_return
-                # Prefer lower net cost; tiebreak by fewer total picks.
-                if cost < best_cost or (cost == best_cost and total_picks < best_pick_count):
-                    best_cost = cost
-                    best_pick_count = total_picks
-                    best = {
-                        "offered_picks": list(offered),
-                        "return_picks": list(ret),
-                        "offer_value": offered_val,
-                        "return_value": return_val,
-                    }
-    return best
+                return_combos: list[tuple[dict[str, Any], ...]] = (
+                    [()] if n_return == 0
+                    else list(itertools.combinations(down_team_picks, n_return))
+                )
+                for ret in return_combos:
+                    if sum(1 for p in ret if p.get("year_offset", 0) > 0) > _MAX_FUTURE_PICKS_PER_SIDE:
+                        continue
+                    # Reject 1-for-1 same-year swaps: meaningless when pick
+                    # values are near-equal (common late in the draft).
+                    if (n_offered == 1 and n_return == 0
+                            and offered[0].get("year_offset", 0) == 0):
+                        continue
+                    return_val = sum(value_of[id(p)] for p in ret)
+                    denom = target_val + return_val
+                    if denom <= 0:
+                        continue
+                    ratio = offered_val / denom
+                    if ratio < m_down or ratio > m_up:
+                        continue
+                    metric = ratio if use_ratio else (offered_val - return_val)
+                    total_picks = n_offered + n_return
+                    if metric < best_metric or (metric == best_metric and total_picks < best_pick_count):
+                        best_metric = metric
+                        best_pick_count = total_picks
+                        best = {
+                            "offered_picks": list(offered),
+                            "return_picks": list(ret),
+                            "offer_value": offered_val,
+                            "return_value": return_val,
+                        }
+
+        if best is not None:
+            return best  # found valid combo at this tier; don't escalate
+
+    return None  # no valid combo even at the most permissive tier
 
 
 def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
                                    m_down: float) -> list[dict[str, Any]]:
-    """Return CPU trade-up offers for the given pick, ranked by net value.
+    """Return CPU trade-up offers for the given pick, ranked by ratio.
 
     Caller is responsible for the willingness roll AND for rolling ``m_down``
     once per pick; that result is cached on the session so CPU + user paths
@@ -539,15 +575,18 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
     1. Roll the trade-down team's future-pick gate (caps their return-pick
        pool at 0 or 1 future picks).
     2. For each other team that passes their trade-up willingness roll AND
-       whose rolled M_up ≥ m_down, build the CHEAPEST valid (offered, return)
-       combination (minimizes trade-up team's net cost) subject to:
+       whose rolled M_up ≥ m_down, build a valid (offered, return) combo
+       (50/50 between min-cost and min-ratio selection) subject to:
          - 1 ≤ |offered| ≤ 3 and 0 ≤ |return| ≤ 2
          - net pick count for trade-down team in [0, 2]
          - m_down ≤ offered_val / (target_val + return_val) ≤ M_up
-         - offered package anchored on team's highest-value current-year pick
+         - offered package anchored on the team's highest-value current-year
+           pick OR (if their future-pick gate passed) their highest-value
+           future pick worth less than the target
          - each side respects _MAX_FUTURE_PICKS_PER_SIDE + future-pick gate
-    3. Return offers sorted by net value (offered − return) descending — the
-       trade-down team picks the most valuable cheapest-offer across teams.
+    3. Return offers sorted by ratio offered/(target+return) descending; tie-
+       break on fewer total picks. The trade-down team picks the most
+       efficient offer across teams (highest value-per-unit-sent).
     """
     if not pick:
         return []
@@ -571,11 +610,11 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
         return (p.get("year_offset", 0) > 0
                 or p.get("overall", 0) > target_overall)
 
-    # Trade-down team's return-pick pool.
-    down_team_picks = [p for p in all_picks
-                       if p.get("current_team") == on_clock_team and _is_eligible(p)]
-    if random.random() > _FUTURE_PICK_GATE:
-        down_team_picks = [p for p in down_team_picks if p.get("year_offset", 0) == 0]
+    # Trade-down team's full return-pick pool (future filtering happens per
+    # team inside the loop so each AI independently rolls whether they're
+    # allowed to request a future pick back — matches the offered-side gate).
+    down_team_picks_all = [p for p in all_picks
+                           if p.get("current_team") == on_clock_team and _is_eligible(p)]
 
     offers: list[dict[str, Any]] = []
     for gm in state["gm_info"]:
@@ -598,13 +637,31 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
         if random.random() > _FUTURE_PICK_GATE:
             team_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]
 
+        # Independent gate: does this AI get to ask for a future return pick?
+        down_team_picks = down_team_picks_all
+        if random.random() > _FUTURE_PICK_GATE:
+            down_team_picks = [p for p in down_team_picks if p.get("year_offset", 0) == 0]
+
         current_year_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]
         if not current_year_picks:
             continue
         p_high = max(current_year_picks, key=lambda p: value_of[id(p)])
+        anchors = [p_high]
+
+        # If the team's future-pick gate passed (future picks remain in
+        # team_picks), they MAY anchor on their highest-value future pick
+        # instead of P_high — but only if that future pick is worth less
+        # than the target (otherwise a single future pick alone would
+        # overshoot m_up and the package would need huge balancing returns).
+        future_picks_eligible = [p for p in team_picks
+                                 if p.get("year_offset", 0) > 0
+                                 and value_of[id(p)] < target_val]
+        if future_picks_eligible:
+            f_high = max(future_picks_eligible, key=lambda p: value_of[id(p)])
+            anchors.append(f_high)
 
         best = _best_offer_for_team(
-            value_of, p_high, team_picks, down_team_picks,
+            value_of, anchors, team_picks, down_team_picks,
             m_up, effective_m_down, target_val,
         )
         if best is None:
@@ -623,7 +680,16 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
             "m_down": round(effective_m_down, 3),
         })
 
-    offers.sort(key=lambda o: o["offer_value"] - o["return_value"], reverse=True)
+    def _sort_key(o: dict[str, Any]) -> tuple[float, int]:
+        # Ratio = value-received / value-sent, the same ratio used by the
+        # m_down/m_up filter. Sorting by ratio (descending) rewards efficient
+        # trades — a 1.10x deal beats a 1.05x deal even if the absolute net
+        # of the 1.05x package is larger. Tiebreak: fewer total picks.
+        denom = o["target_value"] + o["return_value"]
+        ratio = (o["offer_value"] / denom) if denom > 0 else 0.0
+        return (-ratio, len(o["offered_picks"]) + len(o["return_picks"]))
+
+    offers.sort(key=_sort_key)
     return offers
 
 

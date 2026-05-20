@@ -147,12 +147,25 @@ Implemented:
   ≥ m_down, enumerates (offered, return) combinations subject to:
     - 1 ≤ |offered| ≤ 3, 0 ≤ |return| ≤ 2, net pick count for trade-down in [0, 2]
     - `m_down ≤ offered_val / (target_val + return_val) ≤ M_up`
-    - offered package anchored on team's highest-value current-year pick (`P_high`)
-    - each side capped at 1 future pick AND gated by a 25% future-pick roll
-  Returns offers sorted by net value (offered − return) descending. Caller
-  (`_ensure_pending_offers`) is responsible for rolling/caching `m_down`.
-- `_best_offer_for_team` — inner helper that picks the (offered, return) combo
-  with highest net value to the trade-down team for a given offering team.
+    - offered package anchored on team's highest-value current-year pick
+      (`P_high`) OR — when their future-pick gate passes — their highest-value
+      future pick whose value < target's value (`F_high`)
+    - each side capped at 1 future pick AND gated by a 15% future-pick roll
+  Returns offers sorted by ratio `offered/(target+return)` descending (tie-
+  break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
+  for rolling/caching `m_down`.
+- `_best_offer_for_team` — inner helper that picks each offering team's
+  single best combo. Two layered rolls:
+    1. **Complexity tier** (`_roll_complexity_tier`): 75% small (max 2 offered,
+       max 1 return) / 20% medium (max 3 offered, max 1 return) / 5% large
+       (max 3 offered, max 2 return). If no valid combo exists at the rolled
+       tier, escalates to the next tier until one is found or tiers exhaust.
+    2. **Metric selection** (50/50): min-cost (`offered_val − return_val`) or
+       min-ratio (`offered_val / (target_val + return_val)`). Either way
+       tiebreak is fewer total picks.
+  The tier roll biases the league toward 1-for-2 and 2-for-2 deals; 3-for-3
+  trades only happen when a team rolls into the 5% top tier or escalates
+  there because their portfolio doesn't fit the smaller tiers.
 - `attempt_user_trade_up` — calculates offer/target values; acceptance logic
   lives in `DraftSession.submit_user_trade_up` (which uses the cached `m_down`).
 
@@ -210,7 +223,9 @@ When a CPU pick is simmed (`_sim_one_locked`):
    Offers may include `return_picks` (the on-clock team sending picks back to
    balance value when the offering team's package overshoots their M_up).
 3. `_best_qualifying_cpu_offer()` simply returns offers[0] — they're already
-   pre-filtered by ratio and sorted by net value (offered − return) descending.
+   pre-filtered by ratio bounds and sorted by `offered/(target+return)`
+   descending (tiebreak fewer total picks), so the top is the most efficient
+   deal across teams.
 4. If a qualifying offer exists, `_execute_cpu_trade()` swaps ownership of the
    target + return picks + offered picks (bidirectional) and appends a
    `TradeRecord` before `sim_pick` chooses the player.
