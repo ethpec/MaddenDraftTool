@@ -293,9 +293,9 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     if ratio >= 0.25:
         return 0.025
     if ratio >= 0.125:
-        return 0.125
+        return 0.2
     if ratio >= 0.0:
-        return 0.33
+        return 0.35
     return 0.5
 
 
@@ -380,16 +380,38 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     return max(0.05, min(0.95, (bpa_prob + need_prob + hot_zone) * gm_multiplier))
 
 
+def _distance_multiplier(value_ratio: float) -> float:
+    """Dampen trade-up willingness by how close the offering team's highest
+    remaining current-year pick is to the target — in VALUE, not slot number.
+
+    value_ratio = team_high_pick_value / target_pick_value. The Jimmy-Johnson
+    chart naturally normalizes across rounds (a 15-slot gap in round 1 is a
+    much bigger value gap than 15 slots in round 7).
+    """
+    if value_ratio >= 0.85:
+        return 1.00
+    if value_ratio >= 0.75:
+        return 0.85
+    if value_ratio >= 0.65:
+        return 0.75
+    if value_ratio >= 0.50:
+        return 0.5
+    if value_ratio >= 0.25:
+        return 0.33
+    return 0.125
+
+
 def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick: dict[str, Any]) -> float:
     """Return the probability (0–1) that a team is willing to trade up to target_pick.
 
-    Two components, each contributing via _slide_prob_up:
-      1. BPA slide: how far the team's #1 available player sits above the target slot.
-      2. Need slide: how far the best board player filling an eligible need (using the
-         target pick's round window) sits above the target slot.
-         Defaults to 0.05 if no eligible need match exists.
-    The two are summed, the GM TradeUp trait applies a multiplier (0.75–1.25x),
-    and the result is clamped to [5%, 95%].
+    Three components combined multiplicatively:
+      1. (bpa_prob + need_prob): each scored by _slide_prob_up on the team's
+         #1 board player and best eligible-need player vs. the target slot.
+      2. GM TradeUp trait multiplier (0.75–1.25x).
+      3. Distance multiplier from _distance_multiplier — dampens willingness
+         when the team's highest remaining current-year pick is far (in value)
+         from the target. Caps at 1.0 (no boost), drops to 0.25 for very far.
+    Final result clamped to [0.1%, 50%] — trade-up willingness is the rarer event.
     """
     offering_team = gm.get("TeamName")
     target_slot = target_pick.get("draft_slot") or target_pick.get("overall") or 1
@@ -419,9 +441,28 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     )
     need_prob = _slide_prob_up(target_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None)
 
+    # Distance multiplier: value ratio of team's highest remaining current-year
+    # pick (after target) vs the target pick itself. No eligible picks → far.
+    target_overall = target_pick.get("overall", 0)
+    all_picks = state.get("remaining_picks", []) + state.get("future_picks", [])
+    team_eligible_current = [
+        p for p in all_picks
+        if p.get("current_team") == offering_team
+        and not p.get("selected_player_id")
+        and p.get("year_offset", 0) == 0
+        and p.get("overall", 0) > target_overall
+    ]
+    target_val = pick_value(target_pick, state["pick_values"])
+    if team_eligible_current and target_val > 0:
+        high_val = max(pick_value(p, state["pick_values"]) for p in team_eligible_current)
+        value_ratio = high_val / target_val
+    else:
+        value_ratio = 0.0
+    distance_mult = _distance_multiplier(value_ratio)
+
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}[trait]
-    return max(0.001, min(0.5, (bpa_prob + need_prob) * gm_multiplier))
+    return max(0.001, min(0.5, (bpa_prob + need_prob) * gm_multiplier * distance_mult))
 
 
 def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:
@@ -650,12 +691,13 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         # If the team's future-pick gate passed (future picks remain in
         # team_picks), they MAY anchor on their highest-value future pick
-        # instead of P_high — but only if that future pick is worth less
-        # than the target (otherwise a single future pick alone would
-        # overshoot m_up and the package would need huge balancing returns).
+        # instead of P_high — allowing up to 1.15× the target's value (a
+        # slight overshoot is OK since the trade-down team can send back
+        # a small balancing pick). Much larger F_high values would require
+        # impossibly large return packages, so they're filtered here.
         future_picks_eligible = [p for p in team_picks
                                  if p.get("year_offset", 0) > 0
-                                 and value_of[id(p)] < target_val]
+                                 and value_of[id(p)] < 1.15 * target_val]
         if future_picks_eligible:
             f_high = max(future_picks_eligible, key=lambda p: value_of[id(p)])
             anchors.append(f_high)

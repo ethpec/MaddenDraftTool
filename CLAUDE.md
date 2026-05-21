@@ -120,14 +120,18 @@ Implemented:
   trade-down willingness check so both use the same need window.
 - `_slide_prob(current_slot, rank)` — converts a board-slide ratio
   `(current_slot - rank) / current_slot` to a probability component:
-  ≥ 0.25 → 0.10, ≥ 0.125 → 0.20, < 0.125 → 0.30.
+  ≥ 0.33 → −0.05, ≥ 0.25 → 0.025, ≥ 0.125 → 0.125, ≥ 0 → 0.33, < 0 → 0.5.
+  (Negative ratios mean the player has slid past the pick, so willingness
+  to trade down spikes; large positive ratios mean a top-tier talent is
+  still available and the team should NOT trade down.)
 - `_trade_down_probability(state, pick)` — computes willingness probability
   from two components: (1) BPA slide and (2) best board player filling an
   eligible need for this round's window. Both components use `_slide_prob`;
-  if no eligible need match exists the need component defaults to 0.30.
-  The two are summed, the GM's `TradeDown` trait adds/subtracts ±5–10 pp
-  (tier 5 +10%, tier 4 +5%, tier 3 neutral, tier 2 −5%, tier 1 −10%),
-  then clamped to [5%, 95%].
+  if no eligible need match exists the need component defaults to 0.33
+  (ratio=0 bucket). The two are summed plus a hot-zone bonus (pick 33 +15
+  pp; picks 30–32 / 34–35 +7.5 pp; picks 20–29 / 36–42 +5 pp), then
+  multiplied by the GM's `TradeDown` trait multiplier
+  (`{1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}`) and clamped to [5%, 95%].
 - `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
   Called once per pick in `_ensure_pending_offers`; the result is cached in
   `DraftSession._trade_down_willing` so CPU and user trade paths share the
@@ -139,9 +143,18 @@ Implemented:
   `_trade_down_m_down`); trade-up teams roll M_up per offer.
 - `_trade_up_probability(state, gm, target_pick)` — willingness probability
   for an offering team to trade up to `target_pick`. Two components scored by
-  `_slide_prob_up`: (1) the team's #1 board player vs. target slot, (2) their
+  `_slide_prob_up` (≥ 0.33 → 0.2, ≥ 0.25 → 0.1, ≥ 0.125 → 0.025, ≥ 0 → 0,
+  < 0 → −0.125): (1) the team's #1 board player vs. target slot, (2) their
   best board player filling an eligible need (using target pick's round window)
-  vs. target slot. Sum × GM TradeUp multiplier (0.75–1.25×), clamped to [5%, 95%].
+  vs. target slot. Sum × GM TradeUp multiplier (0.75–1.25×) × distance
+  multiplier from `_distance_multiplier`. Clamped to [0.1%, 50%].
+- `_distance_multiplier(value_ratio)` — dampens trade-up willingness based on
+  how close the offering team's highest remaining current-year pick is to the
+  target *in value* (Jimmy-Johnson chart auto-normalizes across rounds).
+  `value_ratio = team_high_val / target_val`. Buckets: ≥ 0.85 → 1.0×,
+  ≥ 0.65 → 0.85×, ≥ 0.50 → 0.65×, ≥ 0.25 → 0.5×, < 0.25 → 0.25×. Caps at
+  1.0× (no boost) — a team can't be MORE willing than baseline just by being
+  close, but can be a lot less willing when far.
 - `generate_trade_offers_for_pick(state, pick, m_down)` — builds CPU offers.
   For each other team that passes `_trade_up_probability` AND whose rolled M_up
   ≥ m_down, enumerates (offered, return) combinations subject to:
@@ -149,29 +162,29 @@ Implemented:
     - `m_down ≤ offered_val / (target_val + return_val) ≤ M_up`
     - offered package anchored on team's highest-value current-year pick
       (`P_high`) OR — when their future-pick gate passes — their highest-value
-      future pick whose value < target's value (`F_high`)
+      future pick whose value < 1.1× target's value (`F_high`; small overshoot
+      tolerated since the trade-down team can balance with a small return pick)
     - each side capped at 1 future pick AND gated by a 15% future-pick roll
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
   for rolling/caching `m_down`.
 - `_best_offer_for_team` — inner helper that picks each offering team's
   single best combo. Two layered rolls:
-    1. **Complexity tier** (`_roll_complexity_tier`): 75% small (max 2 offered,
-       max 1 return) / 20% medium (max 3 offered, max 1 return) / 5% large
+    1. **Complexity tier** (`_roll_complexity_tier`): 85% small (max 2 offered,
+       max 1 return) / 10% medium (max 3 offered, max 1 return) / 5% large
        (max 3 offered, max 2 return). If no valid combo exists at the rolled
        tier, escalates to the next tier until one is found or tiers exhaust.
     2. **Metric selection** (50/50): min-cost (`offered_val − return_val`) or
        min-ratio (`offered_val / (target_val + return_val)`). Either way
        tiebreak is fewer total picks.
-  The tier roll biases the league toward 1-for-2 and 2-for-2 deals; 3-for-3
-  trades only happen when a team rolls into the 5% top tier or escalates
-  there because their portfolio doesn't fit the smaller tiers.
+  The tier roll biases the league heavily toward 1-for-2 and 2-for-2 deals;
+  3-for-3 trades only happen when a team rolls into the 5% top tier or
+  escalates there because their portfolio doesn't fit the smaller tiers.
 - `attempt_user_trade_up` — calculates offer/target values; acceptance logic
   lives in `DraftSession.submit_user_trade_up` (which uses the cached `m_down`).
-
-Still placeholder:
-- `attempt_user_trade_down` — delegates to `generate_trade_offers_for_pick` for
-  the user's pick, but the Trade Hub "Incoming Offers" flow is not wired up yet.
+- `attempt_user_trade_down(state, m_down)` — delegates to
+  `generate_trade_offers_for_pick` for the user's on-clock pick. Trade Hub
+  "Incoming Offers" is fully wired (see section 5a for the flow).
 
 ### 3a. Roster mutation during the draft
 When a player is drafted (`DraftSession._record_selection`), their entry in
@@ -236,23 +249,35 @@ When the user submits a trade-up offer (`submit_user_trade_up`):
   the cached `_trade_down_willing` + `_trade_down_m_down` results are reused.
 - For non-current picks, `willing_to_trade_down` and `_roll_trade_threshold`
   are rolled independently (one-shot, not cached).
-- If willing: accepted when `offer_value ≥ target_value × m_down` AND
-  `offer_value ≥ best competing CPU offer's net value (offered − return)`.
+- The user can also request picks back (`target_also_sends_overalls`); the
+  acceptance ratio accounts for them: `offer_val / (target_val + return_val)`.
+- If willing: accepted when ratio `≥ m_down` AND user's net value
+  (`offer_val − return_val`) is `≥` the best competing CPU offer's net value
+  (only checked when target is the current on-clock pick).
 - Declined with a reason and the threshold value so the UI can show it.
 
 User trade-down (Trade Hub "Incoming Offers") goes through `_ensure_pending_offers`
 with the same caching: when user is on the clock, willingness defaults to True
 and the cached `_trade_down_m_down` is set to 0.0. Inside
-`generate_trade_offers_for_pick`, the user-on-clock case detects this and
-substitutes a **per-team floor** of `m_up - _USER_TRADE_DOWN_FLOOR_OFFSET`
-(0.05) so each AI's window stays at least 5 pp wide — prevents lowball
-offers while keeping every interested team's cheapest deal visible. The
-user picks one in the UI; `accept_trade_down_offer(from_team)` looks up the
-cached offer by team name and calls `_apply_trade` with `USER` as initiator.
-No auto-acceptance — the user always decides.
+`generate_trade_offers_for_pick`, the user-on-clock case (detected via
+`on_clock_team == user_team`) substitutes a **per-team floor** of
+`m_up - _USER_TRADE_DOWN_FLOOR_OFFSET` (0.05) so each AI's window stays at
+least 5 pp wide — prevents lowball offers while keeping every interested
+team's cheapest deal visible. The user picks one in the UI;
+`accept_trade_down_offer(from_team)` looks up the cached offer by team name
+and calls `_apply_trade` with `USER` as initiator. No auto-acceptance — the
+user always decides.
 
-`_trade_down_willing` and `_trade_down_m_down` are cleared in `_advance()`
-alongside pending offers.
+**No chained trades on the just-traded pick.** After a user-accepted trade,
+`_pick_must_select` is set to that pick's overall. `_sim_one_locked` checks
+this flag and skips the auto-trade phase for that one pick (the new owner
+must select a player). `submit_user_trade_up` also rejects re-acquiring the
+flagged pick. The flag clears in `_advance` once a player is selected. Other
+picks that moved in the trade (offered/return) remain freely tradable when
+they later come on the clock.
+
+`_trade_down_willing`, `_trade_down_m_down`, and `_pick_must_select` are
+all cleared in `_advance()` alongside pending offers.
 
 ### 6. Single global session
 `app.py` keeps **one** `DraftSession` in module-level state. There's no
@@ -419,8 +444,8 @@ stays the same. See `renderConsensusDelta` in `app.js`.
   and will be refined based on play-testing.
 - CPU trade probability tuning — `_slide_prob` / `_slide_prob_up` bucket
   thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
-  `_TRADE_UP_OFFSET` (0.025), and `_FUTURE_PICK_GATE` (0.25) are initial
-  guesses; refine via play-testing.
+  `_TRADE_UP_OFFSET` (0.025), `_FUTURE_PICK_GATE` (0.15), and the complexity
+  tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
 - Trade-value heuristics in `logic.pick_value` work; pick value lookup
