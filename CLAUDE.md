@@ -131,7 +131,9 @@ Implemented:
   (ratio=0 bucket). The two are summed plus a hot-zone bonus (pick 33 +15
   pp; picks 30–32 / 34–35 +7.5 pp; picks 20–29 / 36–42 +5 pp), then
   multiplied by the GM's `TradeDown` trait multiplier
-  (`{1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}`) and clamped to [5%, 95%].
+  (`{1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}`) and by
+  `_portfolio_multiplier_down` (pick-rich teams less willing to trade down,
+  pick-poor teams more willing — see helper below). Clamped to [5%, 95%].
 - `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
   Called once per pick in `_ensure_pending_offers`; the result is cached in
   `DraftSession._trade_down_willing` so CPU and user trade paths share the
@@ -142,19 +144,27 @@ Implemented:
   window. Trade-down team rolls M_down once per pick (cached on session as
   `_trade_down_m_down`); trade-up teams roll M_up per offer.
 - `_trade_up_probability(state, gm, target_pick)` — willingness probability
-  for an offering team to trade up to `target_pick`. Two components scored by
-  `_slide_prob_up` (≥ 0.33 → 0.2, ≥ 0.25 → 0.1, ≥ 0.125 → 0.025, ≥ 0 → 0,
-  < 0 → −0.125): (1) the team's #1 board player vs. target slot, (2) their
-  best board player filling an eligible need (using target pick's round window)
-  vs. target slot. Sum × GM TradeUp multiplier (0.75–1.25×) × distance
-  multiplier from `_distance_multiplier`. Clamped to [0.1%, 50%].
+  for an offering team to trade up to `target_pick`. Components combined
+  multiplicatively: `(bpa_prob + need_prob)` (each scored by `_slide_prob_up`
+  on the team's #1 board player and best eligible-need player vs. target slot)
+  × GM `TradeUp` trait multiplier (0.75–1.25×) × `_distance_multiplier` ×
+  `_portfolio_multiplier`. Clamped to [0.1%, 50%].
 - `_distance_multiplier(value_ratio)` — dampens trade-up willingness based on
   how close the offering team's highest remaining current-year pick is to the
   target *in value* (Jimmy-Johnson chart auto-normalizes across rounds).
-  `value_ratio = team_high_val / target_val`. Buckets: ≥ 0.85 → 1.0×,
-  ≥ 0.65 → 0.85×, ≥ 0.50 → 0.65×, ≥ 0.25 → 0.5×, < 0.25 → 0.25×. Caps at
-  1.0× (no boost) — a team can't be MORE willing than baseline just by being
-  close, but can be a lot less willing when far.
+  `value_ratio = team_high_val / target_val`. Caps at 1.0× (no boost), drops
+  toward 0.125× as the team gets further from the target. Buckets tuned in
+  the function body.
+- `_portfolio_multiplier(share)` — for trade-UP willingness. Scales by the
+  team's share of remaining current-year picks across the league. `share =
+  team_remaining / total_remaining`. Baseline (1.0×) is set at 4% share —
+  above the ~3.1% league average (1/32), so most teams fall in the
+  0.625–0.875× range. Pick-rich teams (≥ 5%) hit 1.25×; very pick-poor teams
+  (< 2%) drop to 0.50×.
+- `_portfolio_multiplier_down(share)` — top-to-bottom flip of the trade-up
+  version, used by `_trade_down_probability`. Pick-rich teams hit 0.50×
+  (they don't need more picks), pick-poor teams get up to 1.25× (eager to
+  acquire). Same share buckets, multipliers reversed.
 - `generate_trade_offers_for_pick(state, pick, m_down)` — builds CPU offers.
   For each other team that passes `_trade_up_probability` AND whose rolled M_up
   ≥ m_down, enumerates (offered, return) combinations subject to:
