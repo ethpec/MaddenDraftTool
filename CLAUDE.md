@@ -184,9 +184,13 @@ Implemented:
        max 1 return) / 10% medium (max 3 offered, max 1 return) / 5% large
        (max 3 offered, max 2 return). If no valid combo exists at the rolled
        tier, escalates to the next tier until one is found or tiers exhaust.
-    2. **Metric selection** (50/50): min-cost (`offered_val − return_val`) or
-       min-ratio (`offered_val / (target_val + return_val)`). Either way
-       tiebreak is fewer total picks.
+    2. **Selection mode** (`_roll_selection_mode`): one of six modes —
+       min_cost 20% / min_ratio 20% / max_cost 12.5% / max_ratio 12.5% /
+       min_value 30% / random_deal 5%. The chosen mode is applied to the
+       full pool of valid combos at the resolved tier (see `_select_combo`).
+       All deterministic modes tiebreak on fewer total picks; `random_deal`
+       skips the tiebreak. This produces visibly different offer "styles"
+       across the league (cheap-and-clean vs. generous vs. random).
   The tier roll biases the league heavily toward 1-for-2 and 2-for-2 deals;
   3-for-3 trades only happen when a team rolls into the 5% top tier or
   escalates there because their portfolio doesn't fit the smaller tiers.

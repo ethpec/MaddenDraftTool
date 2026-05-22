@@ -289,13 +289,13 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.4:
-        return -0.05
+        return -0.025
     if ratio >= 0.33:
-        return 0.0
+        return 0.01
     if ratio >= 0.25:
-        return 0.05
+        return 0.075
     if ratio >= 0.125:
-        return 0.2
+        return 0.25
     if ratio >= 0.0:
         return 0.35
     return 0.5
@@ -584,6 +584,55 @@ def _roll_complexity_tier() -> int:
     return len(_COMPLEXITY_TIERS) - 1
 
 
+# Selection mode weights — how the trade-up team picks one combo from all
+# valid (offered, return) pairs. Mix of "cheap" / "generous" / "random"
+# behaviors so different teams produce visibly different offers.
+_SELECTION_MODE_WEIGHTS: list[tuple[str, float]] = [
+    ("min_cost",    0.20),   # smallest offered_val − return_val
+    ("min_ratio",   0.20),   # smallest offered_val / (target_val + return_val)
+    ("max_cost",    0.125),  # largest offered_val − return_val (most generous outlay)
+    ("max_ratio",   0.125),  # largest ratio (most generous per-unit)
+    ("min_value",   0.30),   # smallest offered_val + return_val (small package)
+    ("random_deal", 0.05),   # uniform random among valid combos
+]
+
+
+def _roll_selection_mode() -> str:
+    """Return one of min_cost / min_ratio / max_cost / max_ratio / min_value /
+    random_deal according to ``_SELECTION_MODE_WEIGHTS``."""
+    r = random.random()
+    cumulative = 0.0
+    for mode, weight in _SELECTION_MODE_WEIGHTS:
+        cumulative += weight
+        if r < cumulative:
+            return mode
+    return _SELECTION_MODE_WEIGHTS[-1][0]
+
+
+def _select_combo(combos: list[dict[str, Any]], mode: str) -> dict[str, Any]:
+    """Pick one combo from the valid pool based on ``mode``.
+
+    All deterministic modes tiebreak on fewer total picks; ``random_deal``
+    skips the tiebreak entirely.
+    """
+    def picks(c: dict[str, Any]) -> int:
+        return len(c["offered"]) + len(c["ret"])
+
+    if mode == "random_deal":
+        return random.choice(combos)
+    if mode == "min_cost":
+        return min(combos, key=lambda c: (c["offered_val"] - c["return_val"], picks(c)))
+    if mode == "min_ratio":
+        return min(combos, key=lambda c: (c["ratio"], picks(c)))
+    if mode == "max_cost":
+        return max(combos, key=lambda c: (c["offered_val"] - c["return_val"], -picks(c)))
+    if mode == "max_ratio":
+        return max(combos, key=lambda c: (c["ratio"], -picks(c)))
+    if mode == "min_value":
+        return min(combos, key=lambda c: (c["offered_val"] + c["return_val"], picks(c)))
+    return combos[0]  # fallback
+
+
 def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any]],
                          team_picks: list[dict[str, Any]],
                          down_team_picks: list[dict[str, Any]],
@@ -591,31 +640,31 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
                          target_val: float) -> dict[str, Any] | None:
     """Find the trade-up team's chosen (offered, return) combo.
 
-    Rolls a complexity tier (75% small / 20% medium / 5% large) that caps
-    how many picks each side can include. If no valid combo exists at the
-    rolled tier, escalates to the next tier until one is found or all
-    tiers exhausted.
-
-    Within the chosen tier, rolls 50/50 between two selection criteria:
-      - Min cost: lowest absolute outlay (offered_val − return_val)
-      - Min ratio: lowest per-unit cost offered_val / (target_val + return_val)
-    Both modes tiebreak on fewer total picks moved.
+    Two layered rolls:
+      1. Complexity tier (`_roll_complexity_tier`): caps max offered/return
+         picks. Escalates to the next tier if no valid combo exists at the
+         rolled tier (see `_COMPLEXITY_TIERS`).
+      2. Selection mode (`_roll_selection_mode`): one of six modes
+         (min_cost / min_ratio / max_cost / max_ratio / min_value /
+         random_deal) — chosen once per offer, applied to the full pool
+         of valid combos at the resolved tier.
 
     ``anchors`` is the list of mandatory-anchor picks (one or two): always
     includes the highest-value current-year pick; may also include the
     highest-value future-year pick (when the future-pick gate passed AND
-    that pick's value is less than the target's).
+    that pick's value is below `1.1 * target_val`).
 
     Subject to:
       - 1 ≤ |offered| ≤ 3, 0 ≤ |return| ≤ 2
       - net pick count for trade-down in [0, 2]
       - m_down ≤ offered_val / (target_val + return_val) ≤ m_up
       - each side capped at _MAX_FUTURE_PICKS_PER_SIDE future picks
+      - no 1-for-1 same-year swaps
 
     Returns dict with offered_picks/return_picks/offer_value/return_value or
     None if no valid combination exists at any tier.
     """
-    use_ratio = random.random() < 0.5
+    selection_mode = _roll_selection_mode()
     tier_start = _roll_complexity_tier()
 
     for tier_idx in range(tier_start, len(_COMPLEXITY_TIERS)):
@@ -632,10 +681,7 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
                         continue
                     offered_candidates.append(pkg)
 
-        best: dict[str, Any] | None = None
-        best_metric = float("inf")
-        best_pick_count = float("inf")
-
+        valid_combos: list[dict[str, Any]] = []
         for offered in offered_candidates:
             offered_val = sum(value_of[id(p)] for p in offered)
             n_offered = len(offered)
@@ -663,20 +709,22 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
                     ratio = offered_val / denom
                     if ratio < m_down or ratio > m_up:
                         continue
-                    metric = ratio if use_ratio else (offered_val - return_val)
-                    total_picks = n_offered + n_return
-                    if metric < best_metric or (metric == best_metric and total_picks < best_pick_count):
-                        best_metric = metric
-                        best_pick_count = total_picks
-                        best = {
-                            "offered_picks": list(offered),
-                            "return_picks": list(ret),
-                            "offer_value": offered_val,
-                            "return_value": return_val,
-                        }
+                    valid_combos.append({
+                        "offered": list(offered),
+                        "ret": list(ret),
+                        "offered_val": offered_val,
+                        "return_val": return_val,
+                        "ratio": ratio,
+                    })
 
-        if best is not None:
-            return best  # found valid combo at this tier; don't escalate
+        if valid_combos:
+            chosen = _select_combo(valid_combos, selection_mode)
+            return {
+                "offered_picks": chosen["offered"],
+                "return_picks": chosen["ret"],
+                "offer_value": chosen["offered_val"],
+                "return_value": chosen["return_val"],
+            }
 
     return None  # no valid combo even at the most permissive tier
 
