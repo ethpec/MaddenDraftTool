@@ -295,16 +295,16 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.4:
-        return -0.05
+        return 0.01
     if ratio >= 0.33:
-        return 0.025
+        return 0.075
     if ratio >= 0.25:
-        return 0.15
+        return 0.35
     if ratio >= 0.125:
-        return 0.50
+        return 0.60
     if ratio >= 0.0:
         return 0.70
-    return 0.95
+    return 0.80
 
 
 def _slide_prob_up(current_slot: int, rank: int | None) -> float:
@@ -338,9 +338,10 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
          0.75, Rounds 2/3: 0.50, Rounds 4-7: 0.25). Round 1 is need-driven so
          a need-slide signal dominates; late rounds are BPA-driven.
       3. Hot-zone bonus for attractive slots (pick 33 +15 pp, etc.).
-    Sum × GM TradeDown trait multiplier (0.75–1.25×) × portfolio multiplier
-    from _portfolio_multiplier_down (pick-rich teams less willing to trade
-    down, pick-poor teams more willing). Clamped to [5%, 95%].
+    Sum × GM TradeDown trait multiplier × portfolio multiplier from
+    `_portfolio_multiplier_down` × cooldown multiplier (0.75× if this team's
+    last on-clock action was a trade, 1.0× otherwise — discourages back-to-
+    back trade-downs). Clamped to [5%, 95%].
     """
     on_clock_team = pick.get("current_team")
     current_slot = pick.get("draft_slot") or pick.get("overall") or 1
@@ -361,9 +362,9 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     if round_1 == 1:
         bpa_impact, need_impact = 0.25, 0.75
     elif round_1 in (2, 3):
-        bpa_impact, need_impact = 0.40, 0.60
+        bpa_impact, need_impact = 0.50, 0.50
     else:  # rounds 4-7
-        bpa_impact, need_impact = 0.66, 0.34
+        bpa_impact, need_impact = 0.60, 0.40
 
     # Component 1: BPA slide using team's private rank.
     bpa = available[0] if available else None
@@ -406,10 +407,15 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     share = (team_remaining_count / total_remaining) if total_remaining > 0 else 0.0
     portfolio_mult = _portfolio_multiplier_down(share)
 
+    # Cooldown: if this team's last on-clock action was a trade (rather than
+    # a draft selection), dampen their willingness to immediately trade again.
+    last_action = state.get("last_action_per_team", {}).get(on_clock_team)
+    cooldown_mult = 0.75 if last_action == "traded" else 1.0
+
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
-    gm_multiplier = {1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}[trait]
+    gm_multiplier = {1: 0.9, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
     return max(0.05, min(0.95,
-        (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult))
+        (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult))
 
 
 def _distance_multiplier(value_ratio: float) -> float:
@@ -462,19 +468,21 @@ def _portfolio_multiplier_down(share: float) -> float:
     already have plenty of capital. Pick-poor teams (low share) are MORE
     willing — they want to acquire more picks.
     """
-    if share >= 0.050:
-        return 0.50
+    if share >= 0.05:
+        return 0.25
     if share >= 0.045:
-        return 0.625
+        return 0.33
     if share >= 0.040:
-        return 0.75
+        return 0.50
     if share >= 0.035:
-        return 0.875
+        return 0.75
     if share >= 0.025:
-        return 1.00
+        return 1.0
     if share >= 0.020:
         return 1.125
-    return 1.25
+    if share >= 0.015:
+        return 1.25
+    return 1.5
 
 
 def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick: dict[str, Any]) -> float:
@@ -509,11 +517,11 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     # Round 1 is need-driven; rounds 4-7 are BPA-driven. Trade-up willingness
     # responds more strongly to whichever signal matches the round's flavor.
     if round_1 == 1:
-        bpa_impact, need_impact = 0.25, 0.75
+        bpa_impact, need_impact = 0.34, 0.66
     elif round_1 in (2, 3):
-        bpa_impact, need_impact = 0.40, 0.60
+        bpa_impact, need_impact = 0.50, 0.50
     else:  # rounds 4-7
-        bpa_impact, need_impact = 0.66, 0.34
+        bpa_impact, need_impact = 0.60, 0.40
 
     # Component 1: BPA slide using team's private rank vs target slot.
     bpa = available[0] if available else None
@@ -563,7 +571,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     portfolio_mult = _portfolio_multiplier(share)
 
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
-    gm_multiplier = {1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}[trait]
+    gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
     return max(0.001, min(0.5,
         (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult))
 

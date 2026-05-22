@@ -133,10 +133,14 @@ Implemented:
   Both components use `_slide_prob`. The rationale: round 1 picks are
   need-driven so a need-slide signal dominates; late rounds are BPA-driven.
   Sum + hot-zone bonus (pick 33 +15 pp; picks 30–32 / 34–35 +7.5 pp;
-  picks 20–29 / 36–42 +5 pp), then × GM `TradeDown` trait multiplier
-  (`{1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}`) × `_portfolio_multiplier_down`
-  (pick-rich teams less willing, pick-poor more — see helper below).
+  picks 20–29 / 36–42 +5 pp), then × GM `TradeDown` trait multiplier ×
+  `_portfolio_multiplier_down` (pick-rich teams less willing, pick-poor
+  more — see helper below) × cooldown multiplier (0.75× when the team's
+  last on-clock action was a trade rather than a draft, 1.0× otherwise).
   Clamped to [5%, 95%].
+  The cooldown is sourced from `DraftSession._last_action_per_team`,
+  updated by `_record_selection` (sets "drafted") and `_execute_cpu_trade`
+  / `accept_trade_down_offer` / `submit_user_trade_up` (set "traded").
 - `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
   Called once per pick in `_ensure_pending_offers`; the result is cached in
   `DraftSession._trade_down_willing` so CPU and user trade paths share the
