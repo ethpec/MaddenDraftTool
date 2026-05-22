@@ -295,7 +295,7 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.4:
-        return 0.01
+        return 0.025
     if ratio >= 0.33:
         return 0.075
     if ratio >= 0.25:
@@ -303,8 +303,8 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     if ratio >= 0.125:
         return 0.60
     if ratio >= 0.0:
-        return 0.70
-    return 0.80
+        return 0.75
+    return 0.85
 
 
 def _slide_prob_up(current_slot: int, rank: int | None) -> float:
@@ -317,15 +317,17 @@ def _slide_prob_up(current_slot: int, rank: int | None) -> float:
     """
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
+    if ratio >= 0.40:
+        return 0.5
     if ratio >= 0.33:
-        return 0.4
+        return 0.33
     if ratio >= 0.25:
         return 0.2
     if ratio >= 0.125:
-        return 0.05
+        return 0.075
     if ratio >= 0.0:
-        return 0.0
-    return -0.25
+        return 0.025
+    return 0.01
 
 
 def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> float:
@@ -339,9 +341,10 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
          a need-slide signal dominates; late rounds are BPA-driven.
       3. Hot-zone bonus for attractive slots (pick 33 +15 pp, etc.).
     Sum × GM TradeDown trait multiplier × portfolio multiplier from
-    `_portfolio_multiplier_down` × cooldown multiplier (0.75× if this team's
+    `_portfolio_multiplier_down` × cooldown multiplier (0.10× if this team's
     last on-clock action was a trade, 1.0× otherwise — discourages back-to-
-    back trade-downs). Clamped to [5%, 95%].
+    back trade-downs) × `_round_modifier` (round-based dampener/boost: R1
+    0.90×, R2 0.95×, R3 1.00×, R4-6 1.05×, R7 1.10×). Clamped to [5%, 95%].
     """
     on_clock_team = pick.get("current_team")
     current_slot = pick.get("draft_slot") or pick.get("overall") or 1
@@ -362,9 +365,9 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     if round_1 == 1:
         bpa_impact, need_impact = 0.25, 0.75
     elif round_1 in (2, 3):
-        bpa_impact, need_impact = 0.50, 0.50
+        bpa_impact, need_impact = 0.45, 0.55
     else:  # rounds 4-7
-        bpa_impact, need_impact = 0.60, 0.40
+        bpa_impact, need_impact = 0.50, 0.50
 
     # Component 1: BPA slide using team's private rank.
     bpa = available[0] if available else None
@@ -386,14 +389,16 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
 
     # Hot-zone bonus: certain pick slots are especially attractive trade-down
     # targets, boosting willingness before the GM multiplier is applied.
-    if current_slot == 33:
+    if current_slot == 1:
+        hot_zone = -0.15
+    elif current_slot == 33:
         hot_zone = 0.15
     elif 30 <= current_slot <= 32 or 34 <= current_slot <= 35:
         hot_zone = 0.075
     elif 20 <= current_slot <= 29 or 36 <= current_slot <= 42:
         hot_zone = 0.05
     else:
-        hot_zone = 0.0
+        hot_zone = 0.025
 
     # Portfolio multiplier (inverted): pick-rich teams less willing to trade
     # down (already have plenty), pick-poor teams more willing.
@@ -410,12 +415,13 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     # Cooldown: if this team's last on-clock action was a trade (rather than
     # a draft selection), dampen their willingness to immediately trade again.
     last_action = state.get("last_action_per_team", {}).get(on_clock_team)
-    cooldown_mult = 0.75 if last_action == "traded" else 1.0
+    cooldown_mult = 0.10 if last_action == "traded" else 1.0
 
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
     gm_multiplier = {1: 0.9, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
-    return max(0.05, min(0.95,
-        (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult))
+    round_mod = _round_modifier(round_1)
+    return max(0.075, min(0.95,
+        (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult * round_mod))
 
 
 def _distance_multiplier(value_ratio: float) -> float:
@@ -461,6 +467,23 @@ def _portfolio_multiplier(share: float) -> float:
     return 0.50
 
 
+def _round_modifier(round_1: int) -> float:
+    """Round-based multiplier applied to BOTH trade-up and trade-down
+    willingness. Dampens early-round trades slightly and boosts late-round
+    trades — captures the league-wide pattern that late-round picks change
+    hands more freely than early-round ones.
+    """
+    if round_1 == 1:
+        return 0.95
+    if round_1 == 2:
+        return 1.00
+    if round_1 == 3:
+        return 1.05
+    if 4 <= round_1 <= 6:
+        return 1.10
+    return 1.20  # round 7+
+
+
 def _portfolio_multiplier_down(share: float) -> float:
     """Top-to-bottom flip of _portfolio_multiplier for trade-DOWN willingness.
 
@@ -488,7 +511,7 @@ def _portfolio_multiplier_down(share: float) -> float:
 def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick: dict[str, Any]) -> float:
     """Return the probability (0–1) that a team is willing to trade up to target_pick.
 
-    Four components combined multiplicatively:
+    Five components combined multiplicatively:
       1. (bpa_prob + need_prob): each scored by `_slide_prob_up` × a round-based
          impact weight (Round 1: bpa 0.25 / need 0.75; Rounds 2-3: 0.50 each;
          Rounds 4-7: bpa 0.75 / need 0.25). Round 1 trades chase needs; late-
@@ -500,6 +523,8 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
       4. Portfolio multiplier from _portfolio_multiplier — scales by the team's
          share of remaining current-year picks across the league. Pick-rich
          teams (>5%) get up to 1.25x; pick-poor teams (<1.5%) drop to 0.50x.
+      5. Round modifier from `_round_modifier`: R1 0.90×, R2 0.95×, R3 1.00×,
+         R4-6 1.05×, R7 1.10×. Dampens early-round trade-ups; boosts late.
     Final result clamped to [0.1%, 50%] — trade-up willingness is the rarer event.
     """
     offering_team = gm.get("TeamName")
@@ -572,8 +597,9 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
 
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
-    return max(0.001, min(0.5,
-        (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult))
+    round_mod = _round_modifier(round_1)
+    return max(0.005, min(0.5,
+        (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod))
 
 
 def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:
@@ -606,7 +632,7 @@ def pick_value(pick: dict[str, Any], pick_value_table: dict[str, list[dict[str, 
 # search escalates to the next tier. Biases the league toward 1-for-2 and
 # 2-for-2 deals over 3-for-2 / 3-for-3 monstrosities.
 _COMPLEXITY_TIERS: list[tuple[int, int]] = [(2, 1), (3, 1), (3, 2)]
-_COMPLEXITY_TIER_CUMULATIVE: list[float] = [0.90, 0.95, 1.00]
+_COMPLEXITY_TIER_CUMULATIVE: list[float] = [0.80, 0.90, 1.00]
 
 
 def _roll_complexity_tier() -> int:
@@ -852,6 +878,15 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
                       if p.get("current_team") == team and _is_eligible(p)]
         if random.random() > _FUTURE_PICK_GATE:
             team_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]
+
+        # Future-pick round floor: when the trade-up team is offering a future
+        # pick, that pick's round must be no earlier than (target_round - 1),
+        # with a special case for round-2 targets (floor is round 2, not 1).
+        # Round 1 targets have no floor (1 is already the earliest round).
+        min_future_round = 1 if round_1 == 1 else max(2, round_1 - 1)
+        team_picks = [p for p in team_picks
+                      if p.get("year_offset", 0) == 0
+                      or p.get("round", 1) >= min_future_round]
 
         # Independent gate: does this AI get to ask for a future return pick?
         down_team_picks = down_team_picks_all

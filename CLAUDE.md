@@ -136,7 +136,8 @@ Implemented:
   picks 20–29 / 36–42 +5 pp), then × GM `TradeDown` trait multiplier ×
   `_portfolio_multiplier_down` (pick-rich teams less willing, pick-poor
   more — see helper below) × cooldown multiplier (0.75× when the team's
-  last on-clock action was a trade rather than a draft, 1.0× otherwise).
+  last on-clock action was a trade rather than a draft, 1.0× otherwise) ×
+  `_round_modifier` (round-based dampener/boost; see helper below).
   Clamped to [5%, 95%].
   The cooldown is sourced from `DraftSession._last_action_per_team`,
   updated by `_record_selection` (sets "drafted") and `_execute_cpu_trade`
@@ -156,7 +157,12 @@ Implemented:
   × the same round-based impact weights used by `_trade_down_probability`:
   Round 1 bpa 0.25 / need 0.75; Rounds 2-3 balanced; Rounds 4-7 bpa 0.75 /
   need 0.25) × GM `TradeUp` trait multiplier (0.75–1.25×) × `_distance_multiplier`
-  × `_portfolio_multiplier`. Clamped to [0.1%, 50%].
+  × `_portfolio_multiplier` × `_round_modifier`. Clamped to [0.1%, 50%].
+- `_round_modifier(round_1)` — round-based multiplier shared by both
+  probability functions: Round 1 → 0.90×, Round 2 → 0.95×, Round 3 → 1.00×,
+  Rounds 4–6 → 1.05×, Round 7 → 1.10×. Slightly dampens early-round trades
+  and boosts late-round trades — matches the real-world pattern that late
+  picks change hands more freely.
 - `_slide_prob_up(current_slot, rank)` — base trade-up probability component
   (caller scales by impact weight). Buckets: ≥ 0.33 → 0.40, ≥ 0.25 → 0.20,
   ≥ 0.125 → 0.05, ≥ 0 → 0.0, < 0 → −0.25. Negative ratios (target below the
@@ -188,6 +194,10 @@ Implemented:
       tolerated since the trade-down team can balance with a small return pick)
     - 3-pick offers consisting of the team's **next 3 eligible current-year
       picks** are rejected (too aggressive to surrender all near-term picks)
+    - future picks in the offered package must be from a round ≥ the
+      target-round floor: round-1 target → no floor (any round); round-2
+      target → round 2+ (no future 1sts allowed); round-3+ target →
+      `target_round − 1`.
     - each side capped at 1 future pick AND gated by a 15% future-pick roll
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
