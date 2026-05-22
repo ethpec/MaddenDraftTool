@@ -119,21 +119,28 @@ Implemented:
   need_window_max), reach_limit)` for a pick. Shared by `sim_pick` and the
   trade-down willingness check so both use the same need window.
 - `_slide_prob(current_slot, rank)` — converts a board-slide ratio
-  `(current_slot - rank) / current_slot` to a probability component:
-  ≥ 0.33 → −0.05, ≥ 0.25 → 0.025, ≥ 0.125 → 0.125, ≥ 0 → 0.33, < 0 → 0.5.
+  `(current_slot - rank) / current_slot` to a base probability component
+  (caller scales by a round-based impact weight). Buckets:
+  ≥ 0.40 → −0.05, ≥ 0.33 → 0.02, ≥ 0.25 → 0.15, ≥ 0.125 → 0.50,
+  ≥ 0 → 0.70, < 0 → 1.00.
   (Negative ratios mean the player has slid past the pick, so willingness
   to trade down spikes; large positive ratios mean a top-tier talent is
   still available and the team should NOT trade down.)
 - `_trade_down_probability(state, pick)` — computes willingness probability
-  from two components: (1) BPA slide and (2) best board player filling an
-  eligible need for this round's window. Both components use `_slide_prob`;
-  if no eligible need match exists the need component defaults to 0.33
-  (ratio=0 bucket). The two are summed plus a hot-zone bonus (pick 33 +15
-  pp; picks 30–32 / 34–35 +7.5 pp; picks 20–29 / 36–42 +5 pp), then
-  multiplied by the GM's `TradeDown` trait multiplier
-  (`{1: 0.75, 2: 0.875, 3: 1.0, 4: 1.125, 5: 1.25}`) and by
-  `_portfolio_multiplier_down` (pick-rich teams less willing to trade down,
-  pick-poor teams more willing — see helper below). Clamped to [5%, 95%].
+  from two components, each weighted by a round-based impact factor:
+  - **BPA slide** (×0.25 in round 1, ×0.50 in rounds 2–3, ×0.75 in rounds 4–7)
+  - **Need slide** (×0.75 in round 1, ×0.50 in rounds 2–3, ×0.25 in rounds 4–7)
+  Both components use `_slide_prob`. The rationale: round 1 picks are
+  need-driven so a need-slide signal dominates; late rounds are BPA-driven.
+  Sum + hot-zone bonus (pick 33 +15 pp; picks 30–32 / 34–35 +7.5 pp;
+  picks 20–29 / 36–42 +5 pp), then × GM `TradeDown` trait multiplier ×
+  `_portfolio_multiplier_down` (pick-rich teams less willing, pick-poor
+  more — see helper below) × cooldown multiplier (0.75× when the team's
+  last on-clock action was a trade rather than a draft, 1.0× otherwise).
+  Clamped to [5%, 95%].
+  The cooldown is sourced from `DraftSession._last_action_per_team`,
+  updated by `_record_selection` (sets "drafted") and `_execute_cpu_trade`
+  / `accept_trade_down_offer` / `submit_user_trade_up` (set "traded").
 - `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
   Called once per pick in `_ensure_pending_offers`; the result is cached in
   `DraftSession._trade_down_willing` so CPU and user trade paths share the
@@ -146,9 +153,14 @@ Implemented:
 - `_trade_up_probability(state, gm, target_pick)` — willingness probability
   for an offering team to trade up to `target_pick`. Components combined
   multiplicatively: `(bpa_prob + need_prob)` (each scored by `_slide_prob_up`
-  on the team's #1 board player and best eligible-need player vs. target slot)
-  × GM `TradeUp` trait multiplier (0.75–1.25×) × `_distance_multiplier` ×
-  `_portfolio_multiplier`. Clamped to [0.1%, 50%].
+  × the same round-based impact weights used by `_trade_down_probability`:
+  Round 1 bpa 0.25 / need 0.75; Rounds 2-3 balanced; Rounds 4-7 bpa 0.75 /
+  need 0.25) × GM `TradeUp` trait multiplier (0.75–1.25×) × `_distance_multiplier`
+  × `_portfolio_multiplier`. Clamped to [0.1%, 50%].
+- `_slide_prob_up(current_slot, rank)` — base trade-up probability component
+  (caller scales by impact weight). Buckets: ≥ 0.33 → 0.40, ≥ 0.25 → 0.20,
+  ≥ 0.125 → 0.05, ≥ 0 → 0.0, < 0 → −0.25. Negative ratios (target below the
+  player's rank) penalize willingness.
 - `_distance_multiplier(value_ratio)` — dampens trade-up willingness based on
   how close the offering team's highest remaining current-year pick is to the
   target *in value* (Jimmy-Johnson chart auto-normalizes across rounds).
@@ -174,6 +186,8 @@ Implemented:
       (`P_high`) OR — when their future-pick gate passes — their highest-value
       future pick whose value < 1.1× target's value (`F_high`; small overshoot
       tolerated since the trade-down team can balance with a small return pick)
+    - 3-pick offers consisting of the team's **next 3 eligible current-year
+      picks** are rejected (too aggressive to surrender all near-term picks)
     - each side capped at 1 future pick AND gated by a 15% future-pick roll
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
@@ -184,9 +198,13 @@ Implemented:
        max 1 return) / 10% medium (max 3 offered, max 1 return) / 5% large
        (max 3 offered, max 2 return). If no valid combo exists at the rolled
        tier, escalates to the next tier until one is found or tiers exhaust.
-    2. **Metric selection** (50/50): min-cost (`offered_val − return_val`) or
-       min-ratio (`offered_val / (target_val + return_val)`). Either way
-       tiebreak is fewer total picks.
+    2. **Selection mode** (`_roll_selection_mode`): one of six modes —
+       min_cost 20% / min_ratio 20% / max_cost 12.5% / max_ratio 12.5% /
+       min_value 30% / random_deal 5%. The chosen mode is applied to the
+       full pool of valid combos at the resolved tier (see `_select_combo`).
+       All deterministic modes tiebreak on fewer total picks; `random_deal`
+       skips the tiebreak. This produces visibly different offer "styles"
+       across the league (cheap-and-clean vs. generous vs. random).
   The tier roll biases the league heavily toward 1-for-2 and 2-for-2 deals;
   3-for-3 trades only happen when a team rolls into the 5% top tier or
   escalates there because their portfolio doesn't fit the smaller tiers.
