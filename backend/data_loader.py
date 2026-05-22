@@ -28,7 +28,7 @@ NFL_LOGOS_DIR = REPO_ROOT / "static" / "nfl_logos"
 COLLEGE_LOGOS_DIR = REPO_ROOT / "static" / "college_logos"
 DATA_CACHE_DIRNAME = ".cache"
 PLAYER_CACHE_VERSION = 1
-LOAD_ALL_CACHE_VERSION = 2
+LOAD_ALL_CACHE_VERSION = 4
 _LOAD_ALL_CACHE_LOCK = threading.Lock()
 _LOAD_ALL_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 
@@ -227,6 +227,7 @@ def _folder_signature(folder: Path) -> tuple[Any, ...]:
         "PositionNeeds.xlsx",
         "DraftPickValue.xlsx",
         "DraftMaxPerPosition.xlsx",
+        "Draft_LetterGrades.xlsx",
         "all_colleges.json",
     )
     parts: list[Any] = [LOAD_ALL_CACHE_VERSION]
@@ -393,6 +394,65 @@ def load_max_per_position(folder: Path) -> list[dict[str, Any]]:
     return out
 
 
+def load_letter_grades(folder: Path) -> dict[tuple[Any, ...], dict[str, Any]]:
+    """Load Draft_LetterGrades.xlsx -> grade records keyed for safe joins.
+
+    The workbook has an "All" overview sheet and per-position sheets (QB, RB,
+    WR, TE, OL, DL, LB, CB, SAF, ST) whose columns mix three kinds of fields:
+    bio (Rank/Round/Pick/FirstName/LastName/Height/Weight/Age/Position), a
+    "Star" header tier (only present on the position sheets), and the rest are
+    attributes — letter grades like A/B/F or star ratings like "6-Great".
+
+    Each record is stored under TWO keys so callers can match strictly or fall
+    back if positions disagree across data sources:
+      ("fl", FirstName, LastName)               -- loose
+      ("flp", FirstName, LastName, Position)    -- strict
+    The "All" sheet is a duplicate of bio info we already have from BigBoard,
+    so it's skipped.
+    """
+    path = folder / "Draft_LetterGrades.xlsx"
+    if not path.is_file():
+        return {}
+    BIO_COLS = {"Rank", "Round", "Pick", "FirstName", "LastName",
+                "Height", "Weight", "Age", "Position", "Star"}
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    out: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for sn in wb.sheetnames:
+        if sn == "All":
+            continue
+        ws = wb[sn]
+        it = ws.iter_rows(values_only=True)
+        try:
+            headers = list(next(it))
+        except StopIteration:
+            continue
+        for row in it:
+            if not row or row[headers.index("FirstName")] is None:
+                continue
+            first = row[headers.index("FirstName")]
+            last = row[headers.index("LastName")]
+            position = row[headers.index("Position")] if "Position" in headers else None
+            rec: dict[str, Any] = {
+                "position_group": sn,
+                "position": position,
+                "height": row[headers.index("Height")] if "Height" in headers else None,
+                "weight": row[headers.index("Weight")] if "Weight" in headers else None,
+                "age": row[headers.index("Age")] if "Age" in headers else None,
+                "star": row[headers.index("Star")] if "Star" in headers else None,
+                "attributes": {},
+            }
+            for i, h in enumerate(headers):
+                if not h or h in BIO_COLS:
+                    continue
+                val = row[i] if i < len(row) else None
+                if val is not None and val != "":
+                    rec["attributes"][h] = val
+            out[("flp", first, last, position)] = rec
+            out.setdefault(("fl", first, last), rec)
+    wb.close()
+    return out
+
+
 def load_colleges(folder: Path) -> Any:
     """Load all_colleges.json if present."""
     path = folder / "all_colleges.json"
@@ -418,6 +478,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
 
     big_board = load_big_board(folder)
     players = load_players(folder)
+    letter_grades = load_letter_grades(folder)
     colleges = load_colleges(folder)
     college_by_id = build_college_id_to_name(colleges)
     college_logo_map = build_college_logo_map(colleges)
@@ -444,6 +505,17 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             p["position"] = match.get("Position")
             if college_name:
                 p["college_logo"] = college_logo_map.get(college_name)
+        grade_rec = (
+            letter_grades.get(("flp", p.get("FirstName"), p.get("LastName"), p.get("position")))
+            or letter_grades.get(("fl", p.get("FirstName"), p.get("LastName")))
+        )
+        if grade_rec:
+            p["grades"] = grade_rec
+            if not p.get("position"):
+                p["position"] = grade_rec.get("position")
+            p["height"] = grade_rec.get("height")
+            p["weight"] = grade_rec.get("weight")
+            p["age"] = grade_rec.get("age")
 
     loaded = {
         "year": str(year) if year is not None else None,
