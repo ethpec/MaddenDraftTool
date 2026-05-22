@@ -241,16 +241,16 @@ def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
 _TRADE_THRESHOLD_TABLE: dict[int, list[tuple[float, float]]] = {
     1: [(1.00, 0.20), (1.05, 0.60), (1.10, 0.175), (1.15, 0.025)],
     2: [(0.95, 0.05), (1.00, 0.60), (1.05, 0.30), (1.10, 0.05)],
-    3: [(0.95, 0.05), (1.00, 0.60), (1.05, 0.30), (1.10, 0.05)],
-    4: [(0.95, 0.10), (1.00, 0.60), (1.05, 0.25), (1.10, 0.05)],
-    5: [(0.95, 0.10), (1.00, 0.60), (1.05, 0.25), (1.10, 0.05)],
-    6: [(0.95, 0.10), (1.00, 0.60), (1.05, 0.25), (1.10, 0.05)],
-    7: [(0.95, 0.10), (1.00, 0.60), (1.05, 0.25), (1.10, 0.05)],
+    3: [(0.95, 0.05), (1.00, 0.65), (1.05, 0.25), (1.10, 0.05)],
+    4: [(0.95, 0.10), (1.00, 0.65), (1.05, 0.20), (1.10, 0.05)],
+    5: [(0.95, 0.10), (1.00, 0.70), (1.05, 0.15), (1.10, 0.05)],
+    6: [(0.95, 0.15), (1.00, 0.70), (1.05, 0.10), (1.10, 0.05)],
+    7: [(0.95, 0.15), (1.00, 0.75), (1.05, 0.10), (1.10, 0.05)],
 }
 
 # Premium the trade-up team adds to their rolled ratio. Ensures a workable
 # acceptance window when both teams roll the same bucket.
-_TRADE_UP_OFFSET: float = 0.025
+_TRADE_UP_OFFSET: float = 0.049
 
 # When the user is on the clock, each AI team gets a per-team floor of
 # (m_up - offset) instead of the cached m_down=0. Prevents lowball offers
@@ -285,54 +285,58 @@ def _roll_trade_threshold(round_1: int, is_trade_up: bool) -> float:
 
 
 def _slide_prob(current_slot: int, rank: int | None) -> float:
-    """Convert a board-slide ratio into a trade-down probability component."""
+    """Convert a board-slide ratio into a trade-down probability component.
+
+    Returns a "base" value — the caller (`_trade_down_probability`) applies
+    a round-based impact multiplier on top of this (BPA vs. need weights
+    differ by round, so the same slide signal matters differently across
+    early vs. late rounds).
+    """
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.4:
-        return -0.025
+        return -0.05
     if ratio >= 0.33:
-        return 0.01
+        return 0.025
     if ratio >= 0.25:
-        return 0.075
+        return 0.15
     if ratio >= 0.125:
-        return 0.25
+        return 0.50
     if ratio >= 0.0:
-        return 0.35
-    return 0.5
+        return 0.70
+    return 0.95
 
 
 def _slide_prob_up(current_slot: int, rank: int | None) -> float:
     """Convert a board-slide ratio into a trade-up probability component.
 
-    Mirror of _slide_prob: a player ranked well above the current pick slot
-    (large positive ratio) makes a team more willing to trade up to get him.
-    ratio = (current_slot - rank) / current_slot
-      >= 0.25  → player ranked far above pick slot → 0.25 (most willing)
-      >= 0.125 → moderate gap                      → 0.125
-      >= 0.0   → small gap or at pick slot          → 0.0
-      < 0.0    → player ranked below pick slot      → -0.125 (not worth moving up)
+    Mirror of `_slide_prob`: a player ranked well above the current pick slot
+    (large positive ratio) makes a team more willing to trade up. Returns a
+    "base" value — the caller (`_trade_up_probability`) applies a round-based
+    impact multiplier on top (BPA vs. need weights differ by round).
     """
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.33:
-        return 0.2
+        return 0.4
     if ratio >= 0.25:
-        return 0.1
+        return 0.2
     if ratio >= 0.125:
-        return 0.025
+        return 0.05
     if ratio >= 0.0:
         return 0.0
-    return -0.125
+    return -0.25
 
 
 def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> float:
     """Return the probability (0–1) that the on-clock team is willing to trade down.
 
     Components:
-      1. BPA slide via _slide_prob — how far the team's #1 available player
-         has slid vs. the pick.
-      2. Need slide via _slide_prob — how far the best board player that
-         fills an eligible need has slid vs. the pick.
+      1. BPA slide via _slide_prob × round-based bpa_impact weight (Round 1:
+         0.25, Rounds 2/3: 0.50, Rounds 4-7: 0.75).
+      2. Need slide via _slide_prob × round-based need_impact weight (Round 1:
+         0.75, Rounds 2/3: 0.50, Rounds 4-7: 0.25). Round 1 is need-driven so
+         a need-slide signal dominates; late rounds are BPA-driven.
       3. Hot-zone bonus for attractive slots (pick 33 +15 pp, etc.).
     Sum × GM TradeDown trait multiplier (0.75–1.25×) × portfolio multiplier
     from _portfolio_multiplier_down (pick-rich teams less willing to trade
@@ -351,9 +355,19 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     available = [player_map[pid] for pid in team_board
                  if pid in player_map and not player_map[pid].get("drafted")]
 
+    # Round-based impact weights — what matters more in this round, BPA or
+    # need? Round 1 picks are need-driven so a need-slide signal dominates;
+    # late-round picks are BPA-driven so a BPA-slide signal dominates.
+    if round_1 == 1:
+        bpa_impact, need_impact = 0.25, 0.75
+    elif round_1 in (2, 3):
+        bpa_impact, need_impact = 0.40, 0.60
+    else:  # rounds 4-7
+        bpa_impact, need_impact = 0.66, 0.34
+
     # Component 1: BPA slide using team's private rank.
     bpa = available[0] if available else None
-    bpa_prob = _slide_prob(current_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None)
+    bpa_prob = _slide_prob(current_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None) * bpa_impact
 
     # Component 2: Best eligible need player slide using team's private rank.
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
@@ -367,7 +381,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
          if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
         None,
     )
-    need_prob = _slide_prob(current_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None)
+    need_prob = _slide_prob(current_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None) * need_impact
 
     # Hot-zone bonus: certain pick slots are especially attractive trade-down
     # targets, boosting willingness before the GM multiplier is applied.
@@ -467,15 +481,17 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     """Return the probability (0–1) that a team is willing to trade up to target_pick.
 
     Four components combined multiplicatively:
-      1. (bpa_prob + need_prob): each scored by _slide_prob_up on the team's
-         #1 board player and best eligible-need player vs. the target slot.
+      1. (bpa_prob + need_prob): each scored by `_slide_prob_up` × a round-based
+         impact weight (Round 1: bpa 0.25 / need 0.75; Rounds 2-3: 0.50 each;
+         Rounds 4-7: bpa 0.75 / need 0.25). Round 1 trades chase needs; late-
+         round trades chase BPA.
       2. GM TradeUp trait multiplier (0.75–1.25x).
       3. Distance multiplier from _distance_multiplier — dampens willingness
          when the team's highest remaining current-year pick is far (in value)
          from the target. Caps at 1.0 (no boost).
       4. Portfolio multiplier from _portfolio_multiplier — scales by the team's
          share of remaining current-year picks across the league. Pick-rich
-         teams (>5%) get up to 1.25x; pick-poor teams (<1.5%) drop to 0.65x.
+         teams (>5%) get up to 1.25x; pick-poor teams (<1.5%) drop to 0.50x.
     Final result clamped to [0.1%, 50%] — trade-up willingness is the rarer event.
     """
     offering_team = gm.get("TeamName")
@@ -489,9 +505,19 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     available = [player_map[pid] for pid in team_board
                  if pid in player_map and not player_map[pid].get("drafted")]
 
+    # Round-based impact weights — same logic as _trade_down_probability.
+    # Round 1 is need-driven; rounds 4-7 are BPA-driven. Trade-up willingness
+    # responds more strongly to whichever signal matches the round's flavor.
+    if round_1 == 1:
+        bpa_impact, need_impact = 0.25, 0.75
+    elif round_1 in (2, 3):
+        bpa_impact, need_impact = 0.40, 0.60
+    else:  # rounds 4-7
+        bpa_impact, need_impact = 0.66, 0.34
+
     # Component 1: BPA slide using team's private rank vs target slot.
     bpa = available[0] if available else None
-    bpa_prob = _slide_prob_up(target_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None)
+    bpa_prob = _slide_prob_up(target_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None) * bpa_impact
 
     # Component 2: Best eligible need player slide using target pick's round window.
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
@@ -504,7 +530,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
          if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
         None,
     )
-    need_prob = _slide_prob_up(target_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None)
+    need_prob = _slide_prob_up(target_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None) * need_impact
 
     # Distance multiplier: value ratio of team's highest remaining current-year
     # pick (after target) vs the target pick itself. No eligible picks → far.
@@ -572,7 +598,7 @@ def pick_value(pick: dict[str, Any], pick_value_table: dict[str, list[dict[str, 
 # search escalates to the next tier. Biases the league toward 1-for-2 and
 # 2-for-2 deals over 3-for-2 / 3-for-3 monstrosities.
 _COMPLEXITY_TIERS: list[tuple[int, int]] = [(2, 1), (3, 1), (3, 2)]
-_COMPLEXITY_TIER_CUMULATIVE: list[float] = [0.85, 0.95, 1.00]
+_COMPLEXITY_TIER_CUMULATIVE: list[float] = [0.90, 0.95, 1.00]
 
 
 def _roll_complexity_tier() -> int:
@@ -589,8 +615,8 @@ def _roll_complexity_tier() -> int:
 # behaviors so different teams produce visibly different offers.
 _SELECTION_MODE_WEIGHTS: list[tuple[str, float]] = [
     ("min_cost",    0.20),   # smallest offered_val − return_val
-    ("min_ratio",   0.20),   # smallest offered_val / (target_val + return_val)
-    ("max_cost",    0.125),  # largest offered_val − return_val (most generous outlay)
+    ("min_ratio",   0.25),   # smallest offered_val / (target_val + return_val)
+    ("max_cost",    0.075),  # largest offered_val − return_val (most generous outlay)
     ("max_ratio",   0.125),  # largest ratio (most generous per-unit)
     ("min_value",   0.30),   # smallest offered_val + return_val (small package)
     ("random_deal", 0.05),   # uniform random among valid combos
@@ -667,6 +693,16 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
     selection_mode = _roll_selection_mode()
     tier_start = _roll_complexity_tier()
 
+    # Pre-compute the team's "next 3" eligible current-year picks (earliest
+    # by overall). Any offer consisting of exactly these three is rejected
+    # below — sending your next 3 actual upcoming picks for one current pick
+    # is unrealistically aggressive.
+    team_current_sorted = sorted(
+        (p for p in team_picks if p.get("year_offset", 0) == 0),
+        key=lambda p: p.get("overall", 0),
+    )
+    next_three_ids = {id(p) for p in team_current_sorted[:3]} if len(team_current_sorted) >= 3 else set()
+
     for tier_idx in range(tier_start, len(_COMPLEXITY_TIERS)):
         max_offered, max_return = _COMPLEXITY_TIERS[tier_idx]
 
@@ -678,6 +714,12 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
                 for combo in itertools.combinations(others, k):
                     pkg = [anchor] + list(combo)
                     if sum(1 for p in pkg if p.get("year_offset", 0) > 0) > _MAX_FUTURE_PICKS_PER_SIDE:
+                        continue
+                    # Reject offers that consist of the team's next 3 current-
+                    # year picks — too aggressive to surrender all near-term
+                    # selections for one trade up.
+                    if (len(pkg) == 3 and next_three_ids
+                            and all(id(p) in next_three_ids for p in pkg)):
                         continue
                     offered_candidates.append(pkg)
 
