@@ -81,6 +81,19 @@ print(f"Picks where team considered (CPU only): {considered_total}")
 print(f"Total offers generated: {offer_count_total}")
 print(f"Trades executed: {trade_total}")
 
+# Per-round breakdown
+print()
+print("Trades by round:")
+print(f"  {'Round':<6} | {'Picks':>5} | {'Considered':>10} | {'Offers':>6} | {'Traded':>6}")
+print("  " + "-" * 50)
+rounds = sorted({r["round"] for r in records})
+for rd in rounds:
+    rd_records = [r for r in records if r["round"] == rd]
+    rd_considered = sum(1 for r in rd_records if r["considered"])
+    rd_offers = sum(r["offers"] for r in rd_records)
+    rd_trades = sum(1 for r in rd_records if r["traded"])
+    print(f"  R{rd:<5} | {len(rd_records):>5} | {rd_considered:>10} | {rd_offers:>6} | {rd_trades:>6}")
+
 # Count trade-downs per team
 trade_count_per_team: dict[str, int] = {}
 for r in records:

@@ -631,15 +631,16 @@ class DraftSession:
         self._pending_offers_for_overall = pick.overall
 
     def _best_qualifying_cpu_offer(self) -> dict[str, Any] | None:
-        """Return the offer with highest net value to the trade-down team, or None.
+        """Return the offer the on-clock CPU team accepts, or None.
 
-        Offers from ``generate_trade_offers_for_pick`` are pre-filtered to satisfy
-        m_down ≤ offered_val / (target_val + return_val) ≤ m_up and sorted by net
-        value (offered − return) descending — so the first one is the best deal.
+        Offers from ``generate_trade_offers_for_pick`` are pre-filtered to
+        satisfy `m_down ≤ ratio ≤ m_up`. The actual pick among them is
+        delegated to `logic.select_trade_down_offer`, which rolls a
+        personality mode (max_ratio / max_value / nearest_pick / furthest_pick).
         """
         if not self._pending_trade_offers:
             return None
-        return self._pending_trade_offers[0]
+        return logic.select_trade_down_offer(self._pending_trade_offers)
 
     def _execute_cpu_trade(self, offer: dict[str, Any]) -> dict[str, Any]:
         """Apply a CPU-to-CPU trade offer, returning a summary dict for the UI."""

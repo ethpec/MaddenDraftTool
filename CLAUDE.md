@@ -202,6 +202,13 @@ Implemented:
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
   for rolling/caching `m_down`.
+- `select_trade_down_offer(offers)` — applies the on-clock CPU's personality
+  to choose which offer to accept. Rolls one of: **max_ratio** (40%),
+  **max_value** (40%, highest `offered_val − return_val`), **nearest_pick**
+  (10%, smallest distance from target to the closest current-year offered
+  pick), or **furthest_pick** (10%). The offers list is already ratio-sorted
+  for UI display; this selector only affects CPU-on-clock acceptance — user
+  Trade Hub still shows them ratio-sorted for manual review.
 - `_best_offer_for_team` — inner helper that picks each offering team's
   single best combo. Two layered rolls:
     1. **Complexity tier** (`_roll_complexity_tier`): 85% small (max 2 offered,
@@ -278,10 +285,10 @@ When a CPU pick is simmed (`_sim_one_locked`):
    the pick-count constraints — see `generate_trade_offers_for_pick` above.
    Offers may include `return_picks` (the on-clock team sending picks back to
    balance value when the offering team's package overshoots their M_up).
-3. `_best_qualifying_cpu_offer()` simply returns offers[0] — they're already
-   pre-filtered by ratio bounds and sorted by `offered/(target+return)`
-   descending (tiebreak fewer total picks), so the top is the most efficient
-   deal across teams.
+3. `_best_qualifying_cpu_offer()` delegates to `logic.select_trade_down_offer`,
+   which rolls a **personality mode** (40% max_ratio / 40% max_value /
+   10% nearest_pick / 10% furthest_pick) and applies it to the pre-filtered
+   offer pool. The selected offer is what executes.
 4. If a qualifying offer exists, `_execute_cpu_trade()` swaps ownership of the
    target + return picks + offered picks (bidirectional) and appends a
    `TradeRecord` before `sim_pick` chooses the player.

@@ -693,6 +693,70 @@ def _select_combo(combos: list[dict[str, Any]], mode: str) -> dict[str, Any]:
     return combos[0]  # fallback
 
 
+# Selection mode weights for the trade-DOWN side — how the on-clock CPU team
+# picks which offer to accept. Different "personalities" produce visibly
+# different acceptance patterns across the league.
+_DOWN_SELECTION_MODE_WEIGHTS: list[tuple[str, float]] = [
+    ("max_ratio",      0.40),   # highest offered/(target+return)
+    ("max_value",      0.40),   # highest net value (offered − return)
+    ("nearest_pick",   0.10),   # offer whose closest current-year pick is nearest the target
+    ("furthest_pick",  0.10),   # offer whose closest current-year pick is furthest from target
+]
+
+
+def _roll_down_selection_mode() -> str:
+    """Roll one of max_ratio / max_value / nearest_pick / furthest_pick."""
+    r = random.random()
+    cumulative = 0.0
+    for mode, weight in _DOWN_SELECTION_MODE_WEIGHTS:
+        cumulative += weight
+        if r < cumulative:
+            return mode
+    return _DOWN_SELECTION_MODE_WEIGHTS[-1][0]
+
+
+def select_trade_down_offer(offers: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Pick which offer the trade-down team accepts based on a rolled mode.
+
+    Called by `DraftSession._best_qualifying_cpu_offer` to add personality
+    to the on-clock team's acceptance behavior. The offers list itself is
+    already pre-filtered to satisfy the ratio window; this just chooses
+    among them by a randomly-rolled criterion (40/40/10/10 split).
+    """
+    if not offers:
+        return None
+
+    def ratio(o: dict[str, Any]) -> float:
+        denom = o["target_value"] + o["return_value"]
+        return (o["offer_value"] / denom) if denom > 0 else 0.0
+
+    def net_value(o: dict[str, Any]) -> float:
+        return o["offer_value"] - o["return_value"]
+
+    def offered_distance(o: dict[str, Any]) -> float | None:
+        """Distance (overall) from the on-clock pick to the closest current-
+        year pick in the offered package. None if no current-year picks."""
+        target_overall = o["target_pick"]["overall"]
+        current_picks = [p["overall"] for p in o["offered_picks"]
+                         if p.get("year_offset", 0) == 0]
+        if not current_picks:
+            return None
+        return min(current_picks) - target_overall
+
+    mode = _roll_down_selection_mode()
+    if mode == "max_ratio":
+        return max(offers, key=ratio)
+    if mode == "max_value":
+        return max(offers, key=net_value)
+    if mode == "nearest_pick":
+        valid = [o for o in offers if offered_distance(o) is not None]
+        return min(valid, key=offered_distance) if valid else offers[0]
+    if mode == "furthest_pick":
+        valid = [o for o in offers if offered_distance(o) is not None]
+        return max(valid, key=offered_distance) if valid else offers[0]
+    return offers[0]  # fallback
+
+
 def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any]],
                          team_picks: list[dict[str, Any]],
                          down_team_picks: list[dict[str, Any]],
