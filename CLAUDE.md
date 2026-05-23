@@ -259,6 +259,11 @@ scans `Files/` for subdirs (excluding `Exports`).
     on-clock pick pre-selected as the target.
   - **Previous Selections rail**: shows whichever team is currently on
     the clock, not the user team specifically. (Same for Team Needs.)
+  - **Team Needs filtering**: `_team_needs` in `app.py` filters the
+    returned needs to those whose `TrueWeight` falls in the current
+    round's need window OR the next round's window (using
+    `logic._round_bucket`). Surfaces only round-appropriate needs to
+    the UI. Round 7 only uses its own window.
 - `sim_until_end` deliberately **ignores** the user team — it pushes
   through every remaining pick, AI-filling the user team's slots too,
   for end-of-draft convenience.

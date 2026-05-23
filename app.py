@@ -160,12 +160,28 @@ def _team_needs(session: DraftSession, team_name: str) -> list[dict[str, Any]]:
     gm = next((g for g in session.data["gm_info"] if g.get("TeamName") == team_name), None)
     if gm is None:
         return []
-    return logic.compute_team_needs(
+    needs = logic.compute_team_needs(
         team_name,
         int(gm["TeamIndex"]),
         session.data["players"],
         session._weighted_needs,
     )
+    # Filter to needs whose TrueWeight qualifies for the CURRENT pick's round
+    # OR the NEXT round (so the UI surfaces only round-appropriate needs).
+    # If the draft is complete, fall through and return the full list.
+    current_pick = session.current_pick()
+    if current_pick is None:
+        return needs
+
+    current_round = current_pick.round_1
+    _, (win_min_cur, win_max_cur), _ = logic._round_bucket(current_round, 1)
+    windows = [(win_min_cur, win_max_cur)]
+    if current_round < 7:
+        _, (win_min_next, win_max_next), _ = logic._round_bucket(current_round + 1, 1)
+        windows.append((win_min_next, win_max_next))
+
+    return [n for n in needs
+            if any(lo < n["weight"] <= hi for lo, hi in windows)]
 
 
 # -----------------------------------------------------------------------------
