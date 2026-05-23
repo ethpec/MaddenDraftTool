@@ -755,9 +755,6 @@ class DraftSession:
         # The drafting team's roster just changed — invalidate only their
         # cached needs. Every other team's cache stays warm.
         self._needs_cache.pop(pick.current_team, None)
-        # Mark this team's last on-clock action as "drafted" — clears any
-        # prior "traded" cooldown when they next come on the clock.
-        self._last_action_per_team[pick.current_team] = "drafted"
         self._invalidate_snapshot()
 
     def _advance(self) -> None:
@@ -822,8 +819,6 @@ class DraftSession:
         roster on every call.
         """
         if self._snapshot_cache is not None:
-            # Refresh the volatile bits without rebuilding the whole snapshot.
-            self._snapshot_cache["last_action_per_team"] = dict(self._last_action_per_team)
             return self._snapshot_cache
         snap = {
             "big_board": self.data["big_board"],
