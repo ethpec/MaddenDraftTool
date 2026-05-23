@@ -17,6 +17,10 @@ from typing import Any
 
 from . import logic
 
+# OVR boost applied to a rookie's roster entry when drafted, by round.
+# Makes it more likely a position need registers as filled after the pick.
+_ROOKIE_OVR_BOOST: dict[int, int] = {1: 5, 2: 4, 3: 3, 4: 2, 5: 2, 6: 1, 7: 1}
+
 
 USER_TEAM_NAME = "Steelers"
 
@@ -747,6 +751,9 @@ class DraftSession:
             if team_index is not None:
                 roster_entry["TeamIndex"] = team_index
                 roster_entry["ContractStatus"] = "Signed"
+                boost = _ROOKIE_OVR_BOOST.get(pick.round_1, 0)
+                if boost and roster_entry.get("OverallRating") is not None:
+                    roster_entry["OverallRating"] = int(roster_entry["OverallRating"]) + boost
         # Increment events-since-trade for the drafting team (the cooldown
         # decays one step per draft after a trade). No-op if they've never
         # traded down (no entry in the dict).
