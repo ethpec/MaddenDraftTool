@@ -373,13 +373,46 @@ def load_position_needs(folder: Path) -> list[dict[str, Any]]:
     return _rows_to_dicts(headers, rows)
 
 
-def load_draft_pick_value(folder: Path) -> dict[str, list[dict[str, Any]]]:
-    """Load DraftPickValue.xlsx (Current + Future sheets)."""
+def load_draft_pick_value(folder: Path) -> dict[str, Any]:
+    """Load DraftPickValue.xlsx (Current + Future sheets).
+
+    Also builds two O(1) lookups so hot paths don't scan the sheet on every
+    call:
+
+    * ``by_pick``: (slot_1indexed, year_offset) -> chart value. Matches
+      ``logic.pick_value`` semantics — current-year picks read the Current
+      sheet's ``Value`` column, future picks read the Future sheet's ``Value``.
+    * ``next_year_by_slot``: slot_1indexed -> ValueNextYear from the Current
+      sheet. Used by ``app._pick_point_value`` for displaying future picks'
+      discounted value in the UI annotations.
+    """
     cur_h, cur_r = _read_sheet(folder / "DraftPickValue.xlsx", "Current")
     fut_h, fut_r = _read_sheet(folder / "DraftPickValue.xlsx", "Future")
+    current = _rows_to_dicts(cur_h, cur_r)
+    future = _rows_to_dicts(fut_h, fut_r)
+    by_pick: dict[tuple[int, int], float] = {}
+    next_year_by_slot: dict[int, float] = {}
+    for row in current:
+        slot_0 = row.get("Pick")
+        if slot_0 is None:
+            continue
+        slot_1 = int(slot_0) + 1
+        if row.get("Value") is not None:
+            by_pick[(slot_1, 0)] = float(row["Value"])
+        if row.get("ValueNextYear") is not None:
+            next_year_by_slot[slot_1] = float(row["ValueNextYear"])
+    for row in future:
+        slot_0 = row.get("Pick")
+        if slot_0 is None:
+            continue
+        slot_1 = int(slot_0) + 1
+        if row.get("Value") is not None:
+            by_pick[(slot_1, 1)] = float(row["Value"])
     return {
-        "current": _rows_to_dicts(cur_h, cur_r),
-        "future": _rows_to_dicts(fut_h, fut_r),
+        "current": current,
+        "future": future,
+        "by_pick": by_pick,
+        "next_year_by_slot": next_year_by_slot,
     }
 
 
