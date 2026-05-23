@@ -269,19 +269,28 @@ _TRADE_THRESHOLD_TABLE: dict[int, list[tuple[float, float]]] = {
     7: [(0.95, 0.15), (1.00, 0.75), (1.05, 0.10), (1.10, 0.05)],
 }
 
-# Premium the trade-up team adds to their rolled ratio. Ensures a workable
-# acceptance window when both teams roll the same bucket.
+# Random offset applied to the trade-up team's rolled ratio. Drawn fresh
+# per offering team per pick from uniform [-_TRADE_UP_OFFSET, +_TRADE_UP_OFFSET].
+# Adds per-team variance so two AI teams rolling the same threshold bucket
+# can land at meaningfully different M_up values. With the range centered on
+# zero, half the time the offset closes the window vs the trade-down team's
+# M_down and half the time it opens it — adds realistic deal/no-deal variance.
 _TRADE_UP_OFFSET: float = 0.049
 
 # When the user is on the clock, each AI team gets a per-team floor of
-# (m_up - offset) instead of the cached m_down=0. Prevents lowball offers
-# while still giving the user every interested AI's best deal to evaluate.
+# max(_USER_TRADE_DOWN_HARD_FLOOR, m_up - _USER_TRADE_DOWN_FLOOR_OFFSET)
+# instead of the cached m_down=0. The relative offset prevents very narrow
+# windows; the hard floor blocks anyone from sending lowball offers below
+# 0.95× value back to the user.
 _USER_TRADE_DOWN_FLOOR_OFFSET: float = 0.05
+_USER_TRADE_DOWN_HARD_FLOOR: float = 0.95
 
 # Probability that a side will even consider including a future-year pick
-# in their package. Each side rolls independently. If the gate fails, that
-# side's package is current-year-only.
-_FUTURE_PICK_GATE: float = 0.15
+# in their package. Each side rolls independently per offer. Trade-up side
+# is slightly more restrictive — teams are less willing to spend NEXT YEAR
+# capital to move up than they are to request it in return.
+_FUTURE_PICK_GATE_UP: float = 0.10
+_FUTURE_PICK_GATE_DOWN: float = 0.15
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
@@ -290,8 +299,9 @@ _MAX_FUTURE_PICKS_PER_SIDE: int = 1
 def _roll_trade_threshold(round_1: int, is_trade_up: bool) -> float:
     """Roll an acceptance/offer ratio from the round-keyed table.
 
-    Trade-up rolls receive a +``_TRADE_UP_OFFSET`` premium so a same-bucket
-    pair (M_down=X, M_up=X+offset) still leaves room for a deal.
+    Trade-up rolls receive a fresh random offset drawn from uniform
+    [-``_TRADE_UP_OFFSET``, +``_TRADE_UP_OFFSET``]. Each offering team gets
+    a different effective M_up even when they roll the same base bucket.
     """
     table = _TRADE_THRESHOLD_TABLE.get(round_1, _TRADE_THRESHOLD_TABLE[2])
     r = random.random()
@@ -302,7 +312,9 @@ def _roll_trade_threshold(round_1: int, is_trade_up: bool) -> float:
         if r <= cumulative:
             base = ratio
             break
-    return base + _TRADE_UP_OFFSET if is_trade_up else base
+    if is_trade_up:
+        return base + random.uniform(-_TRADE_UP_OFFSET, _TRADE_UP_OFFSET)
+    return base
 
 
 def _slide_prob(current_slot: int, rank: int | None) -> float:
@@ -316,16 +328,16 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     effective_rank = rank or current_slot
     ratio = (current_slot - effective_rank) / current_slot
     if ratio >= 0.4:
-        return 0.025
+        return 0.05
     if ratio >= 0.33:
-        return 0.075
+        return 0.10
     if ratio >= 0.25:
         return 0.35
     if ratio >= 0.125:
-        return 0.60
+        return 0.65
     if ratio >= 0.0:
-        return 0.75
-    return 0.85
+        return 0.80
+    return 0.95
 
 
 def _slide_prob_up(current_slot: int, rank: int | None) -> float:
@@ -345,10 +357,10 @@ def _slide_prob_up(current_slot: int, rank: int | None) -> float:
     if ratio >= 0.25:
         return 0.2
     if ratio >= 0.125:
-        return 0.075
+        return 0.05
     if ratio >= 0.0:
-        return 0.025
-    return 0.01
+        return 0.01
+    return 0.001
 
 
 def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> float:
@@ -386,7 +398,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     if round_1 == 1:
         bpa_impact, need_impact = 0.25, 0.75
     elif round_1 in (2, 3):
-        bpa_impact, need_impact = 0.45, 0.55
+        bpa_impact, need_impact = 0.40, 0.60
     else:  # rounds 4-7
         bpa_impact, need_impact = 0.50, 0.50
 
@@ -411,7 +423,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     # Hot-zone bonus: certain pick slots are especially attractive trade-down
     # targets, boosting willingness before the GM multiplier is applied.
     if current_slot == 1:
-        hot_zone = -0.15
+        hot_zone = -0.50
     elif current_slot == 33:
         hot_zone = 0.15
     elif 30 <= current_slot <= 32 or 34 <= current_slot <= 35:
@@ -463,7 +475,7 @@ def _distance_multiplier(value_ratio: float) -> float:
     if value_ratio >= 0.50:
         return 0.5
     if value_ratio >= 0.25:
-        return 0.33
+        return 0.25
     return 0.125
 
 
@@ -485,8 +497,8 @@ def _portfolio_multiplier(share: float) -> float:
     if share >= 0.025:
         return 0.75
     if share >= 0.020:
-        return 0.625
-    return 0.50
+        return 0.50
+    return 0.25
 
 
 def _round_modifier_up(round_1: int) -> float:
@@ -498,8 +510,8 @@ def _round_modifier_up(round_1: int) -> float:
     if round_1 in (4, 5):
         return 0.90
     if round_1 == 6:
-        return 1.10
-    return 1.50  # round 7+
+        return 0.95
+    return 1.25  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -507,12 +519,14 @@ def _round_modifier_down(round_1: int) -> float:
     (teams hold their R1 picks tightly) and boosts late rounds significantly.
     """
     if round_1 == 1:
-        return 0.85
-    if round_1 in (2, 3, 4):
+        return 0.75
+    if round_1 == 2:
         return 1.10
-    if round_1 in (5, 6):
+    if round_1 in (3, 4):
         return 1.20
-    return 1.50  # round 7+
+    if round_1 == 5:
+        return 1.35
+    return 2.00  # round 6+
 
 
 def _cooldown_for_events_since(n: int | None) -> float:
@@ -547,6 +561,8 @@ def _portfolio_multiplier_down(share: float) -> float:
         return 0.50
     if share >= 0.035:
         return 0.75
+    if share >= 0.030:
+        return 0.875
     if share >= 0.025:
         return 1.0
     if share >= 0.020:
@@ -592,9 +608,9 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     if round_1 == 1:
         bpa_impact, need_impact = 0.34, 0.66
     elif round_1 in (2, 3):
-        bpa_impact, need_impact = 0.50, 0.50
+        bpa_impact, need_impact = 0.40, 0.60
     else:  # rounds 4-7
-        bpa_impact, need_impact = 0.60, 0.40
+        bpa_impact, need_impact = 0.50, 0.50
 
     # Component 1: BPA slide using team's private rank vs target slot.
     bpa = available[0] if available else None
@@ -646,7 +662,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
     round_mod = _round_modifier_up(round_1)
-    return max(0.005, min(0.5,
+    return max(0.001, min(0.5,
         (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod))
 
 
@@ -988,15 +1004,20 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         m_up = _roll_trade_threshold(round_1, is_trade_up=True)
         # When the user is on clock, derive a per-team floor from this AI's
-        # m_up so they can't lowball — keeps the window 5 percentage points
-        # wide for every interested team.
-        effective_m_down = (m_up - _USER_TRADE_DOWN_FLOOR_OFFSET) if is_user_pick else m_down
+        # m_up so the window stays at least _USER_TRADE_DOWN_FLOOR_OFFSET wide,
+        # AND clamp the floor up to _USER_TRADE_DOWN_HARD_FLOOR to block
+        # truly lowball offers from reaching the user.
+        if is_user_pick:
+            effective_m_down = max(_USER_TRADE_DOWN_HARD_FLOOR,
+                                   m_up - _USER_TRADE_DOWN_FLOOR_OFFSET)
+        else:
+            effective_m_down = m_down
         if m_up < effective_m_down:
             continue
 
         team_picks = [p for p in all_picks
                       if p.get("current_team") == team and _is_eligible(p)]
-        if random.random() > _FUTURE_PICK_GATE:
+        if random.random() > _FUTURE_PICK_GATE_UP:
             team_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]
 
         # Future-pick round floor: when the trade-up team is offering a future
@@ -1010,7 +1031,7 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         # Independent gate: does this AI get to ask for a future return pick?
         down_team_picks = down_team_picks_all
-        if random.random() > _FUTURE_PICK_GATE:
+        if random.random() > _FUTURE_PICK_GATE_DOWN:
             down_team_picks = [p for p in down_team_picks if p.get("year_offset", 0) == 0]
 
         current_year_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]

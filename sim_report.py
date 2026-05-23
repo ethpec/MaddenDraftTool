@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
 from backend.data_loader import load_all
-from backend.draft_state import DraftSession
+from backend.draft_state import DraftSession, _pick_to_dict
+from backend import logic
 
 # Seeds to compare. Add/remove as needed.
 SEEDS = [42, 43, 100, 999, 12345]
@@ -40,6 +41,25 @@ def run_sim(seed: int) -> dict:
         on_clock = pick.current_team
         is_user = on_clock == sess.user_team
 
+        # Compute the raw willingness probabilities BEFORE simming this pick
+        # so the snapshot reflects the moment-in-time decision state. These
+        # are probabilities, not realizations — the actual roll happens
+        # inside _ensure_pending_offers.
+        td_prob = None
+        tu_prob_avg = None
+        if not is_user and pick.overall != sess._pick_must_select:
+            snap = sess._snapshot_for_logic()
+            pick_dict = _pick_to_dict(pick)
+            td_prob = logic._trade_down_probability(snap, pick_dict)
+            # Average trade-up probability across all OTHER eligible CPU teams
+            # (mirrors the loop inside generate_trade_offers_for_pick).
+            other_gms = [g for g in sess.data["gm_info"]
+                         if g.get("TeamName")
+                         and g["TeamName"] != on_clock
+                         and g["TeamName"] != sess.user_team]
+            tu_probs = [logic._trade_up_probability(snap, gm, pick_dict) for gm in other_gms]
+            tu_prob_avg = mean(tu_probs) if tu_probs else 0.0
+
         willing = None
         offer_count = 0
         if not is_user and pick.overall != sess._pick_must_select:
@@ -64,6 +84,8 @@ def run_sim(seed: int) -> dict:
             "considered": willing,
             "offers": offer_count,
             "traded": trade_happened,
+            "td_prob": td_prob,
+            "tu_prob_avg": tu_prob_avg,
         })
 
     return {
@@ -110,6 +132,28 @@ for rd in rounds:
     offs = [sum(rec["offers"] for rec in r["records"] if rec["round"] == rd) for r in results]
     trd = [sum(1 for rec in r["records"] if rec["round"] == rd and rec["traded"]) for r in results]
     print(f"  R{rd:<5} | {mean(cons):>10.1f} | {mean(offs):>6.1f} | {mean(trd):>6.1f}")
+
+# Per-round willingness probabilities (for tuning)
+# Trade-down: the on-clock team's _trade_down_probability for each pick
+# Trade-up: average of _trade_up_probability across all other CPU teams per pick
+print()
+print("Per-round willingness probabilities (averaged across all picks + seeds):")
+print(f"  {'Round':<6} | {'Trade-down %':>13} | {'Trade-up % (avg per team)':>27}")
+print("  " + "-" * 55)
+for rd in rounds:
+    td_vals: list[float] = []
+    tu_vals: list[float] = []
+    for r in results:
+        for rec in r["records"]:
+            if rec["round"] != rd:
+                continue
+            if rec["td_prob"] is not None:
+                td_vals.append(rec["td_prob"])
+            if rec["tu_prob_avg"] is not None:
+                tu_vals.append(rec["tu_prob_avg"])
+    td_pct = (mean(td_vals) * 100) if td_vals else 0.0
+    tu_pct = (mean(tu_vals) * 100) if tu_vals else 0.0
+    print(f"  R{rd:<5} | {td_pct:>12.1f}% | {tu_pct:>26.2f}%")
 
 # Trade-down counts per team averaged across seeds
 print()
