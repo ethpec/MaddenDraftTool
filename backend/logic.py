@@ -286,11 +286,11 @@ _USER_TRADE_DOWN_FLOOR_OFFSET: float = 0.05
 _USER_TRADE_DOWN_HARD_FLOOR: float = 0.95
 
 # Probability that a side will even consider including a future-year pick
-# in their package. Each side rolls independently per offer. Trade-up side
-# is slightly more restrictive — teams are less willing to spend NEXT YEAR
-# capital to move up than they are to request it in return.
-_FUTURE_PICK_GATE_UP: float = 0.10
-_FUTURE_PICK_GATE_DOWN: float = 0.15
+# in their package. Each side rolls independently per offer. Trade-down side
+# is slightly more restrictive — teams are less willing to accept NEXT YEAR
+# capital back than they are to spend it moving up.
+_FUTURE_PICK_GATE_UP: float = 0.15
+_FUTURE_PICK_GATE_DOWN: float = 0.10
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
@@ -334,9 +334,9 @@ def _slide_prob(current_slot: int, rank: int | None) -> float:
     if ratio >= 0.25:
         return 0.35
     if ratio >= 0.125:
-        return 0.65
+        return 0.75
     if ratio >= 0.0:
-        return 0.80
+        return 0.90
     return 0.95
 
 
@@ -505,11 +505,11 @@ def _round_modifier_up(round_1: int) -> float:
     """Round-based multiplier for trade-UP willingness. Late rounds get a
     bigger boost since late-round picks change hands more freely.
     """
-    if round_1 in (1, 2, 3):
+    if round_1 == 1:
+        return 1.15
+    if round_1 in (2, 3):
         return 1.00
-    if round_1 in (4, 5):
-        return 0.90
-    if round_1 == 6:
+    if round_1 in (4, 5, 6):
         return 0.95
     return 1.25  # round 7+
 
@@ -522,11 +522,11 @@ def _round_modifier_down(round_1: int) -> float:
         return 0.75
     if round_1 == 2:
         return 1.10
-    if round_1 in (3, 4):
+    if round_1 == 3:
         return 1.20
-    if round_1 == 5:
-        return 1.35
-    return 2.00  # round 6+
+    if round_1 in (4, 5):
+        return 1.50
+    return 2.50  # round 6+
 
 
 def _cooldown_for_events_since(n: int | None) -> float:

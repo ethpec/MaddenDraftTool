@@ -205,8 +205,8 @@ Implemented:
       target → round 2+ (no future 1sts allowed); round-3+ target →
       `target_round − 1`.
     - each side capped at 1 future pick AND gated by independent future-pick
-      rolls: trade-up side `_FUTURE_PICK_GATE_UP` (10%), trade-down side
-      `_FUTURE_PICK_GATE_DOWN` (15%)
+      rolls: trade-up side `_FUTURE_PICK_GATE_UP` (15%), trade-down side
+      `_FUTURE_PICK_GATE_DOWN` (10%)
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
   for rolling/caching `m_down`.
@@ -504,7 +504,7 @@ stays the same. See `renderConsensusDelta` in `app.js`.
 - CPU trade probability tuning — `_slide_prob` / `_slide_prob_up` bucket
   thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
   `_TRADE_UP_OFFSET` (±0.049, applied as a uniform random offset per offer),
-  `_FUTURE_PICK_GATE_UP` (0.10) / `_FUTURE_PICK_GATE_DOWN` (0.15), and the complexity
+  `_FUTURE_PICK_GATE_UP` (0.15) / `_FUTURE_PICK_GATE_DOWN` (0.10), and the complexity
   tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
