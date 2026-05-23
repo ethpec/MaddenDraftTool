@@ -151,9 +151,10 @@ Implemented:
   `DraftSession._trade_down_willing` so CPU and user trade paths share the
   same answer for the current on-clock pick.
 - `_roll_trade_threshold(round_1, is_trade_up)` — rolls a multiplier from a
-  round-keyed table. `is_trade_up=True` adds `_TRADE_UP_OFFSET` (0.025) so a
-  same-bucket pair (M_down=X, M_up=X+0.025) still leaves a 2.5% acceptance
-  window. Trade-down team rolls M_down once per pick (cached on session as
+  round-keyed table. `is_trade_up=True` adds a fresh random offset drawn
+  from uniform `[-_TRADE_UP_OFFSET, +_TRADE_UP_OFFSET]` (currently ±0.049)
+  so each offering team gets a different M_up even on the same base bucket.
+  Trade-down team rolls M_down once per pick (cached on session as
   `_trade_down_m_down`); trade-up teams roll M_up per offer.
 - `_trade_up_probability(state, gm, target_pick)` — willingness probability
   for an offering team to trade up to `target_pick`. Components combined
@@ -203,7 +204,9 @@ Implemented:
       target-round floor: round-1 target → no floor (any round); round-2
       target → round 2+ (no future 1sts allowed); round-3+ target →
       `target_round − 1`.
-    - each side capped at 1 future pick AND gated by a 15% future-pick roll
+    - each side capped at 1 future pick AND gated by independent future-pick
+      rolls: trade-up side `_FUTURE_PICK_GATE_UP` (15%), trade-down side
+      `_FUTURE_PICK_GATE_DOWN` (10%)
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
   for rolling/caching `m_down`.
@@ -316,9 +319,10 @@ with the same caching: when user is on the clock, willingness defaults to True
 and the cached `_trade_down_m_down` is set to 0.0. Inside
 `generate_trade_offers_for_pick`, the user-on-clock case (detected via
 `on_clock_team == user_team`) substitutes a **per-team floor** of
-`m_up - _USER_TRADE_DOWN_FLOOR_OFFSET` (0.05) so each AI's window stays at
-least 5 pp wide — prevents lowball offers while keeping every interested
-team's cheapest deal visible. The user picks one in the UI;
+`max(_USER_TRADE_DOWN_HARD_FLOOR, m_up - _USER_TRADE_DOWN_FLOOR_OFFSET)`
+(currently `max(0.95, m_up - 0.05)`) — the relative offset keeps each AI's
+window ≥ 5 pp wide; the hard floor blocks anyone from sending a sub-0.95×
+ratio to the user regardless of how low their m_up rolled. The user picks one in the UI;
 `accept_trade_down_offer(from_team)` looks up the cached offer by team name
 and calls `_apply_trade` with `USER` as initiator. No auto-acceptance — the
 user always decides.
@@ -499,7 +503,8 @@ stays the same. See `renderConsensusDelta` in `app.js`.
   and will be refined based on play-testing.
 - CPU trade probability tuning — `_slide_prob` / `_slide_prob_up` bucket
   thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
-  `_TRADE_UP_OFFSET` (0.025), `_FUTURE_PICK_GATE` (0.15), and the complexity
+  `_TRADE_UP_OFFSET` (±0.049, applied as a uniform random offset per offer),
+  `_FUTURE_PICK_GATE_UP` (0.15) / `_FUTURE_PICK_GATE_DOWN` (0.10), and the complexity
   tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
   re-import rejects the heuristic prefix.
