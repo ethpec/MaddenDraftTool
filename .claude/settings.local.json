@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($PSVersionTable.PSVersion; Get-Module PSReadLine -ListAvailable | Select-Object Name, Version | Format-Table -AutoSize; Test-Path $PROFILE; $PROFILE)",
+      "PowerShell(Get-Command pwsh -ErrorAction SilentlyContinue)",
+      "PowerShell(winget --version 2>$null)",
+      "PowerShell(Get-Command winget.exe -ErrorAction SilentlyContinue | Select-Object Source; \\(Get-AppxPackage Microsoft.DesktopAppInstaller -ErrorAction SilentlyContinue\\).Version; Get-Command pwsh.exe -ErrorAction SilentlyContinue | Select-Object Source; if \\(Test-Path \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\winget.exe\"\\) { \"winget at WindowsApps\" } else { \"no winget in WindowsApps\" })",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\winget.exe\" install --id Microsoft.PowerShell --scope user --silent --accept-source-agreements --accept-package-agreements)",
+      "PowerShell(Get-ChildItem -Path \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\\\\Packages\" -Recurse -Filter pwsh.exe -ErrorAction SilentlyContinue | Select-Object -First 3 FullName; Get-ChildItem -Path \"$env:LOCALAPPDATA\" -Recurse -Filter pwsh.exe -ErrorAction SilentlyContinue -Depth 6 | Select-Object -First 3 FullName)",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\winget.exe\" list --id Microsoft.PowerShell)",
+      "PowerShell($cands = @\\(\"$env:ProgramFiles\\\\PowerShell\\\\7\\\\pwsh.exe\",\"$env:LOCALAPPDATA\\\\Programs\\\\PowerShell\\\\7\\\\pwsh.exe\",\"$env:LOCALAPPDATA\\\\Microsoft\\\\PowerShell\\\\7\\\\pwsh.exe\"\\); $cands | ForEach-Object { \"$_  ->  $\\(Test-Path $_\\)\" }; Get-AppxPackage Microsoft.PowerShell -ErrorAction SilentlyContinue | Select-Object Name, InstallLocation, PackageFamilyName)",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -NoProfile -Command \"$PSVersionTable.PSVersion.ToString\\(\\); $PROFILE; \\(Get-Module PSReadLine -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1\\).Version.ToString\\(\\)\")",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString\\(\\); $PROFILE; \\(Get-Module PSReadLine -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1\\).Version.ToString\\(\\)')",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -NoProfile -Command 'Test-Path $PROFILE; if \\(Test-Path $PROFILE\\) { Get-Content $PROFILE -Raw }')",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -NoProfile -Command 'Install-Module -Name Terminal-Icons -Scope CurrentUser -Force -AcceptLicense -SkipPublisherCheck; Install-Module -Name posh-git -Scope CurrentUser -Force -AcceptLicense -SkipPublisherCheck; Install-Module -Name CompletionPredictor -Scope CurrentUser -Force -AcceptLicense -SkipPublisherCheck; \"DONE\"')",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -NoProfile -Command 'Get-Module -ListAvailable Terminal-Icons, posh-git, CompletionPredictor, PSReadLine | Select-Object Name, Version | Sort-Object Name, Version')",
+      "PowerShell($dir = \"C:\\\\Users\\\\lemur\\\\OneDrive\\\\Documents\\\\PowerShell\"; Test-Path $dir; if \\(-not \\(Test-Path $dir\\)\\) { New-Item -ItemType Directory -Path $dir -Force | Out-Null; \"created\" } else { \"exists\" })",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -Command 'Get-PSReadLineOption | Select-Object PredictionSource, PredictionViewStyle, EditMode, MaximumHistoryCount; Write-Host \"---\"; Get-Module PSReadLine, Terminal-Icons, posh-git, CompletionPredictor | Select-Object Name, Version')",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -Command 'Get-PSReadLineOption | Select-Object PredictionSource, PredictionViewStyle, EditMode; \"modules:\"; Get-Module PSReadLine, Terminal-Icons, posh-git, CompletionPredictor | Select-Object Name, Version')",
+      "PowerShell(& \"$env:LOCALAPPDATA\\\\Microsoft\\\\WindowsApps\\\\pwsh.exe\" -NoLogo -Command 'Get-Module PSReadLine, Terminal-Icons, posh-git, CompletionPredictor | Select-Object Name, Version')",
+      "Bash(python _verify_needs_cache.py)",
+      "Bash(rm _verify_needs_cache.py _verify.out)",
+      "Bash(ls _verify*)",
+      "Bash(pip show *)",
+      "Bash(pip install *)",
+      "Bash(curl -s http://localhost:5050/api/years)",
+      "Bash(break)",
+      "Bash(python _perf_click.py)",
+      "Bash(python _perf_each.py)",
+      "Bash(python -c ' *)",
+      "Bash(python _perf_dns.py)",
+      "Bash(python app.py)"
+    ]
+  }
+}

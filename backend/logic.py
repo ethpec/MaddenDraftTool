@@ -67,6 +67,27 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     return [p for _, _, p in noisy]
 
 
+def _get_needs(state: dict[str, Any], team_name: str, team_index: int) -> list[dict[str, Any]]:
+    """Cached wrapper around ``compute_team_needs``.
+
+    Within a single pick cycle the rosters don't change, so the same team's
+    needs are identical across every ``sim_pick`` / trade-probability call.
+    The session injects its ``_needs_cache`` dict into the state under
+    ``needs_cache`` and invalidates the drafting team's entry after each pick.
+    """
+    cache = state.get("needs_cache")
+    if cache is not None:
+        hit = cache.get(team_name)
+        if hit is not None:
+            return hit
+    needs = compute_team_needs(
+        team_name, team_index, state["players"], state["position_needs"],
+    )
+    if cache is not None:
+        cache[team_name] = needs
+    return needs
+
+
 def compute_team_needs(team_name: str, team_index: int,
                        roster: list[dict[str, Any]],
                        position_needs_table: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -183,7 +204,7 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
 
     # Need path — compute needs and filter to this round's weight window.
     gm_index = gm.get("TeamIndex")
-    needs = compute_team_needs(team_name, int(gm_index), state["players"], state["position_needs"]) if gm_index is not None else []
+    needs = _get_needs(state, team_name, int(gm_index)) if gm_index is not None else []
     eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
 
     def _bpa(rationale: str) -> dict[str, Any]:
@@ -377,7 +398,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
     gm = next((g for g in state["gm_info"] if g.get("TeamName") == on_clock_team), {})
     gm_index = gm.get("TeamIndex")
-    needs = (compute_team_needs(on_clock_team, int(gm_index), state["players"], state["position_needs"])
+    needs = (_get_needs(state, on_clock_team, int(gm_index))
              if gm_index is not None else [])
     eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
     best_need = next(
@@ -555,7 +576,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     # Component 2: Best eligible need player slide using target pick's round window.
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
     gm_index = gm.get("TeamIndex")
-    needs = (compute_team_needs(offering_team, int(gm_index), state["players"], state["position_needs"])
+    needs = (_get_needs(state, offering_team, int(gm_index))
              if gm_index is not None else [])
     eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
     best_need = next(
@@ -607,18 +628,26 @@ def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:
     return random.random() <= _trade_down_probability(state, pick)
 
 
-def pick_value(pick: dict[str, Any], pick_value_table: dict[str, list[dict[str, Any]]]) -> float:
+def pick_value(pick: dict[str, Any], pick_value_table: dict[str, Any]) -> float:
     """Return the Jimmy-Johnson-style value of a single pick.
 
     Accepts both raw DraftPicks.xlsx dicts (keys ``PickNumber``, ``YearOffset``)
     and the internal ``_pick_to_dict`` format (keys ``draft_slot``, ``year_offset``).
     Future-year picks use the ``Future`` sheet.
+
+    Hot path: trade-offer enumeration looks up hundreds of picks per pick
+    cycle. Uses the pre-built ``by_pick`` dict from ``load_draft_pick_value``
+    when available so each call is O(1); falls back to the linear scan if a
+    caller hands in a hand-rolled table without the lookup.
     """
     overall = pick.get("draft_slot") or pick.get("PickNumber") or pick.get("overall")
     if overall is None:
         return 0.0
     raw_offset = pick.get("YearOffset")
     year_offset = raw_offset if raw_offset is not None else (pick.get("year_offset") or 0)
+    by_pick = pick_value_table.get("by_pick") if isinstance(pick_value_table, dict) else None
+    if by_pick is not None:
+        return by_pick.get((int(overall), int(year_offset) or 0), 0.0)
     sheet = pick_value_table["current"] if not year_offset else pick_value_table["future"]
     target = int(overall) - 1  # DraftPickValue.xlsx Pick column is 0-indexed
     for row in sheet:
