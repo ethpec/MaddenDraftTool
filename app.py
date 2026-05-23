@@ -103,6 +103,7 @@ def _public_big_board(session: DraftSession) -> list[dict[str, Any]]:
     """Mel Kiper view: rows in stored BigBoardRank order, no per-team rankings."""
     out = []
     for p in session.data["big_board"]["players"]:
+        grades = p.get("grades") or {}
         out.append({
             "player_id": p.get("Player_ID"),
             "first_name": p.get("FirstName"),
@@ -114,6 +115,11 @@ def _public_big_board(session: DraftSession) -> list[dict[str, Any]]:
             "college": p.get("college"),
             "college_logo": p.get("college_logo"),
             "position": p.get("position"),
+            "has_grades": "grades" in p,
+            "star": grades.get("star"),
+            "height": grades.get("height"),
+            "weight": grades.get("weight"),
+            "attributes": grades.get("attributes") or {},
         })
     out.sort(key=lambda r: r["rank"] or 9999)
     return out
@@ -128,6 +134,7 @@ def _team_big_board(session: DraftSession, team_name: str) -> list[dict[str, Any
         p = player_map.get(pid)
         if p is None or p.get("drafted"):
             continue
+        grades = p.get("grades") or {}
         result.append({
             "player_id": pid,
             "first_name": p.get("FirstName"),
@@ -139,6 +146,11 @@ def _team_big_board(session: DraftSession, team_name: str) -> list[dict[str, Any
             "college": p.get("college"),
             "college_logo": p.get("college_logo"),
             "position": p.get("position"),
+            "has_grades": "grades" in p,
+            "star": grades.get("star"),
+            "height": grades.get("height"),
+            "weight": grades.get("weight"),
+            "attributes": grades.get("attributes") or {},
         })
         rank += 1
     return result
@@ -148,12 +160,28 @@ def _team_needs(session: DraftSession, team_name: str) -> list[dict[str, Any]]:
     gm = next((g for g in session.data["gm_info"] if g.get("TeamName") == team_name), None)
     if gm is None:
         return []
-    return logic.compute_team_needs(
+    needs = logic.compute_team_needs(
         team_name,
         int(gm["TeamIndex"]),
         session.data["players"],
         session._weighted_needs,
     )
+    # Filter to needs whose TrueWeight qualifies for the CURRENT pick's round
+    # OR the NEXT round (so the UI surfaces only round-appropriate needs).
+    # If the draft is complete, fall through and return the full list.
+    current_pick = session.current_pick()
+    if current_pick is None:
+        return needs
+
+    current_round = current_pick.round_1
+    _, (win_min_cur, win_max_cur), _ = logic._round_bucket(current_round, 1)
+    windows = [(win_min_cur, win_max_cur)]
+    if current_round < 7:
+        _, (win_min_next, win_max_next), _ = logic._round_bucket(current_round + 1, 1)
+        windows.append((win_min_next, win_max_next))
+
+    return [n for n in needs
+            if any(lo < n["weight"] <= hi for lo, hi in windows)]
 
 
 # -----------------------------------------------------------------------------
@@ -241,6 +269,54 @@ def api_big_board_team(team_name: str):
     if err:
         return err
     return jsonify({"team": team_name, "players": _team_big_board(sess, team_name)})
+
+
+@app.get("/api/player/<player_id>")
+def api_player(player_id: str):
+    """Return one BigBoard player's full profile (bio, college, grades).
+
+    Used by the player profile modal. Looks up against the BigBoard rows
+    in session data; not all rookies have a Draft_LetterGrades entry
+    (e.g. FBs are not graded), in which case ``grades`` will be None.
+    """
+    sess, err = _require_session()
+    if err:
+        return err
+    p = next((x for x in sess.data["big_board"]["players"]
+              if x.get("Player_ID") == player_id), None)
+    if p is None:
+        return jsonify({"error": "player not found"}), 404
+    drafted_pick = next((pk for pk in sess.board()
+                         if pk.selected_player_id == player_id), None)
+    nfl_logos = sess.data.get("nfl_logo_map", {})
+    drafted_info = None
+    if drafted_pick is not None:
+        team_name = drafted_pick.current_team
+        drafted_info = {
+            "team": team_name,
+            "team_logo": nfl_logos.get(team_name),
+            "overall": drafted_pick.overall,
+            "round": drafted_pick.round_1,
+            "pick": drafted_pick.pick_in_round_1,
+        }
+    return jsonify({
+        "player_id": p.get("Player_ID"),
+        "first_name": p.get("FirstName"),
+        "last_name": p.get("LastName"),
+        "position": p.get("position"),
+        "college": p.get("college"),
+        "college_logo": p.get("college_logo"),
+        "consensus_rank": p.get("BigBoardRank"),
+        "prospect_type": p.get("ProspectType"),
+        "projected_round": p.get("PLYR_DRAFTROUND"),
+        "projected_pick": p.get("PLYR_DRAFTPICK"),
+        "height": p.get("height"),
+        "weight": p.get("weight"),
+        "age": p.get("age"),
+        "drafted": bool(p.get("drafted")),
+        "drafted_info": drafted_info,
+        "grades": p.get("grades"),
+    })
 
 
 @app.get("/api/needs/<team_name>")

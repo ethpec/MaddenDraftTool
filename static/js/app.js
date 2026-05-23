@@ -423,6 +423,12 @@ function renderTeamBoard() {
       submitPick(btn.dataset.draftId);
     });
   });
+  el.querySelectorAll('[data-player-id]').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('[data-draft-id]')) return;
+      openPlayerProfile(row.dataset.playerId);
+    });
+  });
 }
 
 function populateTeamPickers(teamNames) {
@@ -1008,12 +1014,125 @@ function displayPosition(raw) {
   return RAW_TO_DISPLAY[raw] || raw || '—';
 }
 
+// Per-position display priority for attributes in the player card.
+// The position_group on the grade record matches the per-position sheet
+// name in Draft_LetterGrades.xlsx (QB, RB, WR, TE, OL, DL, LB, CB, SAF, ST).
+// Listed attrs come first in the order given; unlisted attrs follow in the
+// order they appear in the data.
+const ATTR_PRIORITY = {
+  QB:  ['THP','SAC','MAC','DAC','TUP','TOR','PAC','BSK','AWR'],
+  RB:  ['CAR','BTK','TRK','SFA','JKM','SPM','BCV','AWR','SRR','CTH','CIT'],
+  WR:  ['CTH','SRR','MRR','DRR','RLS','CIT','SPC','AWR','BCV','BTK'],
+  TE:  ['CTH','SRR','MRR','DRR','CIT','SPC','PBK','RBK','IBL','AWR'],
+  OL:  ['PBK','PBP','PBF','RBK','RBP','RBF','IBL','LBK','AWR'],
+  DL:  ['PMV','FMV','BSH','TAK','HIT','PUR','PRC','AWR'],
+  LB:  ['TAK','HIT','PUR','MCV','ZCV','PRC','PMV','FMV','BSH','AWR'],
+  CB:  ['MCV','ZCV','PRS','PRC','TAK','AWR'],
+  SAF: ['MCV','ZCV','PRC','TAK','HIT','PUR','BSH','AWR'],
+  ST:  ['KPW','KAC','AWR'],
+};
+
+// Map a Madden display position (QB, RB, END, ...) to the sheet group used
+// in Draft_LetterGrades.xlsx (so we know which priority list to apply, and
+// which set of attributes to surface as sort options in the Big Board).
+const DISPLAY_TO_GROUP = {
+  QB: 'QB', RB: 'RB', WR: 'WR', TE: 'TE',
+  OG: 'OL', OT: 'OL', C: 'OL',
+  END: 'DL', DT: 'DL',
+  OLB: 'LB', ILB: 'LB',
+  CB: 'CB', SS: 'SAF', FS: 'SAF',
+  K: 'ST', P: 'ST',
+};
+
+// Grade comparator: return numeric rank where higher = better.
+// Handles letter grades (A+ > A > A- > B+ > B > ... > F) and star
+// tiers ("7-Elite", "6-Great", ..., "1-Poor"). Returns -Infinity for
+// unknown/missing so sort-descending puts those last.
+function gradeRank(value) {
+  if (value == null || value === '') return -Infinity;
+  const s = String(value).trim();
+  const star = s.match(/^([1-7])-/);
+  if (star) return parseInt(star[1], 10);  // 1..7
+  // Letter grade with optional +/-: A+=4.3, A=4, A-=3.7, B+=3.3, B=3, ... F=0
+  const m = s.match(/^([A-F])([+-]?)/i);
+  if (!m) return -Infinity;
+  const base = { A: 4, B: 3, C: 2, D: 1, F: 0 }[m[1].toUpperCase()];
+  if (base == null) return -Infinity;
+  const mod = m[2] === '+' ? 0.3 : (m[2] === '-' ? -0.3 : 0);
+  return base + mod;
+}
+
+// Look at the first non-null value seen in publicBoard for an attribute
+// to decide whether the filter popover should offer letter buckets
+// (A+/A/A-/B+...) or star buckets (1-7). Cached per render.
+let _attrKindCache = null;
+function invalidateAttrKindCache() { _attrKindCache = null; }
+function attrKind(attrKey) {
+  if (!_attrKindCache) _attrKindCache = {};
+  if (attrKey in _attrKindCache) return _attrKindCache[attrKey];
+  let kind = 'letter';
+  for (const p of state.publicBoard) {
+    const v = p.attributes?.[attrKey];
+    if (v == null || v === '') continue;
+    kind = /^[1-7]-/.test(String(v)) ? 'star' : 'letter';
+    break;
+  }
+  _attrKindCache[attrKey] = kind;
+  return kind;
+}
+
+// Discrete value buckets offered in the filter popover, paired with the
+// numeric rank used for comparison (matches gradeRank()).
+const LETTER_BUCKETS = [
+  ['A', 4], ['B', 3], ['C', 2], ['D', 1], ['F', 0],
+];
+const STAR_BUCKETS = [
+  ['7-Elite', 7], ['6-Great', 6], ['5-Good', 5],
+  ['4-Solid', 4], ['3-Decent', 3], ['2-Marginal', 2], ['1-Poor', 1],
+];
+
+// "6'5"" -> 77 (inches). Returns -Infinity for missing/unparseable.
+function parseHeight(h) {
+  if (!h) return -Infinity;
+  const m = String(h).match(/(\d+)'\s*(\d+)/);
+  if (!m) return -Infinity;
+  return parseInt(m[1], 10) * 12 + parseInt(m[2], 10);
+}
+
 const bigBoardState = {
   position: 'ALL',          // 'ALL' | one of POSITION_ORDER
-  sortBy: 'consensus',      // 'consensus' | 'team'
+  sortBy: 'consensus',      // 'consensus' | 'team' | 'name' | 'height' | 'weight' | 'attr:<KEY>'
   showDrafted: false,
   userTeamBoard: [],        // cached big board for the user's team
+  // Active min-value filters. Keys: 'attr:<KEY>', 'height', 'weight'.
+  // Value shape: { min: <numeric rank>, label: <display label> }.
+  // Numeric rank is comparable across grades via gradeRank() for attr
+  // filters, raw inches for height, raw pounds for weight.
+  filters: {},
 };
+
+// Columns shown in the ALL view: universal physical attributes graded
+// on essentially every position. Star is shown when available.
+const ALL_VIEW_ATTRS = ['SPD','ACC','AGI','STR','AWR','COD','JMP','INJ','STA'];
+
+// Attribute columns for the current view. ALL returns ALL_VIEW_ATTRS;
+// a specific position returns ATTR_PRIORITY[group] plus any extra attrs
+// that actually appear on players of that position (so nothing is hidden).
+function currentAttrColumns() {
+  if (bigBoardState.position === 'ALL') return ALL_VIEW_ATTRS;
+  const group = DISPLAY_TO_GROUP[bigBoardState.position];
+  const priority = ATTR_PRIORITY[group] || [];
+  const allowedRaws = new Set(POSITION_ALIASES[bigBoardState.position] || [bigBoardState.position]);
+  const seen = new Set(priority);
+  const extras = [];
+  for (const p of state.publicBoard) {
+    if (!allowedRaws.has(p.position)) continue;
+    for (const k of Object.keys(p.attributes || {})) {
+      if (!seen.has(k)) { seen.add(k); extras.push(k); }
+    }
+  }
+  return [...priority, ...extras];
+}
 
 async function openBigBoardModal() {
   // Fetch the user's personal team board so we can sort by it. We
@@ -1037,8 +1156,6 @@ async function openBigBoardModal() {
     const active = bigBoardState.position === pos ? ' active' : '';
     return `<button class="bb-pos-pill${active}" data-bb-pos="${escapeHtml(pos)}">${escapeHtml(label)}</button>`;
   }).join('');
-  const sortConsensusActive = bigBoardState.sortBy === 'consensus' ? ' active' : '';
-  const sortTeamActive = bigBoardState.sortBy === 'team' ? ' active' : '';
   const draftedChecked = bigBoardState.showDrafted ? ' checked' : '';
   const body = `
     <div class="big-board-modal">
@@ -1050,10 +1167,6 @@ async function openBigBoardModal() {
           <div class="text-xs text-slate-500">${subtitle}</div>
         </div>
         <div class="bbm-controls">
-          <div class="bbm-sort-group">
-            <button class="bbm-sort${sortConsensusActive}" data-bb-sort="consensus">Consensus</button>
-            <button class="bbm-sort${sortTeamActive}" data-bb-sort="team">My Team</button>
-          </div>
           <label class="bbm-drafted-toggle">
             <input id="bb-show-drafted" type="checkbox"${draftedChecked}>
             <span>Show drafted</span>
@@ -1063,8 +1176,11 @@ async function openBigBoardModal() {
       </div>
       <div class="bbm-position-bar pretty-scroll">${positionList}</div>
       <div class="bbm-list-wrap">
-        <div id="bb-count" class="text-xs text-slate-500 px-1 pb-1.5"></div>
-        <div id="bb-list" class="bbm-list pretty-scroll"></div>
+        <div class="bbm-meta-row">
+          <div id="bb-count" class="text-xs text-slate-500"></div>
+          <div id="bb-filters" class="bbm-filters"></div>
+        </div>
+        <div id="bb-table" class="bbm-table pretty-scroll"></div>
       </div>
     </div>
   `;
@@ -1075,13 +1191,18 @@ async function openBigBoardModal() {
     btn.addEventListener('click', () => {
       bigBoardState.position = btn.dataset.bbPos;
       document.querySelectorAll('[data-bb-pos]').forEach(b => b.classList.toggle('active', b.dataset.bbPos === bigBoardState.position));
-      renderBigBoardList();
-    });
-  });
-  document.querySelectorAll('[data-bb-sort]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      bigBoardState.sortBy = btn.dataset.bbSort;
-      document.querySelectorAll('[data-bb-sort]').forEach(b => b.classList.toggle('active', b.dataset.bbSort === bigBoardState.sortBy));
+      // If the active sort is an attribute that's not in the new column set,
+      // fall back to consensus.
+      if (bigBoardState.sortBy.startsWith('attr:')) {
+        const key = bigBoardState.sortBy.slice(5);
+        if (!currentAttrColumns().includes(key)) bigBoardState.sortBy = 'consensus';
+      }
+      // Drop any attribute filters that no longer apply to the visible
+      // column set — they'd be active-but-invisible otherwise.
+      const colSet = new Set(currentAttrColumns().map(a => 'attr:' + a));
+      for (const k of Object.keys(bigBoardState.filters)) {
+        if (k.startsWith('attr:') && !colSet.has(k)) delete bigBoardState.filters[k];
+      }
       renderBigBoardList();
     });
   });
@@ -1117,6 +1238,8 @@ function renderBigBoardList() {
   const allowedRaws = bigBoardState.position === 'ALL'
     ? null
     : new Set(POSITION_ALIASES[bigBoardState.position] || [bigBoardState.position]);
+  const filters = bigBoardState.filters || {};
+  const filterEntries = Object.entries(filters);
   players = players.filter(p => {
     if (!bigBoardState.showDrafted && (drafted.has(p.player_id) || p.drafted)) return false;
     if (allowedRaws && !allowedRaws.has(p.position)) return false;
@@ -1124,52 +1247,407 @@ function renderBigBoardList() {
       const hay = (p.first_name + ' ' + p.last_name + ' ' + (p.college || '') + ' ' + (p.position || '')).toLowerCase();
       if (!hay.includes(q)) return false;
     }
+    for (const [key, f] of filterEntries) {
+      if (key === 'height') {
+        if (parseHeight(p.height) < f.min) return false;
+      } else if (key === 'weight') {
+        if ((p.weight ?? -Infinity) < f.min) return false;
+      } else if (key.startsWith('attr:')) {
+        const attr = key.slice(5);
+        if (gradeRank(p.attributes?.[attr]) < f.min) return false;
+      }
+    }
     return true;
   });
-  // Sort: consensus or team. Nulls always last.
-  const sortField = bigBoardState.sortBy === 'team' ? 'team_rank' : 'rank';
-  players.sort((a, b) => {
-    const av = a[sortField], bv = b[sortField];
-    if (av == null && bv == null) return 0;
-    if (av == null) return 1;
-    if (bv == null) return -1;
-    return av - bv;
-  });
+  // Sort. Nulls/unknowns always last regardless of mode.
+  const sortBy = bigBoardState.sortBy;
+  const isAttrSort = sortBy.startsWith('attr:');
+  const attrKey = isAttrSort ? sortBy.slice(5) : null;
+  if (isAttrSort) {
+    players.sort((a, b) => {
+      const ar = gradeRank(a.attributes?.[attrKey]);
+      const br = gradeRank(b.attributes?.[attrKey]);
+      if (br !== ar) return br - ar;  // higher grade first
+      return (a.rank ?? 9999) - (b.rank ?? 9999);  // tie-break by consensus
+    });
+  } else if (sortBy === 'star') {
+    players.sort((a, b) => {
+      const ar = gradeRank(a.star);
+      const br = gradeRank(b.star);
+      if (br !== ar) return br - ar;
+      return (a.rank ?? 9999) - (b.rank ?? 9999);
+    });
+  } else if (sortBy === 'height') {
+    players.sort((a, b) => {
+      const ar = parseHeight(a.height);
+      const br = parseHeight(b.height);
+      if (br !== ar) return br - ar;
+      return (a.rank ?? 9999) - (b.rank ?? 9999);
+    });
+  } else if (sortBy === 'weight') {
+    players.sort((a, b) => {
+      const ar = a.weight ?? -Infinity;
+      const br = b.weight ?? -Infinity;
+      if (br !== ar) return br - ar;
+      return (a.rank ?? 9999) - (b.rank ?? 9999);
+    });
+  } else if (sortBy === 'name') {
+    players.sort((a, b) =>
+      (a.last_name || '').localeCompare(b.last_name || '') ||
+      (a.first_name || '').localeCompare(b.first_name || ''));
+  } else {
+    const sortField = sortBy === 'team' ? 'team_rank' : 'rank';
+    players.sort((a, b) => {
+      const av = a[sortField], bv = b[sortField];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return av - bv;
+    });
+  }
   document.getElementById('bb-count').textContent =
     `${players.length} player${players.length === 1 ? '' : 's'}` +
     (bigBoardState.showDrafted ? ' (incl. drafted)' : ' available');
-  const html = players.slice(0, 600).map(p => {
+
+  // Columns: # (rank), Player, HT, WT, then attribute columns. Each cell
+  // is a flex container with: sort button on the left, optional filter
+  // icon on the right. Filtered cols show a "≥X" badge.
+  const attrCols = currentAttrColumns();
+  invalidateAttrKindCache();  // publicBoard rarely changes but be safe
+  // `filters` already in scope from the filter pass above.
+  // Build one header cell. `filterKey` null means no filter trigger.
+  const headerCol = (sortVal, label, extraCls, filterKey) => {
+    const active = bigBoardState.sortBy === sortVal ? ' active' : '';
+    const f = filterKey ? filters[filterKey] : null;
+    const filterBtn = filterKey
+      ? `<button class="bbm-th-filter${f ? ' active' : ''}" data-bb-filter="${escapeHtml(filterKey)}" title="Filter">▾</button>`
+      : '';
+    return `<div class="bbm-th-cell ${extraCls}">
+      <button class="bbm-th${active}" data-bb-sort="${escapeHtml(sortVal)}">${escapeHtml(label)}</button>
+      ${filterBtn}
+    </div>`;
+  };
+  const headerHtml = `
+    <div class="bbm-thead">
+      ${headerCol('consensus', '#', 'bbm-th-rank', null)}
+      ${headerCol('name', 'Player', 'bbm-th-name', null)}
+      ${headerCol('height', 'HT', 'bbm-th-attr', 'height')}
+      ${headerCol('weight', 'WT', 'bbm-th-attr', 'weight')}
+      ${attrCols.map(a => headerCol('attr:' + a, a, 'bbm-th-attr', 'attr:' + a)).join('')}
+      <div class="bbm-th-action"></div>
+    </div>
+  `;
+  // Active filter pills, shown only when at least one filter is set.
+  const filterPillsHtml = renderFilterPills();
+  const bodyHtml = players.slice(0, 600).map(p => {
     const isDrafted = drafted.has(p.player_id) || p.drafted;
     const cls = ['bbm-row'];
     if (isDrafted) cls.push('drafted');
     const logo = p.college_logo
       ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="bbm-logo">`
       : `<div class="bbm-logo-placeholder"></div>`;
-    const primary = bigBoardState.sortBy === 'team' ? p.team_rank : p.rank;
-    const secondary = bigBoardState.sortBy === 'team' ? p.rank : p.team_rank;
+    // Always show consensus rank as primary; team rank as small alt when not sorted by it.
+    const primary = sortBy === 'team' ? p.team_rank : p.rank;
+    const secondary = sortBy === 'team' ? p.rank : p.team_rank;
     const action = !isDrafted && actionable
       ? `<button class="bbm-draft" data-bb-draft="${escapeHtml(p.player_id)}">Draft</button>`
       : '';
+    const cell = (val, isActive) => {
+      const cellCls = ['bbm-td', 'bbm-td-attr', gradeClass(val)];
+      if (isActive) cellCls.push('active-col');
+      return `<div class="${cellCls.join(' ')}">${escapeHtml(compactGrade(val))}</div>`;
+    };
+    const plainCell = (text, isActive) => {
+      const cellCls = ['bbm-td', 'bbm-td-attr', 'bbm-td-plain'];
+      if (isActive) cellCls.push('active-col');
+      return `<div class="${cellCls.join(' ')}">${escapeHtml(text ?? '—')}</div>`;
+    };
+    const heightCell = plainCell(p.height, sortBy === 'height');
+    const weightCell = plainCell(p.weight, sortBy === 'weight');
+    const attrCells = attrCols.map(a => cell(p.attributes?.[a], sortBy === 'attr:' + a)).join('');
     return `
-      <div class="${cls.join(' ')}">
-        <div class="bbm-rank">#${primary ?? '—'}${secondary != null ? `<span class="bbm-rank-alt">${bigBoardState.sortBy === 'team' ? 'c' : 't'}${secondary}</span>` : ''}</div>
-        ${logo}
-        <div class="bbm-info">
-          <div class="bbm-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
-          <div class="bbm-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
+      <div class="${cls.join(' ')}" data-bb-player="${escapeHtml(p.player_id)}">
+        <div class="bbm-td bbm-td-rank">#${primary ?? '—'}${secondary != null ? `<span class="bbm-rank-alt">${sortBy === 'team' ? 'c' : 't'}${secondary}</span>` : ''}</div>
+        <div class="bbm-td bbm-td-name">
+          ${logo}
+          <div class="bbm-info">
+            <div class="bbm-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
+            <div class="bbm-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
+          </div>
         </div>
-        ${action}
+        ${heightCell}
+        ${weightCell}
+        ${attrCells}
+        <div class="bbm-td bbm-td-action">${action}</div>
       </div>
     `;
   }).join('');
-  const listEl = document.getElementById('bb-list');
-  listEl.innerHTML = html || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>';
-  listEl.querySelectorAll('[data-bb-draft]').forEach(btn => {
-    btn.addEventListener('click', async () => {
+
+  // Inject filter pills above the table.
+  document.getElementById('bb-filters').innerHTML = filterPillsHtml;
+
+  // Set column count on the table so header + rows share the same grid
+  // template via CSS custom property (1 rank + 1 name + 1 HT + 1 WT + N attrs + 1 action).
+  const tableEl = document.getElementById('bb-table');
+  tableEl.style.setProperty('--bbm-attr-cols', attrCols.length);
+  tableEl.innerHTML = headerHtml + (bodyHtml || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>');
+
+  tableEl.querySelectorAll('[data-bb-sort]').forEach(th => {
+    th.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const next = th.dataset.bbSort;
+      // Clicking the active sort a second time reverts to the default
+      // consensus sort, so there's no manual "reset" needed.
+      bigBoardState.sortBy = bigBoardState.sortBy === next ? 'consensus' : next;
+      renderBigBoardList();
+    });
+  });
+  tableEl.querySelectorAll('[data-bb-filter]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openFilterPopover(btn);
+    });
+  });
+  tableEl.querySelectorAll('[data-bb-draft]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
       await submitPick(btn.dataset.bbDraft);
       closeModal();
     });
   });
+  tableEl.querySelectorAll('[data-bb-player]').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('[data-bb-draft]')) return;
+      openPlayerProfile(row.dataset.bbPlayer, { returnTo: openBigBoardModal });
+    });
+  });
+  // Filter pill removal + clear all.
+  document.querySelectorAll('[data-bb-clear-filter]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      delete bigBoardState.filters[btn.dataset.bbClearFilter];
+      renderBigBoardList();
+    });
+  });
+  const clearAll = document.getElementById('bb-clear-all-filters');
+  if (clearAll) clearAll.addEventListener('click', () => {
+    bigBoardState.filters = {};
+    renderBigBoardList();
+  });
+}
+
+function renderFilterPills() {
+  const fs = bigBoardState.filters || {};
+  const entries = Object.entries(fs);
+  if (!entries.length) return '';
+  const pills = entries.map(([key, f]) => {
+    const label = key === 'height' ? 'HT'
+      : key === 'weight' ? 'WT'
+      : key.startsWith('attr:') ? key.slice(5)
+      : key;
+    return `<button class="bbm-filter-pill" data-bb-clear-filter="${escapeHtml(key)}" title="Remove filter">
+      <span class="bbm-filter-pill-name">${escapeHtml(label)}</span>
+      <span class="bbm-filter-pill-op">≥</span>
+      <span class="bbm-filter-pill-val">${escapeHtml(f.label)}</span>
+      <span class="bbm-filter-pill-x">×</span>
+    </button>`;
+  }).join('');
+  return `${pills}<button id="bb-clear-all-filters" class="bbm-filter-clear-all">Clear all</button>`;
+}
+
+// Open a popover beneath the clicked filter button. Buckets depend on the
+// column type (letter / star / height / weight).
+function openFilterPopover(anchorBtn) {
+  closeFilterPopover();
+  const key = anchorBtn.dataset.bbFilter;
+  const current = bigBoardState.filters?.[key];
+  let buckets;
+  if (key === 'height') {
+    buckets = [];
+    for (let ft = 5; ft <= 6; ft++) {
+      for (let inch = 0; inch < 12; inch++) {
+        buckets.push([`${ft}'${inch}"`, ft * 12 + inch]);
+      }
+    }
+    buckets.push([`7'0"`, 84]);
+    buckets.reverse();
+  } else if (key === 'weight') {
+    buckets = [];
+    for (let w = 350; w >= 150; w -= 10) buckets.push([String(w) + ' lbs', w]);
+  } else if (key.startsWith('attr:')) {
+    buckets = attrKind(key.slice(5)) === 'star' ? STAR_BUCKETS : LETTER_BUCKETS;
+  } else {
+    return;
+  }
+  const isActive = (rank) => current && current.min === rank;
+  const buttons = buckets.map(([label, rank]) =>
+    `<button class="bbm-pop-btn${isActive(rank) ? ' active' : ''}" data-bb-pop-min="${rank}" data-bb-pop-label="${escapeHtml(label)}">${escapeHtml(label)}</button>`
+  ).join('');
+  const pop = document.createElement('div');
+  pop.id = 'bb-filter-popover';
+  pop.className = 'bbm-popover';
+  pop.innerHTML = `
+    <div class="bbm-pop-title">Minimum</div>
+    <div class="bbm-pop-grid">${buttons}</div>
+    <button class="bbm-pop-any${!current ? ' active' : ''}" id="bb-pop-any">Any (clear)</button>
+  `;
+  document.body.appendChild(pop);
+  // Position under the anchor, kept within viewport.
+  const r = anchorBtn.getBoundingClientRect();
+  const popW = 240;  // matches CSS width
+  let left = r.left;
+  if (left + popW > window.innerWidth - 8) left = window.innerWidth - popW - 8;
+  pop.style.top = (r.bottom + 6) + 'px';
+  pop.style.left = Math.max(8, left) + 'px';
+  pop.querySelectorAll('[data-bb-pop-min]').forEach(b => {
+    b.addEventListener('click', () => {
+      bigBoardState.filters[key] = {
+        min: parseFloat(b.dataset.bbPopMin),
+        label: b.dataset.bbPopLabel,
+      };
+      closeFilterPopover();
+      renderBigBoardList();
+    });
+  });
+  document.getElementById('bb-pop-any').addEventListener('click', () => {
+    delete bigBoardState.filters[key];
+    closeFilterPopover();
+    renderBigBoardList();
+  });
+  // Close on outside click / Escape.
+  setTimeout(() => {
+    document.addEventListener('click', _filterOutsideClick, { capture: true });
+    document.addEventListener('keydown', _filterEscapeClose);
+  }, 0);
+}
+
+function _filterOutsideClick(e) {
+  const pop = document.getElementById('bb-filter-popover');
+  if (!pop) return;
+  if (!pop.contains(e.target) && !e.target.closest('[data-bb-filter]')) {
+    closeFilterPopover();
+  }
+}
+function _filterEscapeClose(e) {
+  if (e.key === 'Escape') closeFilterPopover();
+}
+function closeFilterPopover() {
+  const pop = document.getElementById('bb-filter-popover');
+  if (pop) pop.remove();
+  document.removeEventListener('click', _filterOutsideClick, { capture: true });
+  document.removeEventListener('keydown', _filterEscapeClose);
+}
+
+// Compact display for a grade in a table cell: letter grades stay as-is
+// ("A", "B+"), star tiers collapse to just the digit ("6-Great" -> "6").
+function compactGrade(value) {
+  if (value == null || value === '') return '—';
+  const s = String(value);
+  const m = s.match(/^([1-7])-/);
+  if (m) return m[1];
+  return s;
+}
+
+// Letter grades (A/B/C/D/F) and star tiers ("6-Great", "3-Decent" ...)
+// both map to a 0-7-ish bucket so we can color-code attribute cells.
+function gradeClass(value) {
+  if (value == null || value === '') return 'g-unknown';
+  const s = String(value);
+  // Star pattern: "<digit>-<word>"
+  const m = s.match(/^([1-7])-/);
+  if (m) return 'g-star-' + m[1];
+  const letter = s.trim().toUpperCase().charAt(0);
+  if ('ABCDF'.indexOf(letter) >= 0) return 'g-' + letter.toLowerCase();
+  return 'g-unknown';
+}
+
+async function openPlayerProfile(playerId, { returnTo = null } = {}) {
+  _modalReturnTo = returnTo;
+  document.getElementById('modal-root').classList.add('player-modal');
+  openModal('Player Profile', '', '<div class="text-sm text-slate-400">Loading…</div>');
+  let p;
+  try {
+    p = await api.get('/api/player/' + encodeURIComponent(playerId));
+  } catch (err) {
+    document.getElementById('modal-body').innerHTML =
+      `<div class="text-sm text-rose-400">Failed to load player.</div>`;
+    return;
+  }
+  const collegeLogo = p.college_logo
+    ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="pp-college-logo">`
+    : `<div class="pp-college-logo-placeholder"></div>`;
+  const bioBits = [
+    p.position,
+    p.height,
+    p.weight ? `${p.weight} lbs` : null,
+    p.age ? `Age ${p.age}` : null,
+    p.college,
+  ].filter(Boolean).map(escapeHtml).join(' · ');
+  const draftedBadge = p.drafted_info
+    ? `<div class="pp-drafted">Drafted <strong>#${p.drafted_info.overall}</strong> by ${escapeHtml(p.drafted_info.team)} (R${p.drafted_info.round}, P${p.drafted_info.pick})</div>`
+    : '';
+  const meta = [
+    p.consensus_rank != null ? `<div class="pp-meta-item"><div class="pp-meta-label">Consensus</div><div class="pp-meta-value">#${p.consensus_rank}</div></div>` : '',
+    (p.projected_round != null && p.projected_pick != null) ? `<div class="pp-meta-item"><div class="pp-meta-label">Projected</div><div class="pp-meta-value">R${p.projected_round} · P${p.projected_pick}</div></div>` : '',
+    p.grades && p.grades.star ? `<div class="pp-meta-item"><div class="pp-meta-label">Star</div><div class="pp-meta-value">${escapeHtml(p.grades.star)}</div></div>` : '',
+  ].filter(Boolean).join('');
+
+  let gradesHtml = '';
+  if (p.grades && p.grades.attributes && Object.keys(p.grades.attributes).length) {
+    const entries = Object.entries(p.grades.attributes);
+    // Split by value shape: star tiers like "6-Great" are physical traits;
+    // plain letter grades A/B/C/D/F are football skills.
+    const skills = [];
+    const physicals = [];
+    for (const [k, v] of entries) {
+      if (/^[1-7]-/.test(String(v))) physicals.push([k, v]);
+      else skills.push([k, v]);
+    }
+    const group = p.grades.position_group;
+    const priority = ATTR_PRIORITY[group] || [];
+    const priorityIdx = new Map(priority.map((k, i) => [k, i]));
+    const byPriority = (a, b) => {
+      const ai = priorityIdx.has(a[0]) ? priorityIdx.get(a[0]) : 9999;
+      const bi = priorityIdx.has(b[0]) ? priorityIdx.get(b[0]) : 9999;
+      return ai - bi;
+    };
+    skills.sort(byPriority);
+    physicals.sort(byPriority);
+    const renderCells = (rows) => rows.map(([k, v]) => `
+      <div class="pp-attr ${gradeClass(v)}">
+        <div class="pp-attr-name">${escapeHtml(k)}</div>
+        <div class="pp-attr-value">${escapeHtml(String(v))}</div>
+      </div>
+    `).join('');
+    const groupTag = group ? ` <span class="pp-pos-group">(${escapeHtml(group)})</span>` : '';
+    const skillsSection = skills.length ? `
+      <div class="pp-section-title">Football Skills${groupTag}</div>
+      <div class="pp-attr-grid">${renderCells(skills)}</div>
+    ` : '';
+    const physSection = physicals.length ? `
+      <div class="pp-section-title">Physical Traits</div>
+      <div class="pp-attr-grid">${renderCells(physicals)}</div>
+    ` : '';
+    gradesHtml = skillsSection + physSection;
+  } else {
+    gradesHtml = `<div class="pp-section-title">Madden Letter Grades</div>
+      <div class="text-sm text-slate-500">No letter grades available for this prospect.</div>`;
+  }
+
+  const body = `
+    <div class="player-profile">
+      <div class="pp-header">
+        ${collegeLogo}
+        <div class="pp-header-info">
+          <div class="pp-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
+          <div class="pp-bio">${bioBits}</div>
+          ${draftedBadge}
+        </div>
+      </div>
+      <div class="pp-meta-row">${meta}</div>
+      ${gradesHtml}
+    </div>
+  `;
+  document.getElementById('modal-body').innerHTML = body;
 }
 
 function openFullBoard() {
@@ -1216,10 +1694,17 @@ function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel =
   });
 }
 
+// When a modal is opened from inside another modal, the closer sets this
+// to a callback that reopens the parent. closeModal consumes it.
+let _modalReturnTo = null;
+
 function closeModal() {
   const root = document.getElementById('modal-root');
   root.classList.add('hidden');
-  root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open');
+  root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open', 'player-modal');
+  const returnTo = _modalReturnTo;
+  _modalReturnTo = null;
+  if (returnTo) returnTo();
 }
 
 let toastTimer = null;
