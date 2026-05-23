@@ -41,9 +41,9 @@ def _serialize_session(session: DraftSession) -> dict[str, Any]:
     last_d = _pick_to_dict(last)
     if last_d:
         last_d["current_team_logo"] = nfl_logos.get(last_d["current_team"])
-        # College logo for the drafted player.
-        bb = session.data["big_board"]["players"]
-        match = next((p for p in bb if p.get("Player_ID") == last_d["selected_player_id"]), None)
+        # College logo for the drafted player. O(1) via the session's player
+        # index instead of a linear big-board scan on every session fetch.
+        match = session._player_by_id.get(last_d["selected_player_id"])
         if match:
             last_d["college"] = match.get("college")
             last_d["college_logo"] = match.get("college_logo")
@@ -61,12 +61,18 @@ def _serialize_session(session: DraftSession) -> dict[str, Any]:
 
 
 def _pick_point_value(overall: int, year_offset: int, pick_values: dict[str, Any]) -> int | None:
-    target = overall - 1  # chart is 0-indexed
-    for row in pick_values.get("current", []):
-        if row.get("Pick") == target:
-            v = row.get("ValueNextYear") if year_offset else row.get("Value")
-            return int(v) if v is not None else None
-    return None
+    """O(1) chart-value lookup for the board UI.
+
+    Mirrors the original behavior: current-year picks read the Current sheet's
+    ``Value``; future picks read the Current sheet's ``ValueNextYear`` column
+    (a discounted display value, distinct from logic.pick_value which uses the
+    Future sheet for actual trade math).
+    """
+    if year_offset:
+        v = pick_values.get("next_year_by_slot", {}).get(overall)
+    else:
+        v = pick_values.get("by_pick", {}).get((overall, 0))
+    return int(v) if v is not None else None
 
 
 def _annotate_pick(d: dict[str, Any], pick_slot: int, nfl_logos: dict, pick_values: dict) -> None:
@@ -126,7 +132,7 @@ def _public_big_board(session: DraftSession) -> list[dict[str, Any]]:
 
 
 def _team_big_board(session: DraftSession, team_name: str) -> list[dict[str, Any]]:
-    player_map = {p.get("Player_ID"): p for p in session.data["big_board"]["players"]}
+    player_map = session._player_by_id
     board_order = session._team_boards.get(team_name, [])
     result = []
     rank = 1
@@ -282,8 +288,7 @@ def api_player(player_id: str):
     sess, err = _require_session()
     if err:
         return err
-    p = next((x for x in sess.data["big_board"]["players"]
-              if x.get("Player_ID") == player_id), None)
+    p = sess._player_by_id.get(player_id)
     if p is None:
         return jsonify({"error": "player not found"}), 404
     drafted_pick = next((pk for pk in sess.board()
@@ -492,5 +497,10 @@ def api_export_download(kind: str):
 
 
 if __name__ == "__main__":
+    # Bind to the IPv6 wildcard so both IPv6 and IPv4 loopback work.
+    # Windows' hosts file maps `localhost` to ::1 first, and browsers try
+    # IPv6 before falling back to IPv4 — if Flask only listens on
+    # 127.0.0.1 that fallback waits ~2s per request, making every UI
+    # click feel laggy. Dual-stacking removes the timeout.
     print("Madden Draft Tool — http://localhost:5050")
-    app.run(host="127.0.0.1", port=5050, debug=True)
+    app.run(host="::", port=5050, debug=True)

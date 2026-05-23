@@ -79,6 +79,30 @@ class DraftSession:
             for p in data.get("players", [])
             if p.get("FirstName") and p.get("LastName")
         }
+        # O(1) lookups so hot paths (pick, trade-resolution, serialization)
+        # don't linear-scan the big board or pick lists on every call.
+        # Player IDs are stable; PickRecord identity is stable too (only
+        # current_team mutates), so these indexes never need invalidation.
+        self._player_by_id: dict[str, dict[str, Any]] = {
+            p["Player_ID"]: p
+            for p in data.get("big_board", {}).get("players", [])
+            if p.get("Player_ID")
+        }
+        self._pick_by_overall: dict[int, PickRecord] = {
+            p.overall: p for p in self._pick_order
+        }
+        for p in self._future_picks:
+            self._pick_by_overall[p.overall] = p
+        # Per-team needs cache. Invalidated for a single team when that team
+        # makes a selection — see `_record_selection`. Within one pick cycle,
+        # `compute_team_needs` is called ~30 times by trade-offer enumeration
+        # plus once by sim_pick; without this cache each call rescans the
+        # ~3960-row roster.
+        self._needs_cache: dict[str, list[dict[str, Any]]] = {}
+        # Memoized snapshot for `_snapshot_for_logic`. Cleared on any state
+        # change that would alter the snapshot (pick made, trade applied,
+        # advance to next pick).
+        self._snapshot_cache: dict[str, Any] | None = None
         self._current_idx: int = 0
         self.trades: list[TradeRecord] = []
         self._next_trade_id: int = 1
@@ -401,11 +425,12 @@ class DraftSession:
             if offer is None:
                 return {"ok": False, "error": "offer_not_found"}
 
-            all_records = self._pick_order + list(self._future_picks)
-            offered_overalls = {p["overall"] for p in offer["offered_picks"]}
-            return_overalls = {p["overall"] for p in offer.get("return_picks", [])}
-            offered_records = [p for p in all_records if p.overall in offered_overalls]
-            return_records = [p for p in all_records if p.overall in return_overalls]
+            offered_records = [self._pick_by_overall[p["overall"]]
+                               for p in offer["offered_picks"]
+                               if p["overall"] in self._pick_by_overall]
+            return_records = [self._pick_by_overall[p["overall"]]
+                              for p in offer.get("return_picks", [])
+                              if p["overall"] in self._pick_by_overall]
 
             trading_down = self.user_team
             trading_up = offer["from_team"]
@@ -649,11 +674,12 @@ class DraftSession:
         pick = self.current_pick()
         trading_down = pick.current_team
         trading_up = offer["from_team"]
-        all_records = self._pick_order + list(self._future_picks)
-        offered_overalls = {p["overall"] for p in offer["offered_picks"]}
-        return_overalls = {p["overall"] for p in offer.get("return_picks", [])}
-        offered_records = [p for p in all_records if p.overall in offered_overalls]
-        return_records = [p for p in all_records if p.overall in return_overalls]
+        offered_records = [self._pick_by_overall[p["overall"]]
+                           for p in offer["offered_picks"]
+                           if p["overall"] in self._pick_by_overall]
+        return_records = [self._pick_by_overall[p["overall"]]
+                          for p in offer.get("return_picks", [])
+                          if p["overall"] in self._pick_by_overall]
         self._apply_trade(pick, offered_records, trading_down, trading_up, "AI",
                           return_picks=return_records)
         # The on-clock team chose to trade — reset their cooldown clock.
@@ -726,11 +752,19 @@ class DraftSession:
         # traded down (no entry in the dict).
         if pick.current_team in self._events_since_trade_per_team:
             self._events_since_trade_per_team[pick.current_team] += 1
+        # The drafting team's roster just changed — invalidate only their
+        # cached needs. Every other team's cache stays warm.
+        self._needs_cache.pop(pick.current_team, None)
+        # Mark this team's last on-clock action as "drafted" — clears any
+        # prior "traded" cooldown when they next come on the clock.
+        self._last_action_per_team[pick.current_team] = "drafted"
+        self._invalidate_snapshot()
 
     def _advance(self) -> None:
         self._current_idx += 1
         self._clear_pending_offers()
         self._pick_must_select = None
+        self._invalidate_snapshot()
 
     def _clear_pending_offers(self) -> None:
         """Invalidate cached offers + rolls. Called by `_advance` AND after any
@@ -746,10 +780,7 @@ class DraftSession:
     def _find_player(self, player_id: str | None) -> dict[str, Any] | None:
         if not player_id:
             return None
-        for p in self.data["big_board"]["players"]:
-            if p.get("Player_ID") == player_id:
-                return p
-        return None
+        return self._player_by_id.get(player_id)
 
     def _apply_trade(self, headline_pick: PickRecord, picks_from_user: list[PickRecord],
                      team_a: str, team_b: str, initiator: str,
@@ -765,6 +796,9 @@ class DraftSession:
         headline_pick.current_team = team_b
         for p in return_picks:
             p.current_team = team_b
+        # Pick ownership changed — current_pick.current_team and the
+        # remaining_picks/future_picks lists in the snapshot are now stale.
+        self._invalidate_snapshot()
         rec = TradeRecord(
             trade_id=self._next_trade_id,
             overall_pick_traded=headline_pick.overall,
@@ -779,8 +813,19 @@ class DraftSession:
         return rec
 
     def _snapshot_for_logic(self) -> dict[str, Any]:
-        """Build a read-only-ish view of state for the logic functions."""
-        return {
+        """Build a read-only-ish view of state for the logic functions.
+
+        Memoized within a pick cycle — `_record_selection` and the trade-
+        application paths clear the cache via `_invalidate_snapshot`. The
+        ``needs_cache`` reference is shared so logic's `_get_needs` can fill
+        it once per team per cycle instead of rescanning the ~3960-row
+        roster on every call.
+        """
+        if self._snapshot_cache is not None:
+            # Refresh the volatile bits without rebuilding the whole snapshot.
+            self._snapshot_cache["last_action_per_team"] = dict(self._last_action_per_team)
+            return self._snapshot_cache
+        snap = {
             "big_board": self.data["big_board"],
             "players": self.data["players"],
             "gm_info": self.data["gm_info"],
@@ -793,7 +838,14 @@ class DraftSession:
             "current_pick": _pick_to_dict(self.current_pick()) if self.current_pick() else None,
             "remaining_picks": [_pick_to_dict(p) for p in self._pick_order if p.selected_player_id is None],
             "future_picks": [_pick_to_dict(p) for p in self._future_picks],
+            "needs_cache": self._needs_cache,
         }
+        self._snapshot_cache = snap
+        return snap
+
+    def _invalidate_snapshot(self) -> None:
+        """Drop the memoized snapshot so the next logic call rebuilds it."""
+        self._snapshot_cache = None
 
 
 def _pick_to_dict(pick: PickRecord | None) -> dict[str, Any] | None:
