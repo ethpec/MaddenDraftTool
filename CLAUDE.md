@@ -135,13 +135,17 @@ Implemented:
   Sum + hot-zone bonus (pick 33 +15 pp; picks 30–32 / 34–35 +7.5 pp;
   picks 20–29 / 36–42 +5 pp), then × GM `TradeDown` trait multiplier ×
   `_portfolio_multiplier_down` (pick-rich teams less willing, pick-poor
-  more — see helper below) × cooldown multiplier (0.75× when the team's
-  last on-clock action was a trade rather than a draft, 1.0× otherwise) ×
-  `_round_modifier` (round-based dampener/boost; see helper below).
-  Clamped to [5%, 95%].
-  The cooldown is sourced from `DraftSession._last_action_per_team`,
-  updated by `_record_selection` (sets "drafted") and `_execute_cpu_trade`
-  / `accept_trade_down_offer` / `submit_user_trade_up` (set "traded").
+  more — see helper below) × `_cooldown_for_events_since` (decaying
+  cooldown based on drafts since last trade) × `_round_modifier_down`
+  (R1 0.90×, R2-3 1.10×, R4-6 1.15×, R7 1.25×). Clamped to [5%, 95%].
+  The cooldown counter lives on `DraftSession._events_since_trade_per_team`
+  (dict[team] = int). Reset to 0 by `_execute_cpu_trade`,
+  `accept_trade_down_offer`, and `submit_user_trade_up` (when the target was
+  on the clock). Incremented by `_record_selection` for the team that drafted.
+- `_cooldown_for_events_since(n)` — returns the trade-down cooldown multiplier:
+  `n is None` (team has never traded) → 1.0×; `n == 0` (just traded) → 0.5×;
+  `n == 1` (1 draft since) → 0.75×; `n ≥ 2` → 1.0× (fully restored). Forces
+  ~2 drafts between trade-downs instead of allowing trade-draft-trade patterns.
 - `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
   Called once per pick in `_ensure_pending_offers`; the result is cached in
   `DraftSession._trade_down_willing` so CPU and user trade paths share the
@@ -157,12 +161,13 @@ Implemented:
   × the same round-based impact weights used by `_trade_down_probability`:
   Round 1 bpa 0.25 / need 0.75; Rounds 2-3 balanced; Rounds 4-7 bpa 0.75 /
   need 0.25) × GM `TradeUp` trait multiplier (0.75–1.25×) × `_distance_multiplier`
-  × `_portfolio_multiplier` × `_round_modifier`. Clamped to [0.1%, 50%].
-- `_round_modifier(round_1)` — round-based multiplier shared by both
-  probability functions: Round 1 → 0.90×, Round 2 → 0.95×, Round 3 → 1.00×,
-  Rounds 4–6 → 1.05×, Round 7 → 1.10×. Slightly dampens early-round trades
-  and boosts late-round trades — matches the real-world pattern that late
-  picks change hands more freely.
+  × `_portfolio_multiplier` × `_round_modifier_up`. Clamped to [0.1%, 50%].
+- `_round_modifier_up(round_1)` — trade-UP round multiplier: R1-2 1.00×,
+  R3-5 1.10×, R6-7 1.15×. Boosts late-round trade-ups since those picks
+  change hands more freely.
+- `_round_modifier_down(round_1)` — trade-DOWN round multiplier: R1 0.90×,
+  R2-3 1.10×, R4-6 1.15×, R7 1.25×. Dampens round 1 (teams hold R1 picks
+  tightly) and boosts late rounds significantly.
 - `_slide_prob_up(current_slot, rank)` — base trade-up probability component
   (caller scales by impact weight). Buckets: ≥ 0.33 → 0.40, ≥ 0.25 → 0.20,
   ≥ 0.125 → 0.05, ≥ 0 → 0.0, < 0 → −0.25. Negative ratios (target below the

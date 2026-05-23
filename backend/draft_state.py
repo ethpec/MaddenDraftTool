@@ -95,10 +95,11 @@ class DraftSession:
         # player — no further trades on this pick. Set to that pick's overall
         # in accept_trade_down_offer and cleared in _advance.
         self._pick_must_select: int | None = None
-        # Tracks each team's most recent on-clock action: "drafted" or
-        # "traded". Used by `_trade_down_probability` to apply a cooldown
-        # multiplier so teams don't trade down on consecutive on-clock events.
-        self._last_action_per_team: dict[str, str] = {}
+        # Tracks "draft on-clock events since this team's last trade-down."
+        # Reset to 0 when the team trades; incremented by 1 each time they
+        # draft a player. Absent from dict if the team has never traded.
+        # Read by `_trade_down_probability` to apply a decaying cooldown.
+        self._events_since_trade_per_team: dict[str, int] = {}
         # Default to Steelers if no team is specified (legacy behavior).
         # Validate against GMInfo so we don't accept arbitrary strings.
         valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
@@ -410,8 +411,8 @@ class DraftSession:
             trading_up = offer["from_team"]
             self._apply_trade(pick, offered_records, trading_down, trading_up, "USER",
                               return_picks=return_records)
-            # User team chose to trade — flag for next-pick cooldown.
-            self._last_action_per_team[trading_down] = "traded"
+            # User team chose to trade — reset their events-since-trade clock.
+            self._events_since_trade_per_team[trading_down] = 0
             self._clear_pending_offers()
             self._pick_must_select = pick.overall
             return {
@@ -556,10 +557,11 @@ class DraftSession:
                 prev_owner = target.current_team
                 self._apply_trade(target, offered, target.current_team, self.user_team, "USER",
                                   return_picks=requested_back)
-                # Only flag the CPU team if their pick was actually on the clock
-                # at the time — otherwise they didn't choose "trade vs draft."
+                # Only reset the CPU team's cooldown clock if their pick was
+                # actually on the clock — otherwise they didn't choose "trade
+                # vs draft" themselves.
                 if is_current:
-                    self._last_action_per_team[prev_owner] = "traded"
+                    self._events_since_trade_per_team[prev_owner] = 0
                     self._clear_pending_offers()
                 return {
                     "ok": True,
@@ -654,8 +656,8 @@ class DraftSession:
         return_records = [p for p in all_records if p.overall in return_overalls]
         self._apply_trade(pick, offered_records, trading_down, trading_up, "AI",
                           return_picks=return_records)
-        # The on-clock team chose to trade — flag for next-pick cooldown.
-        self._last_action_per_team[trading_down] = "traded"
+        # The on-clock team chose to trade — reset their cooldown clock.
+        self._events_since_trade_per_team[trading_down] = 0
         return {
             "trading_up": trading_up,
             "trading_down": trading_down,
@@ -719,9 +721,11 @@ class DraftSession:
             if team_index is not None:
                 roster_entry["TeamIndex"] = team_index
                 roster_entry["ContractStatus"] = "Signed"
-        # Mark this team's last on-clock action as "drafted" — clears any
-        # prior "traded" cooldown when they next come on the clock.
-        self._last_action_per_team[pick.current_team] = "drafted"
+        # Increment events-since-trade for the drafting team (the cooldown
+        # decays one step per draft after a trade). No-op if they've never
+        # traded down (no entry in the dict).
+        if pick.current_team in self._events_since_trade_per_team:
+            self._events_since_trade_per_team[pick.current_team] += 1
 
     def _advance(self) -> None:
         self._current_idx += 1
@@ -785,7 +789,7 @@ class DraftSession:
             "max_per_position": self.data["max_per_position"],
             "team_boards": self._team_boards,
             "user_team": self.user_team,
-            "last_action_per_team": dict(self._last_action_per_team),
+            "events_since_trade_per_team": dict(self._events_since_trade_per_team),
             "current_pick": _pick_to_dict(self.current_pick()) if self.current_pick() else None,
             "remaining_picks": [_pick_to_dict(p) for p in self._pick_order if p.selected_player_id is None],
             "future_picks": [_pick_to_dict(p) for p in self._future_picks],

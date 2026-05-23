@@ -343,8 +343,8 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     Sum × GM TradeDown trait multiplier × portfolio multiplier from
     `_portfolio_multiplier_down` × cooldown multiplier (0.10× if this team's
     last on-clock action was a trade, 1.0× otherwise — discourages back-to-
-    back trade-downs) × `_round_modifier` (round-based dampener/boost: R1
-    0.90×, R2 0.95×, R3 1.00×, R4-6 1.05×, R7 1.10×). Clamped to [5%, 95%].
+    back trade-downs) × `_round_modifier_down` (R1 0.90×, R2-3 1.10×,
+    R4-6 1.15×, R7 1.25×). Clamped to [5%, 95%].
     """
     on_clock_team = pick.get("current_team")
     current_slot = pick.get("draft_slot") or pick.get("overall") or 1
@@ -412,14 +412,15 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     share = (team_remaining_count / total_remaining) if total_remaining > 0 else 0.0
     portfolio_mult = _portfolio_multiplier_down(share)
 
-    # Cooldown: if this team's last on-clock action was a trade (rather than
-    # a draft selection), dampen their willingness to immediately trade again.
-    last_action = state.get("last_action_per_team", {}).get(on_clock_team)
-    cooldown_mult = 0.10 if last_action == "traded" else 1.0
+    # Cooldown: decay willingness based on how many drafts have happened
+    # since this team's last trade-down. Counter resets to 0 on every trade
+    # and increments per draft. Fully back to baseline after 2 drafts.
+    events_since_trade = state.get("events_since_trade_per_team", {}).get(on_clock_team)
+    cooldown_mult = _cooldown_for_events_since(events_since_trade)
 
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
     gm_multiplier = {1: 0.9, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
-    round_mod = _round_modifier(round_1)
+    round_mod = _round_modifier_down(round_1)
     return max(0.075, min(0.95,
         (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult * round_mod))
 
@@ -467,21 +468,47 @@ def _portfolio_multiplier(share: float) -> float:
     return 0.50
 
 
-def _round_modifier(round_1: int) -> float:
-    """Round-based multiplier applied to BOTH trade-up and trade-down
-    willingness. Dampens early-round trades slightly and boosts late-round
-    trades — captures the league-wide pattern that late-round picks change
-    hands more freely than early-round ones.
+def _round_modifier_up(round_1: int) -> float:
+    """Round-based multiplier for trade-UP willingness. Late rounds get a
+    bigger boost since late-round picks change hands more freely.
+    """
+    if round_1 in (1, 2, 3):
+        return 1.00
+    if round_1 in (4, 5):
+        return 0.90
+    if round_1 == 6:
+        return 1.10
+    return 1.50  # round 7+
+
+
+def _round_modifier_down(round_1: int) -> float:
+    """Round-based multiplier for trade-DOWN willingness. Dampens round 1
+    (teams hold their R1 picks tightly) and boosts late rounds significantly.
     """
     if round_1 == 1:
-        return 0.95
-    if round_1 == 2:
-        return 1.00
-    if round_1 == 3:
-        return 1.05
-    if 4 <= round_1 <= 6:
+        return 0.85
+    if round_1 in (2, 3, 4):
         return 1.10
-    return 1.20  # round 7+
+    if round_1 in (5, 6):
+        return 1.20
+    return 1.50  # round 7+
+
+
+def _cooldown_for_events_since(n: int | None) -> float:
+    """Trade-down willingness cooldown based on drafts since last trade.
+
+    n is None when the team has never traded down — full willingness.
+    Otherwise n counts drafts since the most recent trade-down: 0 means
+    "just traded, no drafts since," and willingness recovers as the team
+    drafts players. Fully restored at n >= 2.
+    """
+    if n is None:
+        return 1.0
+    if n == 0:
+        return 0.50
+    if n == 1:
+        return 0.75
+    return 1.0  # n >= 2
 
 
 def _portfolio_multiplier_down(share: float) -> float:
@@ -523,8 +550,8 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
       4. Portfolio multiplier from _portfolio_multiplier — scales by the team's
          share of remaining current-year picks across the league. Pick-rich
          teams (>5%) get up to 1.25x; pick-poor teams (<1.5%) drop to 0.50x.
-      5. Round modifier from `_round_modifier`: R1 0.90×, R2 0.95×, R3 1.00×,
-         R4-6 1.05×, R7 1.10×. Dampens early-round trade-ups; boosts late.
+      5. Round modifier from `_round_modifier_up`: R1-2 1.00×, R3-5 1.10×,
+         R6-7 1.15×. Boosts late-round trade-ups.
     Final result clamped to [0.1%, 50%] — trade-up willingness is the rarer event.
     """
     offering_team = gm.get("TeamName")
@@ -597,7 +624,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
 
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
-    round_mod = _round_modifier(round_1)
+    round_mod = _round_modifier_up(round_1)
     return max(0.005, min(0.5,
         (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod))
 

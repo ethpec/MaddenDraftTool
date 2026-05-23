@@ -1,13 +1,14 @@
-"""Run a full draft sim and report per-pick trade behavior.
+"""Run multiple draft sims (one per seed) and report distribution behavior.
 
-For each pick: who's on the clock, did they consider trade offers, how many
-offers they received, and did a trade actually execute. Throwaway script.
+Per-seed totals + averages across seeds, per-round breakdown averaged across
+all runs, and top trade-down teams averaged. Throwaway script.
 """
 from __future__ import annotations
 
 import random
 import sys
 from pathlib import Path
+from statistics import mean, stdev
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
@@ -15,92 +16,119 @@ sys.path.insert(0, str(ROOT))
 from backend.data_loader import load_all
 from backend.draft_state import DraftSession
 
-random.seed(42)
+# Seeds to compare. Add/remove as needed.
+SEEDS = [42, 43, 100, 999, 12345]
 
-data = load_all(None)
-sess = DraftSession(data, user_team=None)
 
-records: list[dict] = []
-trade_total = 0
-considered_total = 0
-offer_count_total = 0
+def run_sim(seed: int) -> dict:
+    # Fresh data copy + fresh session per seed. `load_all` returns a deepcopy
+    # of its cached dict, so each call is independent.
+    random.seed(seed)
+    data = load_all(None)
+    sess = DraftSession(data, user_team=None)
 
-# Hard safety cap in case of infinite loop
-for _ in range(400):
-    pick = sess.current_pick()
-    if pick is None:
-        break
+    records: list[dict] = []
+    trade_total = 0
+    considered_total = 0
+    offer_count_total = 0
 
-    overall = pick.overall
-    round_1 = pick.round_1
-    on_clock = pick.current_team
-    is_user = on_clock == sess.user_team
+    for _ in range(400):
+        pick = sess.current_pick()
+        if pick is None:
+            break
 
-    # Populate the offers cache before sim so we can peek
-    willing = None
-    offer_count = 0
-    if not is_user and pick.overall != sess._pick_must_select:
-        sess._ensure_pending_offers()
-        willing = sess._trade_down_willing
-        offer_count = len(sess._pending_trade_offers or [])
+        on_clock = pick.current_team
+        is_user = on_clock == sess.user_team
 
-    result = sess._sim_one_locked()
-    if not result.get("ok"):
-        break
+        willing = None
+        offer_count = 0
+        if not is_user and pick.overall != sess._pick_must_select:
+            sess._ensure_pending_offers()
+            willing = sess._trade_down_willing
+            offer_count = len(sess._pending_trade_offers or [])
 
-    trade_happened = result.get("trade") is not None
-    if trade_happened:
-        trade_total += 1
-    if willing:
-        considered_total += 1
-    offer_count_total += offer_count
+        result = sess._sim_one_locked()
+        if not result.get("ok"):
+            break
 
-    records.append({
-        "pick": overall,
-        "round": round_1,
-        "team": on_clock,
-        "is_user": is_user,
-        "considered": willing,
-        "offers": offer_count,
-        "traded": trade_happened,
-    })
+        trade_happened = result.get("trade") is not None
+        if trade_happened:
+            trade_total += 1
+        if willing:
+            considered_total += 1
+        offer_count_total += offer_count
 
-# Print a tidy table
-print(f"{'Pick':>4} | {'Rd':>2} | {'Team':<24} | Considered | Offers | Traded")
-print("-" * 75)
-for r in records:
-    user_mark = " *" if r["is_user"] else ""
-    team_str = f"{r['team']}{user_mark}"
-    considered = "—" if r["considered"] is None else ("Y" if r["considered"] else "N")
-    traded = "Y" if r["traded"] else "N"
-    print(f"{r['pick']:>4} | R{r['round']} | {team_str:<24} | {considered:>10} | {r['offers']:>6} | {traded:>6}")
+        records.append({
+            "round": pick.round_1,
+            "team": on_clock,
+            "considered": willing,
+            "offers": offer_count,
+            "traded": trade_happened,
+        })
 
+    return {
+        "seed": seed,
+        "records": records,
+        "picks": len(records),
+        "considered": considered_total,
+        "offers": offer_count_total,
+        "trades": trade_total,
+    }
+
+
+results = [run_sim(s) for s in SEEDS]
+
+# Per-seed summary
+print(f"{'Seed':>6} | {'Picks':>5} | {'Considered':>10} | {'Offers':>6} | {'Trades':>6}")
+print("-" * 50)
+for r in results:
+    print(f"{r['seed']:>6} | {r['picks']:>5} | {r['considered']:>10} | {r['offers']:>6} | {r['trades']:>6}")
+
+# Averages across seeds
+considered_vals = [r["considered"] for r in results]
+offers_vals = [r["offers"] for r in results]
+trades_vals = [r["trades"] for r in results]
+print("-" * 50)
+print(f"{'avg':>6} | {'':>5} | "
+      f"{mean(considered_vals):>10.1f} | "
+      f"{mean(offers_vals):>6.1f} | "
+      f"{mean(trades_vals):>6.1f}")
+if len(results) > 1:
+    print(f"{'stdev':>6} | {'':>5} | "
+          f"{stdev(considered_vals):>10.1f} | "
+          f"{stdev(offers_vals):>6.1f} | "
+          f"{stdev(trades_vals):>6.1f}")
+
+# Per-round averages across seeds
 print()
-print(f"Total picks simmed: {len(records)}")
-print(f"Picks where team considered (CPU only): {considered_total}")
-print(f"Total offers generated: {offer_count_total}")
-print(f"Trades executed: {trade_total}")
-
-# Per-round breakdown
-print()
-print("Trades by round:")
-print(f"  {'Round':<6} | {'Picks':>5} | {'Considered':>10} | {'Offers':>6} | {'Traded':>6}")
-print("  " + "-" * 50)
-rounds = sorted({r["round"] for r in records})
+print("Per-round averages across seeds:")
+print(f"  {'Round':<6} | {'Considered':>10} | {'Offers':>6} | {'Trades':>6}")
+print("  " + "-" * 45)
+rounds = sorted({rec["round"] for r in results for rec in r["records"]})
 for rd in rounds:
-    rd_records = [r for r in records if r["round"] == rd]
-    rd_considered = sum(1 for r in rd_records if r["considered"])
-    rd_offers = sum(r["offers"] for r in rd_records)
-    rd_trades = sum(1 for r in rd_records if r["traded"])
-    print(f"  R{rd:<5} | {len(rd_records):>5} | {rd_considered:>10} | {rd_offers:>6} | {rd_trades:>6}")
+    cons = [sum(1 for rec in r["records"] if rec["round"] == rd and rec["considered"]) for r in results]
+    offs = [sum(rec["offers"] for rec in r["records"] if rec["round"] == rd) for r in results]
+    trd = [sum(1 for rec in r["records"] if rec["round"] == rd and rec["traded"]) for r in results]
+    print(f"  R{rd:<5} | {mean(cons):>10.1f} | {mean(offs):>6.1f} | {mean(trd):>6.1f}")
 
-# Count trade-downs per team
-trade_count_per_team: dict[str, int] = {}
-for r in records:
-    if r["traded"]:
-        trade_count_per_team[r["team"]] = trade_count_per_team.get(r["team"], 0) + 1
-if trade_count_per_team:
-    print()
-    print("Trade-downs by team:")
-    for team, count in sorted(trade_count_per_team.items(), key=lambda x: -x[1]):
-        print(f"  {team:<24} {count}")
+# Trade-down counts per team averaged across seeds
+print()
+print(f"Trade-downs per team (averaged across {len(results)} seeds, top 15):")
+team_trades_per_seed: dict[str, list[int]] = {}
+for r in results:
+    counts: dict[str, int] = {}
+    for rec in r["records"]:
+        if rec["traded"]:
+            counts[rec["team"]] = counts.get(rec["team"], 0) + 1
+    for team in counts:
+        team_trades_per_seed.setdefault(team, [0] * len(results))
+    for team, c in counts.items():
+        # Record this seed's count for this team
+        idx = SEEDS.index(r["seed"])
+        team_trades_per_seed[team][idx] = c
+
+team_avgs = [(team, mean(counts)) for team, counts in team_trades_per_seed.items()]
+for team, avg in sorted(team_avgs, key=lambda x: -x[1])[:15]:
+    counts = team_trades_per_seed[team]
+    counts_str = ",".join(str(c) for c in counts)
+    print(f"  {team:<24} avg {avg:.1f}   (per-seed: {counts_str})")
