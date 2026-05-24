@@ -191,6 +191,18 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     available = [player_map[pid] for pid in board
                  if pid in player_map and not player_map[pid].get("drafted")]
 
+    # Filter out position groups that have hit the per-team draft cap.
+    _pg_cfg = state.get("max_per_position_group", {})
+    _pos_to_group = _pg_cfg.get("pos_to_group", {})
+    _max_per_group = _pg_cfg.get("max_per_group", {})
+    if _pos_to_group and _max_per_group:
+        _team_counts = state.get("team_pos_group_counts", {}).get(team_name, {})
+        available = [
+            p for p in available
+            if _team_counts.get(_pos_to_group.get(p.get("position", ""), ""), 0)
+               < _max_per_group.get(_pos_to_group.get(p.get("position", ""), ""), 999)
+        ]
+
     if not available:
         return {"outcome": "skip", "reason": "no_players_left"}
 
@@ -506,12 +518,16 @@ def _round_modifier_up(round_1: int) -> float:
     bigger boost since late-round picks change hands more freely.
     """
     if round_1 == 1:
-        return 1.15
+        return 1.20
     if round_1 in (2, 3):
-        return 1.00
-    if round_1 in (4, 5, 6):
         return 0.95
-    return 1.25  # round 7+
+    if round_1 == 4:
+        return 0.70
+    if round_1 == 5:
+        return 0.75
+    if round_1 == 6:
+        return 0.85
+    return 1.05  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -524,9 +540,13 @@ def _round_modifier_down(round_1: int) -> float:
         return 1.10
     if round_1 == 3:
         return 1.20
-    if round_1 in (4, 5):
-        return 1.50
-    return 2.50  # round 6+
+    if round_1 == 4:
+        return 1.40
+    if round_1 == 5:
+        return 1.55
+    if round_1 == 6:
+        return 2.25
+    return 2.75  # round 7
 
 
 def _cooldown_for_events_since(n: int | None) -> float:

@@ -226,7 +226,7 @@ def _folder_signature(folder: Path) -> tuple[Any, ...]:
         "GMInfo.xlsx",
         "PositionNeeds.xlsx",
         "DraftPickValue.xlsx",
-        "DraftMaxPerPosition.xlsx",
+        "DraftMaxPerPositionGroup.xlsx",
         "Draft_LetterGrades.xlsx",
         "all_colleges.json",
     )
@@ -511,15 +511,37 @@ def load_draft_pick_value(folder: Path) -> dict[str, Any]:
     }
 
 
-def load_max_per_position(folder: Path) -> list[dict[str, Any]]:
-    """Load DraftMaxPerPosition.xlsx -> per-position cap on draftees."""
-    _, rows = _read_sheet(folder / "DraftMaxPerPosition.xlsx")
-    out: list[dict[str, Any]] = []
-    for row in rows:
-        if row[0] in (None, ""):
-            continue
-        out.append({"Position": row[0], "MaxDrafted": row[1]})
-    return out
+
+def load_max_per_position_group(folder: Path) -> dict[str, Any]:
+    """Load DraftMaxPerPositionGroup.xlsx.
+
+    Returns {
+        "pos_to_group": {position: group_name},   # Position sheet
+        "max_per_group": {group_name: max_int},    # PositionGroup sheet
+    }
+    Returns empty dicts for both if the file is absent.
+    """
+    path = folder / "DraftMaxPerPositionGroup.xlsx"
+    if not path.is_file():
+        return {"pos_to_group": {}, "max_per_group": {}}
+    import openpyxl
+    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    pos_to_group: dict[str, str] = {}
+    max_per_group: dict[str, int] = {}
+    if "Position" in wb.sheetnames:
+        ws = wb["Position"]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            pos, grp = row[0], row[1]
+            if pos and grp:
+                pos_to_group[str(pos)] = str(grp)
+    if "PositionGroup" in wb.sheetnames:
+        ws = wb["PositionGroup"]
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            grp, mx = row[0], row[1]
+            if grp and mx is not None:
+                max_per_group[str(grp)] = int(mx)
+    wb.close()
+    return {"pos_to_group": pos_to_group, "max_per_group": max_per_group}
 
 
 def load_letter_grades(folder: Path) -> dict[tuple[Any, ...], dict[str, Any]]:
@@ -662,7 +684,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
         "team_info": load_team_info(folder),
         "position_needs": load_position_needs(folder),
         "pick_values": load_draft_pick_value(folder),
-        "max_per_position": load_max_per_position(folder),
+        "max_per_position_group": load_max_per_position_group(folder),
         "colleges": colleges,
         "college_logo_map": college_logo_map,
         "nfl_logo_map": nfl_logo_map,

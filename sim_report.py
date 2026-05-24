@@ -20,20 +20,6 @@ from backend import logic
 # Seeds to compare. Add/remove as needed.
 SEEDS = [1, 42, 43, 100, 432, 999, 2091, 8720, 12345]
 
-# Position group merges (same as data_loader._RANK_POSITION_GROUP but local).
-_POS_GROUP: dict[str, str] = {
-    "LT": "OT", "RT": "OT",
-    "LG": "OG", "RG": "OG",
-    "LE": "EDGE", "RE": "EDGE",
-    "LOLB": "OLB", "ROLB": "OLB",
-}
-
-def _pos_group(pos: str | None) -> str:
-    if not pos:
-        return "UNK"
-    return _POS_GROUP.get(pos, pos)
-
-
 def run_sim(seed: int) -> dict:
     # Fresh data copy + fresh session per seed. `load_all` returns a deepcopy
     # of its cached dict, so each call is independent.
@@ -41,9 +27,12 @@ def run_sim(seed: int) -> dict:
     data = load_all(None)
     sess = DraftSession(data, user_team=None)
 
+    # Use position groups from DraftMaxPerPositionGroup.xlsx.
+    pos_to_group: dict[str, str] = data.get("max_per_position_group", {}).get("pos_to_group", {})
+
     # Build player_id -> grouped position lookup for position-stack analysis.
     player_pos: dict = {
-        p["Player_ID"]: _pos_group(p.get("position"))
+        p["Player_ID"]: pos_to_group.get(p.get("position", ""), p.get("position") or "UNK")
         for p in data["big_board"]["players"]
         if p.get("Player_ID") is not None
     }
