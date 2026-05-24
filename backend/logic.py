@@ -20,13 +20,13 @@ from typing import Any
 
 # Maps raw Madden positions to the need-group used in PositionNeeds.xlsx.
 # Both compute_team_needs (collection) and sim_pick (matching) use this
-# so a player at LE/RE is correctly recognized as satisfying an EDGE need.
+# so a player at LE/RE satisfies an EDGE need, LOLB/ROLB/MLB satisfy an LB need.
 POSITION_GROUPS: dict[str, str] = {
     "LT": "OT", "RT": "OT",
     "LG": "OG", "RG": "OG",
     "LE": "EDGE", "RE": "EDGE",
-    "LOLB": "OLB", "ROLB": "OLB",
-    "MLB": "ILB",
+    "LOLB": "LB", "ROLB": "LB",
+    "MLB": "LB",
 }
 
 
@@ -159,10 +159,10 @@ def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float,
     return {
         2: (0.30, (2.00, 100), 5),
         3: (0.40, (1.75, 100), 8),
-        4: (0.60, (1.50, 2.50), 10),
-        5: (0.70, (1.25, 2.25), 12),
-        6: (0.80, (1.00, 2.00), 15),
-        7: (0.90, (0.75, 1.75), 16),
+        4: (0.60, (1.25, 1.75), 10),
+        5: (0.70, (1.00, 1.50), 12),
+        6: (0.80, (0.75, 1.50), 15),
+        7: (0.90, (0.50, 1.50), 16),
     }.get(round_1, (0.50, (1.50, 100), 10))
 
 
@@ -177,7 +177,8 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     the reach limit, falls back to BPA.
 
     Specialist guard: K and P are never taken via BPA in any round
-    unless they are an explicit need. Round-1 QB guard works the same way.
+    unless they are an explicit need. QB guard works the same way for
+    rounds 1–2.
 
     Trade logic is not yet implemented; the TRADE outcome path is a
     placeholder for a future step.
@@ -220,10 +221,10 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
 
     def _bpa(rationale: str) -> dict[str, Any]:
-        """Pick BPA with QB (round 1) and specialist (all rounds) guards applied."""
+        """Pick BPA with QB (rounds 1-2) and specialist (all rounds) guards applied."""
         player = available[0]
         _SPECIALISTS = {"K", "P"}
-        if round_1 == 1 and player.get("position") == "QB" and "QB" not in eligible:
+        if round_1 <= 2 and player.get("position") == "QB" and "QB" not in eligible:
             player = next((p for p in available if p.get("position") != "QB"), player)
             return _make_select(player, "BPA (QB skipped — not a need)")
         if player.get("position") in _SPECIALISTS and player.get("position") not in eligible:
@@ -560,7 +561,7 @@ def _cooldown_for_events_since(n: int | None) -> float:
     if n is None:
         return 1.0
     if n == 0:
-        return 0.50
+        return 0.25
     if n == 1:
         return 0.75
     return 1.0  # n >= 2
