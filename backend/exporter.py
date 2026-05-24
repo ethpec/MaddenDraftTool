@@ -99,10 +99,11 @@ def _write_updated_picks(session: DraftSession, year: str | int | None, path: Pa
     headers = [c.value for c in ws[1]]
     h = {name: headers.index(name) + 1 for name in headers if name}
 
+    # team_info is {TeamNumber: TeamName}; reverse it for the encode lookup.
+    # GMInfo["TeamIndex"] is a different numbering and must not be used here.
     name_to_idx = {
-        t["TeamName"]: int(t["TeamIndex"])
-        for t in session.data.get("gm_info", [])
-        if t.get("TeamIndex") is not None
+        name: int(num)
+        for num, name in session.data.get("team_info", {}).items()
     }
 
     for row_i in range(2, ws.max_row + 1):
