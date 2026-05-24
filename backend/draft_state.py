@@ -133,6 +133,12 @@ class DraftSession:
         valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
         chosen = user_team if user_team in valid_teams else USER_TEAM_NAME
         self.user_team: str = chosen if chosen in valid_teams else (next(iter(valid_teams), USER_TEAM_NAME))
+        # User team uses the unmodified consensus order — no noise applied.
+        _all = data["big_board"]["players"]
+        self._team_boards[self.user_team] = [
+            p["Player_ID"] for p in sorted(_all, key=lambda p: p.get("BigBoardRank") or 9999)
+            if p.get("Player_ID")
+        ]
 
     # -- setup ---------------------------------------------------------------
 

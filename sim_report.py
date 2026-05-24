@@ -20,6 +20,19 @@ from backend import logic
 # Seeds to compare. Add/remove as needed.
 SEEDS = [1, 42, 43, 100, 432, 999, 2091, 8720, 12345]
 
+# Position group merges (same as data_loader._RANK_POSITION_GROUP but local).
+_POS_GROUP: dict[str, str] = {
+    "LT": "OT", "RT": "OT",
+    "LG": "OG", "RG": "OG",
+    "LE": "EDGE", "RE": "EDGE",
+    "LOLB": "OLB", "ROLB": "OLB",
+}
+
+def _pos_group(pos: str | None) -> str:
+    if not pos:
+        return "UNK"
+    return _POS_GROUP.get(pos, pos)
+
 
 def run_sim(seed: int) -> dict:
     # Fresh data copy + fresh session per seed. `load_all` returns a deepcopy
@@ -27,6 +40,13 @@ def run_sim(seed: int) -> dict:
     random.seed(seed)
     data = load_all(None)
     sess = DraftSession(data, user_team=None)
+
+    # Build player_id -> grouped position lookup for position-stack analysis.
+    player_pos: dict = {
+        p["Player_ID"]: _pos_group(p.get("position"))
+        for p in data["big_board"]["players"]
+        if p.get("Player_ID") is not None
+    }
 
     records: list[dict] = []
     trade_total = 0
@@ -78,15 +98,31 @@ def run_sim(seed: int) -> dict:
             considered_total += 1
         offer_count_total += offer_count
 
+        drafting_team = result.get("pick", {}).get("current_team", on_clock)
+        player_id = result.get("decision", {}).get("player_id")
+        pos_grp = player_pos.get(player_id, "UNK")
+
         records.append({
             "round": pick.round_1,
             "team": on_clock,
+            "drafting_team": drafting_team,
+            "pos_group": pos_grp,
             "considered": willing,
             "offers": offer_count,
             "traded": trade_happened,
             "td_prob": td_prob,
             "tu_prob_avg": tu_prob_avg,
         })
+
+    # Per-team position group pick counts (keyed by drafting team).
+    team_pos_counts: dict[str, dict[str, int]] = {}
+    for rec in records:
+        dt = rec["drafting_team"]
+        pg = rec["pos_group"]
+        if pg == "UNK":
+            continue
+        grp = team_pos_counts.setdefault(dt, {})
+        grp[pg] = grp.get(pg, 0) + 1
 
     return {
         "seed": seed,
@@ -95,6 +131,7 @@ def run_sim(seed: int) -> dict:
         "considered": considered_total,
         "offers": offer_count_total,
         "trades": trade_total,
+        "team_pos_counts": team_pos_counts,
     }
 
 
@@ -176,3 +213,41 @@ for team, avg in sorted(team_avgs, key=lambda x: -x[1])[:15]:
     counts = team_trades_per_seed[team]
     counts_str = ",".join(str(c) for c in counts)
     print(f"  {team:<24} avg {avg:.1f}   (per-seed: {counts_str})")
+
+# Position group stacking — max same-group picks by a single team in one draft
+print()
+print(f"Position group stacking (max picks of same group by any one team, averaged across {len(results)} seeds):")
+
+# Distribution: how many teams hit each max level, averaged across seeds
+print()
+print("  Stack distribution (avg teams with max >= N):")
+print(f"  {'Max':>4} | {'Avg teams':>10} | {'% of league':>12}")
+print("  " + "-" * 33)
+for level in range(2, 8):
+    team_counts_at_level = [
+        sum(1 for counts in r["team_pos_counts"].values() if max(counts.values(), default=0) >= level)
+        for r in results
+    ]
+    avg_teams = mean(team_counts_at_level)
+    pct = avg_teams / 32 * 100
+    print(f"  {level:>4} | {avg_teams:>10.1f} | {pct:>11.1f}%")
+
+# Top position groups that get stacked (2+ of same group in one draft, per team)
+print()
+print("  Most stacked position groups (avg occurrences of 2+ picks per team per draft):")
+pos_stack_counts: dict[str, list[int]] = {}
+for r in results:
+    pg_doubles: dict[str, int] = {}
+    for counts in r["team_pos_counts"].values():
+        for pg, n in counts.items():
+            if n >= 2:
+                pg_doubles[pg] = pg_doubles.get(pg, 0) + 1
+    for pg, n in pg_doubles.items():
+        pos_stack_counts.setdefault(pg, [0] * len(results))
+        pos_stack_counts[pg][SEEDS.index(r["seed"])] = n
+
+pos_avgs = [(pg, mean(vals)) for pg, vals in pos_stack_counts.items()]
+print(f"  {'Position':<8} | {'Avg teams 2+':>13}")
+print("  " + "-" * 26)
+for pg, avg in sorted(pos_avgs, key=lambda x: -x[1]):
+    print(f"  {pg:<8} | {avg:>13.1f}")
