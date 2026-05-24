@@ -41,7 +41,8 @@ Files/
     GMInfo.xlsx              GM traits per team
     PositionNeeds.xlsx       Tier table for need calculation
     DraftPickValue.xlsx      Jimmy-Johnson value chart (Current+Future)
-    DraftMaxPerPosition.xlsx Caps on draftees per position
+    DraftMaxPerPositionGroup.xlsx Caps on draftees per position group (replaces DraftMaxPerPosition.xlsx)
+    CombineProDayData.xlsx   Combine + pro day drill results per rookie
     TeamInfo.xlsx            TeamNumber -> TeamName (authoritative)
     all_colleges.json        College reference data
     DraftToolLogic.docx      Original spec from the user
@@ -78,6 +79,11 @@ Files/
   the sample data when writing CurrentTeam back out. If Madden
   re-import rejects the file, the fix is to preserve each row's
   *original* prefix instead of using a constant.
+- `_write_updated_picks` in `exporter.py` builds its `TeamName → index`
+  lookup by **reversing `team_info`** (`{TeamNumber: TeamName}` →
+  `{TeamName: TeamNumber}`). Do **not** use `gm_info["TeamIndex"]`
+  here — that is a different numbering scheme and will encode the wrong
+  team for traded picks.
 
 ### 3. Logic — what's real vs. stubs
 Most functions in `backend/logic.py` are documented placeholders. The
@@ -112,8 +118,11 @@ Implemented:
   need_window_max]` for the current round; it then scans the top
   `reach_limit` players on the team's board for a match. If no match
   is found within reach, falls back to BPA. Round-1 special case:
-  skips QB via BPA if QB is not a current need. Returns a dict with
-  `outcome`, `player_id`, and `rationale` describing the path taken.
+  skips QB via BPA if QB is not a current need. Before any BPA/need
+  logic runs, the available player list is filtered to remove players
+  whose **position group cap** has been reached for that team (see
+  section 3b). Returns a dict with `outcome`, `player_id`, and
+  `rationale` describing the path taken.
 
 - `_round_bucket(round_1, pick_in_round)` — returns `(bpa_prob, (need_window_min,
   need_window_max), reach_limit)` for a pick. Shared by `sim_pick` and the
@@ -242,15 +251,43 @@ Implemented:
 ### 3a. Roster mutation during the draft
 When a player is drafted (`DraftSession._record_selection`), their entry in
 `data["players"]` (Player.xlsx roster) is updated in-place: `TeamIndex` is
-set to the drafting team's GMInfo `TeamIndex`, and `ContractStatus` is set
-to `"Signed"`. This makes `compute_team_needs` reflect the pick on the next
-call without any re-load.
+set to the drafting team's GMInfo `TeamIndex`, `ContractStatus` is set
+to `"Signed"`, and `OverallRating` is boosted by a round-keyed amount
+(`_ROOKIE_OVR_BOOST`: R1 +5, R2 +4, R3 +3, R4–5 +2, R6–7 +1). The boost
+makes it more likely the drafted player's OVR clears the PositionNeeds
+threshold so the need registers as filled for the next pick. The team's
+needs cache is invalidated immediately after.
 
 The lookup uses a pre-built dict `DraftSession._roster_lookup` keyed by
 `(FirstName, LastName, PLYR_DRAFTROUND, PLYR_DRAFTPICK)` for O(1) access. Rookies
 in BigBoard already carry `PLYR_DRAFTROUND`/`PLYR_DRAFTPICK` from `keep_cols`
-in `load_big_board`, so the key matches Player.xlsx directly. If a player
+in `load_big_board`, so the key matches Player.xlsx directly. All 455 current
+BigBoard players have matching Player.xlsx entries — 0 misses. If a player
 isn't in the roster (no Player.xlsx entry), the update is silently skipped.
+
+`_record_selection` also increments `DraftSession._team_pos_group_counts`
+(`dict[team → dict[group → int]]`) for the drafting team using the position
+group map from `DraftMaxPerPositionGroup.xlsx`. This is read by `sim_pick`
+to enforce position group caps (see section 3b).
+
+### 3b. Position group draft caps
+`DraftMaxPerPositionGroup.xlsx` has two sheets:
+- **Position** — maps every Madden position to a group name
+  (e.g. `LT/RT → OT`, `LOLB/ROLB/MLB → LB`, `LE/RE → EDGE`).
+- **PositionGroup** — maps each group to a `MaxDrafted` integer.
+
+Loaded by `data_loader.load_max_per_position_group` into
+`{"pos_to_group": {...}, "max_per_group": {...}}` and stored as
+`data["max_per_position_group"]`. Passed through the snapshot as
+`max_per_position_group` + `team_pos_group_counts`. `sim_pick` filters
+the available player list before any pick logic runs; players whose
+group is at or above the cap are excluded. If all remaining players are
+capped out the pick returns `{"outcome": "skip"}` (same as no-players-left).
+
+Note: the LB group (`LOLB + ROLB + MLB`) is intentionally different from
+the `OLB`/`ILB` split used in `POSITION_GROUPS` (need calculation) and in
+combine rankings. Those are separate mappings for separate purposes — do
+not conflate them.
 
 ### 4. Year folders
 The user picks a year on the setup screen. `data_loader.resolve_year_folder`
@@ -282,6 +319,10 @@ scans `Files/` for subdirs (excluding `Exports`).
 - `sim_until_end` deliberately **ignores** the user team — it pushes
   through every remaining pick, AI-filling the user team's slots too,
   for end-of-draft convenience.
+- **User team big board** uses the unmodified consensus `BigBoardRank`
+  order — no noise applied. This override happens in `DraftSession.__init__`
+  after `self.user_team` is resolved, replacing the noise-generated board
+  with a straight sort by `BigBoardRank`. CPU teams are unchanged.
 
 ### 5a. CPU trade-down flow
 
@@ -337,6 +378,36 @@ they later come on the clock.
 
 `_trade_down_willing`, `_trade_down_m_down`, and `_pick_must_select` are
 all cleared in `_advance()` alongside pending offers.
+
+### 5b. Trade Hub — incoming offers table
+When the user is on the clock the "Incoming Offers" table shows one row per
+CPU offer with: Team, You Receive, You Send, **Net Value** (offered − sent,
+gold/red), and **Net Ratio** (offered value ÷ (target value + return value),
+gold if ≥ 1.0, red if < 1.0). Both columns share the same `font-mono text-xs`
+styling. Net Ratio gives a quick read on whether the offer is above water
+independent of absolute pick values.
+
+### 5c. Combine / Pro Day data in player profile
+`CombineProDayData.xlsx` is loaded by `data_loader.load_combine_pro_day`
+and keyed by `PlayerTableRow` (the 1-indexed row number in Player.xlsx,
+stored on each player record as `player_table_row`). Each entry holds raw
+integer values for six drills (`FortyYardDash`, `TwentyYardShuttle`,
+`ThreeConeDrill`, `VerticalJump`, `BroadJump`, `BenchPress`) for both the
+combine and pro day.
+
+`_compute_combine_ranks` runs at session load after combine data is joined
+onto BigBoard players. It groups players by position (using
+`_RANK_POSITION_GROUP`: LT/RT → OT, LE/RE → EDGE, LOLB/ROLB → OLB,
+MLB → ILB, HB → RB) and ranks each drill using standard competition
+ranking (ties share a rank, next rank skips — 1-2-2-4). Ranks are stored
+as `combine_data["combine_ranks"][drill]` and `combine_data["pro_day_ranks"][drill]`
+with `{"rank": N, "total": M}`.
+
+The player profile modal renders **Combine Performance** and **Pro Day
+Performance** sections using `.pp-combine-grid` (130px min column, column
+flex layout) with a small italic rank line below each value. Time drills
+display as seconds (e.g. `4.45 sec`), vertical as inches, broad jump as
+feet/inches, bench as reps.
 
 ### 6. Single global session
 `app.py` keeps **one** `DraftSession` in module-level state. There's no
@@ -496,6 +567,15 @@ players get drafted. The dynamic `team_rank` column changes (it's the
 current rank among undrafted players), but the parenthesized delta
 stays the same. See `renderConsensusDelta` in `app.js`.
 
+## DraftPicks.xlsx — compensatory picks
+`DraftPicks.xlsx` contains more than 32 picks in rounds 3–7 to reflect
+real NFL compensatory picks. `_build_initial_order` sorts by
+`(Round, PickNumber)` and assigns `overall` sequentially — no hardcoded
+pick count anywhere. Compensatory picks have `pick_in_round_1 > 32`; this
+only matters for `_round_bucket`'s round-1 sub-buckets (which are
+irrelevant for rounds 3–7). Everything else (sim, trade logic, export)
+is fully dynamic.
+
 ## Open work / known gaps
 
 - BPA/need probability tuning in `sim_pick` — the round/pick-bucket
@@ -506,8 +586,11 @@ stays the same. See `renderConsensusDelta` in `app.js`.
   `_TRADE_UP_OFFSET` (±0.049, applied as a uniform random offset per offer),
   `_FUTURE_PICK_GATE_UP` (0.15) / `_FUTURE_PICK_GATE_DOWN` (0.10), and the complexity
   tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
+- Position group cap tuning — `MaxDrafted` values in `DraftMaxPerPositionGroup.xlsx`
+  are initial guesses; refine based on play-testing.
 - Per-row prefix preservation in `exporter._encode_team_id` if Madden
-  re-import rejects the heuristic prefix.
+  re-import rejects the heuristic prefix (the team ID encoding bug for
+  traded picks was fixed — this remaining gap is only the 24-bit prefix).
 - Trade-value heuristics in `logic.pick_value` work; pick value lookup
   uses 0-indexed `Pick` column in `DraftPickValue.xlsx` (subtract 1 from
   `draft_slot` before lookup — see `_pick_point_value` in `app.py` for

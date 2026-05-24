@@ -128,6 +128,9 @@ class DraftSession:
         # draft a player. Absent from dict if the team has never traded.
         # Read by `_trade_down_probability` to apply a decaying cooldown.
         self._events_since_trade_per_team: dict[str, int] = {}
+        # Tracks how many players of each position group each team has drafted.
+        # Used by sim_pick to enforce DraftMaxPerPositionGroup caps.
+        self._team_pos_group_counts: dict[str, dict[str, int]] = {}
         # Default to Steelers if no team is specified (legacy behavior).
         # Validate against GMInfo so we don't accept arbitrary strings.
         valid_teams = {g["TeamName"] for g in data.get("gm_info", []) if g.get("TeamName")}
@@ -765,6 +768,14 @@ class DraftSession:
         # traded down (no entry in the dict).
         if pick.current_team in self._events_since_trade_per_team:
             self._events_since_trade_per_team[pick.current_team] += 1
+        # Track position group counts for the drafting team.
+        pos = player.get("position")
+        if pos:
+            pos_to_group = self.data.get("max_per_position_group", {}).get("pos_to_group", {})
+            grp = pos_to_group.get(pos)
+            if grp:
+                team_grp = self._team_pos_group_counts.setdefault(pick.current_team, {})
+                team_grp[grp] = team_grp.get(grp, 0) + 1
         # The drafting team's roster just changed — invalidate only their
         # cached needs. Every other team's cache stays warm.
         self._needs_cache.pop(pick.current_team, None)
@@ -839,7 +850,8 @@ class DraftSession:
             "gm_info": self.data["gm_info"],
             "position_needs": self._weighted_needs,
             "pick_values": self.data["pick_values"],
-            "max_per_position": self.data["max_per_position"],
+            "max_per_position_group": self.data.get("max_per_position_group", {}),
+            "team_pos_group_counts": {t: dict(c) for t, c in self._team_pos_group_counts.items()},
             "team_boards": self._team_boards,
             "user_team": self.user_team,
             "events_since_trade_per_team": dict(self._events_since_trade_per_team),
