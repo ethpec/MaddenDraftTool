@@ -343,10 +343,145 @@ def api_gm_info():
 
 @app.get("/api/trades")
 def api_trades():
+    """Return the full trade log, enriched with logos and pick values.
+
+    The frontend Trade History view renders the same kind of "what each
+    side sent" panels the live trade-executed modal does, so we attach
+    team logos and Jimmy-Johnson values per pick here instead of having
+    the client recompute them.
+    """
     sess, err = _require_session()
     if err:
         return err
-    return jsonify({"trades": [t.__dict__ for t in sess.trade_log()]})
+    nfl_logos = sess.data.get("nfl_logo_map", {})
+    pick_values = sess.data.get("pick_values", {})
+    by_overall = sess._pick_by_overall
+
+    def _annotate(p: dict[str, Any]) -> dict[str, Any]:
+        out = dict(p)
+        slot = p.get("draft_slot") or p.get("overall")
+        out["value"] = _pick_point_value(slot, p.get("year_offset", 0), pick_values)
+        # The pick record's selected player can change after the trade
+        # (whoever ends up drafting). Reflect current state.
+        rec = by_overall.get(p.get("overall"))
+        if rec is not None:
+            out["selected_player_id"] = rec.selected_player_id
+            out["selected_player_name"] = rec.selected_player_name
+            if rec.selected_player_id:
+                player = sess._player_by_id.get(rec.selected_player_id)
+                if player:
+                    out["selected_position"] = player.get("position")
+        return out
+
+    trades = []
+    for t in sess.trade_log():
+        trades.append({
+            "trade_id": t.trade_id,
+            "overall_pick_traded": t.overall_pick_traded,
+            "team_a": t.team_a,
+            "team_b": t.team_b,
+            "team_a_logo": nfl_logos.get(t.team_a),
+            "team_b_logo": nfl_logos.get(t.team_b),
+            "team_a_sends": [_annotate(p) for p in t.team_a_sends],
+            "team_b_sends": [_annotate(p) for p in t.team_b_sends],
+            "initiated_by": t.initiated_by,
+        })
+    return jsonify({"trades": trades})
+
+
+@app.get("/api/rosters")
+def api_rosters():
+    """Return every team's current roster grouped by position.
+
+    Reads from the in-memory ``data["players"]`` table (which is mutated
+    as picks are made — see ``_record_selection``) so newly-drafted
+    rookies show up under their drafting team immediately.
+    """
+    sess, err = _require_session()
+    if err:
+        return err
+    nfl_logos = sess.data.get("nfl_logo_map", {})
+    college_logos = sess.data.get("college_logo_map", {})
+    college_id_to_name = data_loader.build_college_id_to_name(
+        sess.data.get("colleges", []))
+    # Map GMInfo TeamIndex -> TeamName for the active 32 teams.
+    idx_to_team = {int(g["TeamIndex"]): g["TeamName"]
+                   for g in sess.data.get("gm_info", [])
+                   if g.get("TeamName") and g.get("TeamIndex") is not None}
+    # Pick records carry round/pick info for any drafted rookie; bucket
+    # them by (FirstName, LastName, draft_round, draft_pick) so the per-
+    # player join below is O(1).
+    bigboard_by_key: dict[tuple, dict[str, Any]] = {
+        (bp.get("FirstName"), bp.get("LastName"),
+         bp.get("PLYR_DRAFTROUND"), bp.get("PLYR_DRAFTPICK")): bp
+        for bp in sess.data.get("big_board", {}).get("players", [])
+    }
+    rookie_pick_by_id: dict[str, Any] = {}
+    rookie_ids: set[str] = set()
+    for p in sess.board():
+        if p.selected_player_id:
+            rookie_ids.add(p.selected_player_id)
+            rookie_pick_by_id[p.selected_player_id] = {
+                "round": p.round_1,
+                "pick": p.pick_in_round_1,
+                "overall": p.overall,
+            }
+
+    teams: dict[str, dict[str, Any]] = {
+        name: {"team": name, "logo": nfl_logos.get(name), "by_position": {}}
+        for name in idx_to_team.values()
+    }
+
+    for player in sess.data.get("players", []):
+        team_idx = player.get("TeamIndex")
+        if team_idx is None:
+            continue
+        try:
+            team_idx = int(team_idx)
+        except (TypeError, ValueError):
+            continue
+        team_name = idx_to_team.get(team_idx)
+        if not team_name:
+            continue
+        # Player.xlsx contains placeholder rows (e.g. ~300 "Trey Trey" rows
+        # tagged to the Bears in the test data) with OVR 0 — Madden-side
+        # template slots, not real players. Filter them out so the roster
+        # view shows only actual rostered players + drafted rookies.
+        ovr = player.get("OverallRating")
+        try:
+            ovr_int = int(ovr) if ovr is not None else 0
+        except (TypeError, ValueError):
+            ovr_int = 0
+        if ovr_int <= 0:
+            continue
+        pos = player.get("Position") or "—"
+        college_id = player.get("College")
+        college_name = college_id_to_name.get(college_id) if college_id else None
+        key = (player.get("FirstName"), player.get("LastName"),
+               player.get("PLYR_DRAFTROUND"), player.get("PLYR_DRAFTPICK"))
+        bp = bigboard_by_key.get(key)
+        big_id = bp.get("Player_ID") if bp else None
+        entry = {
+            "first_name": player.get("FirstName"),
+            "last_name": player.get("LastName"),
+            "ovr": player.get("OverallRating"),
+            "age": player.get("Age"),
+            "college": college_name,
+            "college_logo": college_logos.get(college_name) if college_name else None,
+            "player_id": big_id,
+            "is_rookie": big_id in rookie_ids if big_id else False,
+            "rookie_pick": rookie_pick_by_id.get(big_id) if big_id else None,
+        }
+        teams[team_name]["by_position"].setdefault(pos, []).append(entry)
+
+    # Sort each position bucket by OVR desc (None last).
+    for t in teams.values():
+        for pos, players in t["by_position"].items():
+            players.sort(key=lambda x: (-(x.get("ovr") or -1), x.get("last_name") or ""))
+
+    # Return teams sorted alphabetically for stable display.
+    out = sorted(teams.values(), key=lambda t: t["team"])
+    return jsonify({"teams": out})
 
 
 @app.post("/api/pick/make")
@@ -454,6 +589,28 @@ def api_trade_up():
         target,
         [int(x) for x in offered],
         [int(x) for x in target_also_sends],
+    ))
+
+
+@app.post("/api/trade/manual")
+def api_trade_manual():
+    """Execute a manual trade between any two teams.
+
+    Body: ``{team_a, team_b, team_a_overalls, team_b_overalls,
+    force_override}``. When ``force_override`` is true, willingness /
+    value checks are skipped.
+    """
+    sess, err = _require_session()
+    if err:
+        return err
+    body = request.get_json(force=True, silent=True) or {}
+    team_a = body.get("team_a")
+    team_b = body.get("team_b")
+    a_overalls = [int(x) for x in (body.get("team_a_overalls") or [])]
+    b_overalls = [int(x) for x in (body.get("team_b_overalls") or [])]
+    force = bool(body.get("force_override"))
+    return jsonify(sess.submit_manual_trade(
+        str(team_a), str(team_b), a_overalls, b_overalls, force_override=force,
     ))
 
 
