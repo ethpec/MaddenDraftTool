@@ -27,7 +27,7 @@ FALLBACK_FOLDER_NAME = "TestFiles"
 NFL_LOGOS_DIR = REPO_ROOT / "static" / "nfl_logos"
 COLLEGE_LOGOS_DIR = REPO_ROOT / "static" / "college_logos"
 DATA_CACHE_DIRNAME = ".cache"
-PLAYER_CACHE_VERSION = 1
+PLAYER_CACHE_VERSION = 2
 LOAD_ALL_CACHE_VERSION = 4
 _LOAD_ALL_CACHE_LOCK = threading.Lock()
 _LOAD_ALL_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -290,8 +290,9 @@ def load_players(folder: Path) -> list[dict[str, Any]]:
     headers, rows = _read_sheet(path)
     keep_idx = {h: headers.index(h) for h in PLAYER_COLUMNS_OF_INTEREST if h in headers}
     out: list[dict[str, Any]] = []
-    for row in rows:
+    for i, row in enumerate(rows):
         rec = {col: row[idx] for col, idx in keep_idx.items() if idx < len(row)}
+        rec["player_table_row"] = i + 2  # Excel row number (header=1, first data row=2)
         out.append(rec)
     try:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -301,6 +302,100 @@ def load_players(folder: Path) -> list[dict[str, Any]]:
         tmp_path.replace(cache_path)
     except OSError:
         pass
+    return out
+
+
+# Combine/Pro Day drill columns we extract, in display order.
+_COMBINE_DRILLS: list[str] = [
+    "FortyYardDash", "TwentyYardShuttle", "ThreeConeDrill",
+    "VerticalJump", "BroadJump", "BenchPress",
+]
+
+# True = lower value is better (times); False = higher is better (jumps/reps).
+_DRILL_ASCENDING: dict[str, bool] = {
+    "FortyYardDash": True, "TwentyYardShuttle": True, "ThreeConeDrill": True,
+    "VerticalJump": False, "BroadJump": False, "BenchPress": False,
+}
+
+# Group split Madden positions together for combine ranking so "LT" and "RT"
+# both compete in the same "OT" pool, etc.
+_RANK_POSITION_GROUP: dict[str, str] = {
+    "LT": "OT", "RT": "OT",
+    "LG": "OG", "RG": "OG",
+    "LE": "EDGE", "RE": "EDGE",
+    "LOLB": "OLB", "ROLB": "OLB",
+    "MLB": "ILB",
+    "HB": "RB",
+}
+
+
+def _compute_combine_ranks(bb_players: list[dict[str, Any]]) -> None:
+    """Add rank dicts to each player's combine_data in-place.
+
+    Groups players by position (split positions merged via _RANK_POSITION_GROUP),
+    then for each drill ranks using standard competition ranking (1224): ties
+    share a rank, next rank skips. Stores results as:
+      combine_data["combine_ranks"][drill] = {"rank": N, "total": M}
+      combine_data["pro_day_ranks"][drill] = {"rank": N, "total": M}
+    """
+    # Build position groups
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for p in bb_players:
+        pos = _RANK_POSITION_GROUP.get(p.get("position") or "", p.get("position") or "UNK")
+        groups.setdefault(pos, []).append(p)
+
+    for players in groups.values():
+        for src, ranks_key in (("combine", "combine_ranks"), ("pro_day", "pro_day_ranks")):
+            for drill, ascending in _DRILL_ASCENDING.items():
+                valid: list[tuple[Any, dict[str, Any]]] = []
+                for p in players:
+                    cd = p.get("combine_data")
+                    if not cd:
+                        continue
+                    val = cd[src].get(drill)
+                    if val is not None:
+                        valid.append((val, p))
+                if not valid:
+                    continue
+                total = len(valid)
+                valid.sort(key=lambda x: x[0], reverse=not ascending)
+                # Standard competition ranking (1224)
+                i = 0
+                current_rank = 1
+                while i < len(valid):
+                    j = i
+                    while j < len(valid) and valid[j][0] == valid[i][0]:
+                        j += 1
+                    for k in range(i, j):
+                        p = valid[k][1]
+                        cd = p["combine_data"]
+                        cd.setdefault(ranks_key, {})[drill] = {
+                            "rank": current_rank, "total": total,
+                        }
+                    current_rank += j - i
+                    i = j
+
+
+def load_combine_pro_day(folder: Path) -> dict[int, dict[str, Any]]:
+    """Load CombineProDayData.xlsx -> {PlayerTableRow: {combine: {...}, pro_day: {...}}}.
+
+    Keyed by PlayerTableRow (int). Each inner dict has raw integer values for
+    the six drills (or None if not recorded). Returns {} if the file is absent.
+    """
+    path = folder / "CombineProDayData.xlsx"
+    if not path.is_file():
+        return {}
+    headers, rows = _read_sheet(path)
+    dicts = _rows_to_dicts(headers, rows)
+    out: dict[int, dict[str, Any]] = {}
+    for row in dicts:
+        ptr = row.get("PlayerTableRow")
+        if ptr is None:
+            continue
+        ptr = int(ptr)
+        combine = {drill: row.get(f"Combine{drill}") for drill in _COMBINE_DRILLS}
+        pro_day = {drill: row.get(f"ProDay{drill}") for drill in _COMBINE_DRILLS}
+        out[ptr] = {"combine": combine, "pro_day": pro_day}
     return out
 
 
@@ -511,6 +606,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
 
     big_board = load_big_board(folder)
     players = load_players(folder)
+    combine_data = load_combine_pro_day(folder)
     letter_grades = load_letter_grades(folder)
     colleges = load_colleges(folder)
     college_by_id = build_college_id_to_name(colleges)
@@ -538,6 +634,9 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             p["position"] = match.get("Position")
             if college_name:
                 p["college_logo"] = college_logo_map.get(college_name)
+            ptr = match.get("player_table_row")
+            if ptr is not None and ptr in combine_data:
+                p["combine_data"] = combine_data[ptr]
         grade_rec = (
             letter_grades.get(("flp", p.get("FirstName"), p.get("LastName"), p.get("position")))
             or letter_grades.get(("fl", p.get("FirstName"), p.get("LastName")))
@@ -549,6 +648,8 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             p["height"] = grade_rec.get("height")
             p["weight"] = grade_rec.get("weight")
             p["age"] = grade_rec.get("age")
+
+    _compute_combine_ranks(big_board["players"])
 
     loaded = {
         "year": str(year) if year is not None else None,

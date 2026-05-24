@@ -982,3 +982,19 @@
 .pp-attr.g-star-7 { border-color: #c08a1c; background: #2a1f08; }
 .pp-attr.g-star-7 .pp-attr-value { color: #f8c043; }
 .pp-attr.g-unknown .pp-attr-value { color: #64748b; }
+.pp-attr.g-stat { border-color: #2d3748; background: #0d1018; }
+.pp-attr.g-stat .pp-attr-value { color: #e2e8f0; }
+.pp-combine-grid {
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+}
+.pp-combine-grid .pp-attr {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.pp-attr-rank {
+  font-size: 10px;
+  color: #64748b;
+  font-style: italic;
+  margin-top: 1px;
+}
