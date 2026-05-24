@@ -321,6 +321,7 @@ def api_player(player_id: str):
         "drafted": bool(p.get("drafted")),
         "drafted_info": drafted_info,
         "grades": p.get("grades"),
+        "combine_data": p.get("combine_data"),
     })
 
 

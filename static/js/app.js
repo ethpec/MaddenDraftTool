@@ -938,6 +938,7 @@ function renderOffersTable(offers) {
           <th class="text-left py-1">You Receive</th>
           <th class="text-left py-1">You Send</th>
           <th class="text-right py-1">Net Value</th>
+          <th class="text-right py-1">Net Ratio</th>
           <th></th>
         </tr>
       </thead>
@@ -947,11 +948,16 @@ function renderOffersTable(offers) {
           const net = ((o.offer_value || 0) - (o.target_value || 0) - (o.return_value || 0));
           const netStr = (net >= 0 ? '+' : '') + net.toFixed(0);
           const netClass = net >= 0 ? 'text-accent-400' : 'text-rose-400';
+          const denominator = (o.target_value || 0) + (o.return_value || 0);
+          const ratio = denominator > 0 ? (o.offer_value || 0) / denominator : null;
+          const ratioStr = ratio != null ? ratio.toFixed(2) + 'x' : '—';
+          const ratioClass = ratio == null ? 'text-slate-500' : ratio >= 1 ? 'text-accent-400' : 'text-rose-400';
           return `<tr class="border-b border-ink-800">
             <td class="py-1 pr-2">${escapeHtml(o.from_team || '?')}</td>
             <td class="py-1 pr-2 text-xs">${fmtList(o.offered_picks)}</td>
             <td class="py-1 pr-2 text-xs text-slate-400">${fmtList(youSend)}</td>
             <td class="py-1 pr-2 text-right font-mono text-xs ${netClass}">${netStr}</td>
+            <td class="py-1 pr-2 text-right font-mono text-xs ${ratioClass}">${ratioStr}</td>
             <td class="py-1 text-right"><button class="action-btn accept-offer-btn" data-from-team="${escapeHtml(o.from_team || '')}">Accept</button></td>
           </tr>`;
         }).join('')}
@@ -1633,6 +1639,58 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
       <div class="text-sm text-slate-500">No letter grades available for this prospect.</div>`;
   }
 
+  const DRILL_LABELS = {
+    FortyYardDash: '40 Time',
+    TwentyYardShuttle: '20-Yd Shuttle',
+    ThreeConeDrill: '3-Cone',
+    VerticalJump: 'Vertical',
+    BroadJump: 'Broad Jump',
+    BenchPress: 'Bench Reps',
+  };
+  const DRILL_ORDER = ['FortyYardDash', 'TwentyYardShuttle', 'ThreeConeDrill', 'VerticalJump', 'BroadJump', 'BenchPress'];
+
+  function formatDrillValue(drill, val) {
+    if (val == null) return null;
+    if (drill === 'FortyYardDash' || drill === 'TwentyYardShuttle' || drill === 'ThreeConeDrill')
+      return (val / 100).toFixed(2) + ' sec';
+    if (drill === 'VerticalJump')
+      return (val / 10).toFixed(1) + '"';
+    if (drill === 'BroadJump')
+      return Math.floor(val / 12) + "'" + (val % 12) + '"';
+    if (drill === 'BenchPress')
+      return val + ' reps';
+    return String(val);
+  }
+
+  function ordinal(n) {
+    const s = ['th', 'st', 'nd', 'rd'];
+    const v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function renderCombineSection(title, drillData, ranksData) {
+    if (!drillData) return '';
+    const cells = DRILL_ORDER.map(drill => {
+      const raw = drillData[drill];
+      const formatted = formatDrillValue(drill, raw);
+      if (formatted == null) return '';
+      const r = ranksData && ranksData[drill];
+      const rankHtml = r ? `<div class="pp-attr-rank">${ordinal(r.rank)} out of ${r.total}</div>` : '';
+      return `<div class="pp-attr g-stat">
+        <div class="pp-attr-name">${DRILL_LABELS[drill]}</div>
+        <div class="pp-attr-value">${escapeHtml(formatted)}</div>
+        ${rankHtml}
+      </div>`;
+    }).join('');
+    if (!cells.trim()) return '';
+    return `<div class="pp-section-title">${title}</div><div class="pp-attr-grid pp-combine-grid">${cells}</div>`;
+  }
+
+  const combineHtml = p.combine_data
+    ? renderCombineSection('Combine Performance', p.combine_data.combine, p.combine_data.combine_ranks) +
+      renderCombineSection('Pro Day Performance', p.combine_data.pro_day, p.combine_data.pro_day_ranks)
+    : '';
+
   const body = `
     <div class="player-profile">
       <div class="pp-header">
@@ -1645,6 +1703,7 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
       </div>
       <div class="pp-meta-row">${meta}</div>
       ${gradesHtml}
+      ${combineHtml}
     </div>
   `;
   document.getElementById('modal-body').innerHTML = body;
