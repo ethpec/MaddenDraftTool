@@ -987,10 +987,10 @@ function wireAcceptOfferButtons() {
 
 // ---------- Big Board modal ----------
 
-const POSITION_ORDER = ['QB','RB','FB','WR','TE','OG','OT','C','END','DT','OLB','ILB','CB','SS','FS','K','P'];
+const POSITION_ORDER = ['QB','RB','FB','WR','TE','OG','OT','C','END','DT','LB','CB','SS','FS','K','P'];
 
 // Madden stores sub-positions (LE/RE, LG/RG, LT/RT, LOLB/ROLB, MLB, HB) but
-// we display the conventional grouping (END, OG, OT, OLB, ILB, RB). This
+// we display the conventional grouping (END, OG, OT, LB, RB). This
 // map says "what raw positions count as this display position?"
 const POSITION_ALIASES = {
   QB: ['QB'],
@@ -1003,8 +1003,7 @@ const POSITION_ALIASES = {
   C: ['C'],
   END: ['LE', 'RE'],
   DT: ['DT'],
-  OLB: ['LOLB', 'ROLB'],
-  ILB: ['MLB', 'ILB'],
+  LB: ['LOLB', 'ROLB', 'MLB', 'ILB'],
   CB: ['CB'],
   SS: ['SS'],
   FS: ['FS'],
@@ -1045,7 +1044,7 @@ const DISPLAY_TO_GROUP = {
   QB: 'QB', RB: 'RB', WR: 'WR', TE: 'TE',
   OG: 'OL', OT: 'OL', C: 'OL',
   END: 'DL', DT: 'DL',
-  OLB: 'LB', ILB: 'LB',
+  LB: 'LB',
   CB: 'CB', SS: 'SAF', FS: 'SAF',
   K: 'ST', P: 'ST',
 };

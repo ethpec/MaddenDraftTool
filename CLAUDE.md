@@ -117,7 +117,7 @@ Implemented:
   `compute_team_needs` output to weights within `[need_window_min,
   need_window_max]` for the current round; it then scans the top
   `reach_limit` players on the team's board for a match. If no match
-  is found within reach, falls back to BPA. Round-1 special case:
+  is found within reach, falls back to BPA. Rounds 1–2 special case:
   skips QB via BPA if QB is not a current need. Before any BPA/need
   logic runs, the available player list is filtered to remove players
   whose **position group cap** has been reached for that team (see
@@ -284,10 +284,9 @@ the available player list before any pick logic runs; players whose
 group is at or above the cap are excluded. If all remaining players are
 capped out the pick returns `{"outcome": "skip"}` (same as no-players-left).
 
-Note: the LB group (`LOLB + ROLB + MLB`) is intentionally different from
-the `OLB`/`ILB` split used in `POSITION_GROUPS` (need calculation) and in
-combine rankings. Those are separate mappings for separate purposes — do
-not conflate them.
+Note: the LB group (`LOLB + ROLB + MLB`) in `DraftMaxPerPositionGroup.xlsx`
+matches `POSITION_GROUPS` (need calculation) — both now use `LB` as the
+group name. Combine rankings use the same grouping.
 
 ### 4. Year folders
 The user picks a year on the setup screen. `data_loader.resolve_year_folder`
@@ -448,13 +447,13 @@ Export button hits today.
 ### 9. Position aliases (frontend-only, Big Board modal)
 Madden stores split positions (`LE`/`RE`, `LG`/`RG`, `LT`/`RT`,
 `LOLB`/`ROLB`, `MLB`, `HB`) but the Big Board modal exposes the
-conventional grouping (`END`, `OG`, `OT`, `OLB`, `ILB`, `RB`). The
+conventional grouping (`END`, `OG`, `OT`, `LB`, `RB`). The
 mapping lives in `POSITION_ALIASES` (`static/js/app.js`):
 - `QB`, `FB`, `WR`, `TE`, `C`, `DT`, `CB`, `SS`, `FS`, `K`, `P` map 1:1.
 - `RB → [HB]`, `OG → [LG, RG]`, `OT → [LT, RT]`, `END → [LE, RE]`,
-  `OLB → [LOLB, ROLB]`, `ILB → [MLB, ILB]`.
+  `LB → [LOLB, ROLB, MLB, ILB]`.
 - The display order in `POSITION_ORDER` is the user-specified order:
-  `QB, RB, FB, WR, TE, OG, OT, C, END, DT, OLB, ILB, CB, SS, FS, K, P`.
+  `QB, RB, FB, WR, TE, OG, OT, C, END, DT, LB, CB, SS, FS, K, P`.
 
 The filter logic uses these aliases to expand a clicked pill into the
 set of raw positions that count. Individual rows still show the raw
