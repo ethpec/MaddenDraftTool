@@ -27,11 +27,11 @@
     };
   </script>
 </head>
-<body class="bg-ink-950 text-slate-100 min-h-screen font-sans antialiased">
+<body class="app-shell bg-ink-950 text-slate-100 min-h-screen font-sans antialiased">
 
   <!-- Setup gate (hidden once a session starts) -->
-  <div id="setup" class="fixed inset-0 z-40 flex items-center justify-center bg-ink-950">
-    <div class="w-full max-w-md rounded-xl border border-ink-700 bg-ink-900 p-8 shadow-2xl">
+  <div id="setup" class="setup-screen fixed inset-0 z-40 flex items-center justify-center bg-ink-950">
+    <div class="setup-card w-full max-w-md rounded-xl border border-ink-700 bg-ink-900 p-8 shadow-2xl">
       <h1 class="text-2xl font-bold tracking-tight">Madden Draft Tool</h1>
       <p class="mt-1 text-sm text-slate-400">Pick a draft year and which team you'll control.</p>
       <div class="mt-6 space-y-4">
@@ -50,13 +50,40 @@
   </div>
 
   <!-- Top bar -->
-  <header class="sticky top-0 z-30 border-b border-ink-700 bg-ink-900/95 backdrop-blur">
-    <div class="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-3">
-      <div class="flex items-center gap-4">
-        <div class="flex items-center gap-3">
-          <div class="h-8 w-8 rounded bg-accent-500 grid place-items-center text-ink-950 font-bold">M</div>
+  <header class="app-header sticky top-0 z-30 border-b border-ink-700 bg-ink-900/95 backdrop-blur">
+    <div class="app-header-inner mx-auto flex max-w-[1600px] items-center justify-between px-6 py-3">
+      <div class="app-header-main flex items-center gap-4">
+        <div class="brand-block flex items-center gap-3">
+          <div class="nfl-shield" aria-label="NFL">
+            <svg viewBox="0 0 64 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <!-- Outer shield with subtle gradient -->
+              <defs>
+                <linearGradient id="nfl-shield-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1d3a8a"/>
+                  <stop offset="100%" stop-color="#0e1f55"/>
+                </linearGradient>
+              </defs>
+              <path d="M32 1 L60 9 V36 C60 56 47 70 32 78 C17 70 4 56 4 36 V9 Z"
+                    fill="url(#nfl-shield-grad)" stroke="#f1f5f9" stroke-width="1.5"/>
+              <!-- Red horizontal band -->
+              <path d="M5 21 H59 V31 H5 Z" fill="#c8102e"/>
+              <!-- Stars on the band -->
+              <g fill="#f1f5f9">
+                <circle cx="14" cy="26" r="1.6"/>
+                <circle cx="24" cy="26" r="1.6"/>
+                <circle cx="34" cy="26" r="1.6"/>
+                <circle cx="44" cy="26" r="1.6"/>
+                <circle cx="54" cy="26" r="1.6"/>
+              </g>
+              <!-- NFL wordmark -->
+              <text x="32" y="58" text-anchor="middle"
+                    font-family="Inter, Arial, sans-serif"
+                    font-weight="900" font-size="18"
+                    letter-spacing="0" fill="#f1f5f9">NFL</text>
+            </svg>
+          </div>
           <div>
-            <div class="text-sm font-semibold leading-none">Madden Draft Tool</div>
+            <div class="brand-title text-sm font-semibold leading-none">Madden Draft Tool</div>
             <div class="text-[11px] uppercase tracking-wider text-slate-400" id="header-year"></div>
           </div>
         </div>
@@ -93,7 +120,7 @@
             <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
             <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
           </svg>
-          <span>Rosters</span>
+          <span>Rosters/Draft Picks</span>
         </button>
         <button class="nav-tab-btn" data-action="gm-info">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
@@ -103,7 +130,7 @@
           <span>GM Info</span>
         </button>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="command-bar flex items-center gap-2">
         <button class="sim-btn" data-action="sim-pick">Sim Pick</button>
         <button class="sim-btn" data-action="sim-until-user">Sim to My Pick</button>
         <select id="sim-round-select" class="sim-select" aria-label="Sim to round">
@@ -115,10 +142,10 @@
     </div>
   </header>
 
-  <main id="app" class="mx-auto max-w-[1600px] px-6 py-6 grid grid-cols-12 gap-6 hidden">
+  <main id="app" class="app-layout mx-auto max-w-[1600px] px-6 py-6 grid grid-cols-12 gap-6 hidden">
 
     <!-- Left column: on-the-clock + last pick -->
-    <section class="col-span-3 space-y-6">
+    <section class="left-rail col-span-3 space-y-6">
       <div class="card">
         <div class="card-eyebrow">On The Clock</div>
         <div class="mt-2 flex items-center gap-3">
@@ -128,6 +155,10 @@
             <div id="on-the-clock-meta" class="mt-0.5 text-xs text-slate-400"></div>
           </div>
         </div>
+        <div class="draft-progress" aria-hidden="true">
+          <div id="draft-progress-bar" class="draft-progress-bar"></div>
+        </div>
+        <div id="draft-progress-meta" class="draft-progress-meta"></div>
       </div>
 
       <div class="card">
@@ -147,7 +178,7 @@
     </section>
 
     <!-- Center column: draft board + big board -->
-    <section class="col-span-6 space-y-6">
+    <section class="draft-stage col-span-6 space-y-6">
       <div class="card">
         <div class="flex items-center justify-between">
           <div>
@@ -164,18 +195,23 @@
     </section>
 
     <!-- Right column: team boards -->
-    <section class="col-span-3 space-y-6">
+    <section class="right-rail col-span-3 space-y-6">
+      <div class="card right-picks-card">
+        <div class="card-eyebrow">Your Draft Picks</div>
+        <div id="user-picks-snapshot" class="user-picks-snapshot"></div>
+      </div>
+
       <div class="card">
         <div class="card-eyebrow">Team Big Boards <span class="text-slate-500 normal-case tracking-normal text-xs">(testing/private)</span></div>
         <select id="team-board-picker" class="mt-2 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs"></select>
-        <div id="team-board" class="mt-3 max-h-[640px] overflow-y-auto pretty-scroll"></div>
+        <div id="team-board" class="team-board-list pretty-scroll"></div>
       </div>
     </section>
   </main>
 
   <!-- Modals -->
   <div id="modal-root" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-6">
-    <div class="w-full max-w-2xl rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl">
+    <div class="modal-panel w-full max-w-2xl rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl">
       <div class="flex items-start justify-between">
         <div>
           <div id="modal-title" class="text-lg font-semibold"></div>
