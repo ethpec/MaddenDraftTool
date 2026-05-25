@@ -1511,3 +1511,218 @@
   background: #f0b020;
   border-color: #c98c0a;
 }
+
+/* ============================================================
+   UI Polish Pass — additive, override-style. Targets visual
+   depth, button consistency, header presence, and motion.
+   Remove this block to revert to the prior look.
+   ============================================================ */
+
+/* 1. Body type rhythm — slightly tighter tracking for modern feel */
+body {
+  letter-spacing: -0.005em;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 2. Card depth — top highlight line + soft hover lift.
+   Pseudo-elements give the impression of an extruded surface
+   without changing the actual border color. */
+.card {
+  position: relative;
+  background: linear-gradient(180deg, #131826 0%, #0d1118 100%);
+  border-color: #1d2435;
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 12px; right: 12px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  pointer-events: none;
+  border-radius: 12px 12px 0 0;
+}
+
+/* 3. Card eyebrow — refined letter-spacing for legibility */
+.card-eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: #8a98ac;
+}
+
+/* 4. Brand mark — gradient tile + soft glow, replaces the flat "M" */
+header .h-8.w-8.rounded.bg-accent-500 {
+  background: linear-gradient(135deg, #f8c043 0%, #f0b020 55%, #c98c0a 100%) !important;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.4) inset,
+    0 -1px 0 rgba(0,0,0,0.25) inset,
+    0 0 0 1px rgba(248,192,67,0.35),
+    0 4px 14px rgba(240,176,32,0.25);
+  border-radius: 8px;
+  letter-spacing: -0.02em;
+  font-size: 16px;
+}
+
+/* 5. Vertical divider after brand, before nav cluster */
+header .flex.items-center.gap-3 + button {
+  position: relative;
+}
+header .flex.items-center.gap-3 + button::before {
+  content: '';
+  position: absolute;
+  left: -10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 22px;
+  background: linear-gradient(180deg, transparent, #252d42, transparent);
+  pointer-events: none;
+}
+
+/* 6. Button family harmonization — same lift behavior across
+   sim-btn / action-btn / nav-tab-btn / trade-hub-header-btn */
+.sim-btn, .action-btn, .nav-tab-btn, .trade-hub-header-btn {
+  transition: transform 140ms ease, background 140ms ease,
+              border-color 140ms ease, color 140ms ease,
+              box-shadow 140ms ease;
+}
+.sim-btn:hover, .action-btn:hover, .nav-tab-btn:hover,
+.trade-hub-header-btn:hover {
+  transform: translateY(-1px);
+}
+.sim-btn:active, .action-btn:active, .nav-tab-btn:active,
+.trade-hub-header-btn:active, .primary-btn:active {
+  transform: translateY(0);
+}
+
+/* 7. Primary button — slight depth + active feedback */
+.primary-btn {
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.25) inset,
+    0 -1px 0 rgba(0,0,0,0.2) inset,
+    0 2px 6px rgba(240,176,32,0.25);
+  transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease;
+}
+.primary-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.3) inset,
+    0 -1px 0 rgba(0,0,0,0.2) inset,
+    0 4px 12px rgba(240,176,32,0.35);
+}
+
+/* 8. Sim-round select — make it match the other header buttons */
+.sim-select {
+  border-radius: 6px;
+  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+.sim-select:hover:not(:disabled) {
+  background: #1a2030;
+  border-color: #38456a;
+  transform: translateY(-1px);
+}
+
+/* 9. Pick cells — refined completed + on-clock states */
+.pick-cell {
+  background: linear-gradient(180deg, #0d1118 0%, #0a0d14 100%);
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.pick-cell.completed {
+  background: linear-gradient(180deg, #11151f 0%, #0d1118 100%);
+  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 0 0 1px #1a2030 inset;
+}
+.pick-cell.completed .pick-team { color: #cbd5e1; }
+.pick-cell.on-clock {
+  background: linear-gradient(180deg, #0e1c14 0%, #0a0f0c 100%);
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 1px #22c55e inset, 0 0 24px rgba(34,197,94,0.18); }
+  50%      { box-shadow: 0 0 0 1px #22c55e inset, 0 0 40px rgba(34,197,94,0.36); }
+}
+
+/* 10. Pretty-scroll — thinner, more refined */
+.pretty-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+.pretty-scroll::-webkit-scrollbar-thumb {
+  background: #252d42;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+.pretty-scroll::-webkit-scrollbar-thumb:hover { background: #38456a; background-clip: padding-box; }
+/* Firefox */
+.pretty-scroll { scrollbar-width: thin; scrollbar-color: #252d42 transparent; }
+
+/* 11. Modal entrance — gentle fade-in for the backdrop + card */
+#modal-root:not(.hidden) {
+  animation: modal-backdrop-in 160ms ease-out;
+}
+#modal-root:not(.hidden) > div {
+  animation: modal-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modal-backdrop-in {
+  from { background-color: rgba(0,0,0,0); }
+  to   { background-color: rgba(0,0,0,0.7); }
+}
+@keyframes modal-card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 12. Modal close button — bigger hit target, clearer state */
+#modal-close {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1;
+  transition: all 140ms ease;
+  color: #64748b;
+}
+#modal-close:hover {
+  background: #1a2030;
+  color: #f1f5f9;
+}
+
+/* 13. Toast — softer entry, refined shadow */
+#toast {
+  border-color: #252d42;
+  background: linear-gradient(180deg, #1a2030 0%, #11151f 100%);
+  box-shadow: 0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.02);
+}
+
+/* 14. Need rows — subtle row divider effect on hover, accent text */
+.need-row { transition: background 120ms ease, transform 120ms ease; }
+.need-row:hover { background: #161c2b; transform: translateX(2px); }
+.need-row .pos { letter-spacing: -0.005em; }
+
+/* 15. Previous Selections rows — same micro-shift on hover */
+.ps-row { transition: background 120ms ease, transform 120ms ease; }
+.ps-row:hover { background: #161c2b; transform: translateX(2px); }
+
+/* 16. Big Board / team-board rows — consistent hover treatment */
+.bb-row { transition: background 120ms ease; }
+
+/* 17. Header nav-tab badge — calmer color when 0 */
+.nav-tab-count:not(.hidden) {
+  background: #2a1f08;
+  color: #f8c043;
+  border: 1px solid rgba(240,176,32,0.25);
+}
+
+/* 18. Empty placeholders — consistent dashed style */
+.bb-logo-placeholder,
+.ps-logo-placeholder,
+.roster-college-placeholder,
+.pp-college-logo-placeholder {
+  background: repeating-linear-gradient(
+    -45deg,
+    #0d1118,
+    #0d1118 4px,
+    #11151f 4px,
+    #11151f 8px
+  );
+  border: 1px dashed #1a2030;
+}
