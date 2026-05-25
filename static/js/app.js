@@ -1095,13 +1095,12 @@ async function submitTradeUp() {
     await reloadSessionAndRender();
     setTimeout(closeModal, 800);
   } else {
-    const d = res.decision;
-    let msg = 'Offer refused: ' + (d.reason || 'no reason given');
-    if (d.offer_value != null && d.target_value != null) {
-      msg += ` (your offer: ${d.offer_value.toLocaleString()} pts`;
-      if (d.threshold != null) msg += `, need: ${Math.ceil(d.target_value * d.threshold).toLocaleString()} pts`;
-      msg += ')';
-    }
+    const reason = res.decision?.reason;
+    const msg = reason === 'below_threshold'
+      ? "Offer Refused: We're looking to get more value for this pick."
+      : reason === 'competing_offer'
+        ? "Offer Refused: We have a better offer on the table."
+        : 'Offer Refused: ' + (reason || 'no reason given');
     result.textContent = msg;
   }
 }
