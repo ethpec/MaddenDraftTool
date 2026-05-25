@@ -276,7 +276,6 @@ function renderTeamNeeds() {
   el.innerHTML = top.map(n => `
     <div class="need-row">
       <span class="pos">${n.label}</span>
-      <span class="meta">w ${n.weight}</span>
     </div>
   `).join('');
 }
@@ -482,6 +481,7 @@ async function onAction(action) {
     case 'trade-hub': return openTradeHub();
     case 'trade-history': return openTradeHistory();
     case 'rosters': return openRosters();
+    case 'gm-info': return openGMInfo();
     case 'open-big-board': return openBigBoardModal();
   }
 }
@@ -1386,7 +1386,6 @@ async function renderRostersBody() {
     ? needs.map(n => `
         <div class="need-row">
           <span class="pos">${escapeHtml(n.label)}</span>
-          <span class="meta">w ${n.weight}</span>
         </div>`).join('')
     : '<div class="text-xs text-slate-500">No needs computed.</div>';
   const teamLogo = team.logo
@@ -1417,7 +1416,7 @@ async function renderRostersBody() {
 }
 
 function renderRosterPlayer(pl) {
-  const ovr = pl.ovr != null ? `<span class="roster-ovr">${pl.ovr}</span>` : '';
+  const ovr = pl.is_rookie ? `<span class="roster-ovr text-slate-500">?</span>` : (pl.ovr != null ? `<span class="roster-ovr">${pl.ovr}</span>` : '');
   const college = pl.college_logo
     ? `<img src="${pl.college_logo}" alt="${escapeHtml(pl.college || '')}" class="roster-college-logo">`
     : '<div class="roster-college-placeholder"></div>';
@@ -1435,6 +1434,61 @@ function renderRosterPlayer(pl) {
     </div>
     ${rookieBadge}
   </div>`;
+}
+
+// ---------- GM Info modal ----------
+
+const GM_TRAITS = [
+  { key: 'NeedvsBPA',                     label: 'Need v BPA',  low: 'BPA Philosophy',    high: 'Reaches for Need' },
+  { key: 'BigBoardSkill',                 label: 'Scout',       low: 'Tendency to Reach', high: 'Sharp Evaluator'  },
+  { key: 'TradeUp',                       label: 'Trade Up',    low: 'Low',               high: 'High'             },
+  { key: 'TradeDown',                     label: 'Trade Down',  low: 'Low',               high: 'High'             },
+  { key: 'Non-Premium Positions 1st Rnd', label: 'Non-Prem R1', low: 'Tends to Avoid',   high: 'Values Normally'  },
+  { key: 'AvoidPoorCharacter',            label: 'Character',   low: 'No Impact',         high: 'Off-Board'        },
+];
+
+async function openGMInfo() {
+  document.getElementById('modal-root').classList.add('gm-info-modal');
+  openModal('GM Info', 'Draft tendencies for all 32 front offices', '<div class="text-sm text-slate-400">Loading…</div>');
+  let res;
+  try {
+    res = await api.get('/api/gm-info');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = '<div class="text-sm text-rose-400">Failed to load GM info.</div>';
+    return;
+  }
+  const gms = (res.gms || []).slice().sort((a, b) => (a.TeamName || '').localeCompare(b.TeamName || ''));
+  const headerCols = GM_TRAITS.map(t => `
+    <th class="gm-th">
+      <div>${escapeHtml(t.label)}</div>
+      <div class="gm-th-sub">1 = ${escapeHtml(t.low)}</div>
+      <div class="gm-th-sub">5 = ${escapeHtml(t.high)}</div>
+    </th>`
+  ).join('');
+  const rows = gms.map(gm => {
+    const logo = gm.logo
+      ? `<img src="${escapeHtml(gm.logo)}" class="w-7 h-7 object-contain flex-shrink-0" alt="">`
+      : `<div class="w-7 h-7 rounded bg-ink-700 flex-shrink-0"></div>`;
+    const traitCols = GM_TRAITS.map(t => {
+      const val = Math.max(1, Math.min(5, parseInt(gm[t.key]) || 3));
+      const pips = Array.from({length: 5}, (_, i) =>
+        `<span class="gm-pip${i < val ? ' filled' : ''}"></span>`
+      ).join('');
+      return `<td class="gm-td"><div class="gm-pips">${pips}</div></td>`;
+    }).join('');
+    return `<tr class="gm-row">
+      <td class="gm-team-cell">${logo}<span class="gm-team-name">${escapeHtml(gm.TeamName || '')}</span></td>
+      ${traitCols}
+    </tr>`;
+  }).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <div class="gm-table-wrap pretty-scroll">
+      <table class="gm-table">
+        <thead><tr><th class="gm-th gm-th-team">Team</th>${headerCols}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderOffersTable(offers) {
@@ -2272,7 +2326,7 @@ function closeModal() {
   const root = document.getElementById('modal-root');
   root.classList.add('hidden');
   root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open',
-    'player-modal', 'trade-hub-modal', 'trade-history-modal', 'rosters-modal');
+    'player-modal', 'trade-hub-modal', 'trade-history-modal', 'rosters-modal', 'gm-info-modal');
   const returnTo = _modalReturnTo;
   _modalReturnTo = null;
   if (returnTo) returnTo();

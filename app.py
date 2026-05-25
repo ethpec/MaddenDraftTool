@@ -338,7 +338,9 @@ def api_gm_info():
     sess, err = _require_session()
     if err:
         return err
-    return jsonify({"gms": sess.data["gm_info"]})
+    nfl_logos = sess.data.get("nfl_logo_map", {})
+    gms = [dict(g, logo=nfl_logos.get(g.get("TeamName"))) for g in sess.data["gm_info"]]
+    return jsonify({"gms": gms})
 
 
 @app.get("/api/trades")

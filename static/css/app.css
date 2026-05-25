@@ -1428,3 +1428,86 @@
   padding: 6px 0;
   font-style: italic;
 }
+
+/* GM Info modal */
+#modal-root.gm-info-modal > div {
+  max-width: 58rem;
+  width: 100%;
+}
+.gm-table-wrap {
+  max-height: 76vh;
+  overflow-y: auto;
+}
+.gm-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.gm-th {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #64748b;
+  padding: 8px 10px;
+  text-align: center;
+  border-bottom: 1px solid #1a2030;
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+  background: #0b0e15;
+  z-index: 1;
+  vertical-align: bottom;
+}
+.gm-th-team {
+  text-align: left;
+  min-width: 130px;
+}
+.gm-th-sub {
+  font-size: 8.5px;
+  font-weight: 500;
+  color: #475569;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+.gm-row {
+  border-bottom: 1px solid #11151f;
+  transition: background 80ms ease;
+}
+.gm-row:hover { background: #11151f; }
+.gm-team-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+}
+.gm-team-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2e8f0;
+  white-space: nowrap;
+}
+.gm-td {
+  padding: 7px 10px;
+  text-align: center;
+  vertical-align: middle;
+}
+.gm-pips {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  align-items: center;
+}
+.gm-pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #1a2030;
+  border: 1px solid #252d42;
+  flex-shrink: 0;
+}
+.gm-pip.filled {
+  background: #f0b020;
+  border-color: #c98c0a;
+}
