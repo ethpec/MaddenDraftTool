@@ -184,6 +184,20 @@ function renderAll() {
   renderRoundGrid();
   renderTeamBoard();
   renderSimRoundSelect();
+  updateTradeHistoryCount();
+}
+
+async function updateTradeHistoryCount() {
+  const badge = document.getElementById('trade-history-count');
+  if (!badge) return;
+  try {
+    const res = await api.get('/api/trades');
+    const n = (res.trades || []).length;
+    badge.textContent = String(n);
+    badge.classList.toggle('hidden', n === 0);
+  } catch (e) {
+    badge.classList.add('hidden');
+  }
 }
 
 function renderOnTheClock() {
@@ -262,7 +276,6 @@ function renderTeamNeeds() {
   el.innerHTML = top.map(n => `
     <div class="need-row">
       <span class="pos">${n.label}</span>
-      <span class="meta">w ${n.weight}</span>
     </div>
   `).join('');
 }
@@ -466,6 +479,9 @@ async function onAction(action) {
     case 'trade-down': return showTradeDownOffers();
     case 'trade-up': return openTradeUpModal();
     case 'trade-hub': return openTradeHub();
+    case 'trade-history': return openTradeHistory();
+    case 'rosters': return openRosters();
+    case 'gm-info': return openGMInfo();
     case 'open-big-board': return openBigBoardModal();
   }
 }
@@ -732,26 +748,72 @@ function openTradeUpModal(opts = {}) {
   document.getElementById('submit-trade-up').addEventListener('click', submitTradeUp);
 }
 
+// Persists which tab was last open between Trade Hub re-renders.
+const tradeHubState = { tab: 'user' };
+
 async function openTradeHub() {
-  // Trade Hub modal. Layout depends on who's on the clock:
-  //  - User on clock: incoming offers + manual trade form (full layout).
-  //  - AI on clock: trade-up form only, with the on-clock pick pre-selected.
-  //  - Draft complete: empty state.
+  // Trade Hub modal. Has two tabs:
+  //  - "Your Trade": user-centric flow (incoming offers + propose trade).
+  //    Behavior matches the old single-purpose Trade Hub.
+  //  - "Two-Team Trade": craft a trade between any two teams (CPU-CPU,
+  //    user-CPU, etc.) with an optional Force Override checkbox that
+  //    bypasses willingness + value checks.
   const c = state.session?.current_pick;
   const isUserPick = c?.current_team === state.userTeam;
 
-  let body, subtitle;
+  const subtitle = c
+    ? (isUserPick
+        ? 'Review incoming offers, propose a trade, or set up a custom trade'
+        : `Propose a trade for ${c.current_team}'s pick, or set up a custom trade`)
+    : 'Draft complete — set up a hypothetical trade';
+
+  const tabs = `
+    <div class="trade-hub-tabs">
+      <button class="trade-hub-tab${tradeHubState.tab === 'user' ? ' active' : ''}" data-th-tab="user">
+        ${isUserPick ? 'Incoming Offers' : `${escapeHtml(state.userTeam)} Trade`}
+      </button>
+      <button class="trade-hub-tab${tradeHubState.tab === 'manual' ? ' active' : ''}" data-th-tab="manual">
+        Two-Team Trade
+      </button>
+    </div>
+    <div id="trade-hub-body" class="mt-3"></div>
+  `;
+  document.getElementById('modal-root').classList.add('trade-hub-modal');
+  openModal('Trade Hub', subtitle, tabs);
+  renderTradeHubTab();
+  document.querySelectorAll('[data-th-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tradeHubState.tab = btn.dataset.thTab;
+      document.querySelectorAll('[data-th-tab]').forEach(b =>
+        b.classList.toggle('active', b.dataset.thTab === tradeHubState.tab));
+      renderTradeHubTab();
+    });
+  });
+}
+
+async function renderTradeHubTab() {
+  const body = document.getElementById('trade-hub-body');
+  if (!body) return;
+  if (tradeHubState.tab === 'manual') {
+    body.innerHTML = renderManualTradeForm();
+    wireManualTradeForm();
+    return;
+  }
+  // 'user' tab — original behavior.
+  const c = state.session?.current_pick;
+  const isUserPick = c?.current_team === state.userTeam;
   if (!c) {
-    body = '<div class="text-sm text-slate-400">Draft is complete — no more trades possible.</div>';
-    subtitle = '';
-  } else if (isUserPick) {
+    body.innerHTML = '<div class="text-sm text-slate-400">Draft is complete — no live picks. Switch to Two-Team Trade for hypotheticals.</div>';
+    return;
+  }
+  if (isUserPick) {
     const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
     const offers = (res.ok && res.offers) || [];
     const targetLabel = `R${c.round}.${c.pick_in_round} · pick #${c.draft_slot ?? c.overall}`;
     const offersBlock = offers.length
       ? renderOffersTable(offers)
       : '<div class="text-sm text-slate-400">No incoming trade-up offers right now.</div>';
-    body = `
+    body.innerHTML = `
       <div class="space-y-5">
         <div>
           <div class="card-eyebrow mb-2">Incoming Offers</div>
@@ -767,19 +829,15 @@ async function openTradeHub() {
         </div>
       </div>
     `;
-    subtitle = 'Review incoming offers or propose a manual trade';
   } else {
-    body = `
+    body.innerHTML = `
       <div class="space-y-3">
         <div class="card-eyebrow">Trade Up to ${escapeHtml(c.current_team)}'s Pick</div>
         <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · pick #${c.draft_slot ?? c.overall}</div>
         ${buildTradeForm(c, isUserPick)}
       </div>
     `;
-    subtitle = `Propose a trade for ${escapeHtml(c.current_team)}'s pick`;
   }
-  openModal('Trade Hub', subtitle, body);
-
   const targetSel = document.getElementById('trade-up-target');
   if (targetSel) {
     updateTargetTeamPicks(targetSel.value);
@@ -923,6 +981,514 @@ async function submitTradeUp() {
     }
     result.textContent = msg;
   }
+}
+
+// ---------- Two-Team (manual) trade form ----------
+
+// Persists selections across re-renders within the same Trade Hub session.
+// teamA / teamB default lazily to the user team and the on-clock team (or a
+// sensible non-user fallback) the first time the form opens.
+const manualTradeState = {
+  teamA: null,
+  teamB: null,
+  selectedA: new Set(),
+  selectedB: new Set(),
+  forceOverride: false,
+};
+
+function renderManualTradeForm() {
+  const teams = (state.teams || []).slice().sort((a, b) => a.localeCompare(b));
+  if (!teams.length) {
+    return '<div class="text-sm text-slate-400">No teams loaded.</div>';
+  }
+  if (!manualTradeState.teamA || !teams.includes(manualTradeState.teamA)) {
+    manualTradeState.teamA = state.userTeam || teams[0];
+  }
+  if (!manualTradeState.teamB || !teams.includes(manualTradeState.teamB)
+      || manualTradeState.teamB === manualTradeState.teamA) {
+    const onClock = state.session?.current_pick?.current_team;
+    manualTradeState.teamB =
+      (onClock && onClock !== manualTradeState.teamA) ? onClock
+      : teams.find(t => t !== manualTradeState.teamA) || teams[0];
+  }
+  const optsHtml = (selected) => teams.map(t =>
+    `<option value="${escapeHtml(t)}"${t === selected ? ' selected' : ''}>${escapeHtml(t)}</option>`
+  ).join('');
+  const forceChecked = manualTradeState.forceOverride ? ' checked' : '';
+  return `
+    <div class="space-y-3">
+      <div class="text-xs text-slate-400">
+        Build a trade between any two teams — including two non-user teams.
+        With <strong class="text-accent-400">Force override</strong> checked, the
+        trade executes regardless of willingness or value.
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label class="text-xs uppercase text-slate-400">Team A</label>
+          <select id="mt-team-a" class="w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${optsHtml(manualTradeState.teamA)}</select>
+        </div>
+        <div class="space-y-1">
+          <label class="text-xs uppercase text-slate-400">Team B</label>
+          <select id="mt-team-b" class="w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${optsHtml(manualTradeState.teamB)}</select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <div id="mt-a-label" class="text-xs uppercase text-slate-400">${escapeHtml(manualTradeState.teamA)} Sends</div>
+          <div id="mt-a-picks" class="max-h-52 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2 space-y-0.5"></div>
+          <div class="text-xs text-right text-slate-400 pt-0.5">Total: <span id="mt-a-total" class="text-accent-400 font-mono">0 pts</span></div>
+        </div>
+        <div class="space-y-1">
+          <div id="mt-b-label" class="text-xs uppercase text-slate-400">${escapeHtml(manualTradeState.teamB)} Sends</div>
+          <div id="mt-b-picks" class="max-h-52 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2 space-y-0.5"></div>
+          <div class="text-xs text-right text-slate-400 pt-0.5">Total: <span id="mt-b-total" class="text-accent-400 font-mono">0 pts</span></div>
+        </div>
+      </div>
+      <label class="manual-trade-force">
+        <input id="mt-force" type="checkbox"${forceChecked}>
+        <span>Force override <span class="text-slate-500">(skip willingness + value checks)</span></span>
+      </label>
+      <button id="mt-submit" class="primary-btn w-full">Execute Trade</button>
+      <div id="mt-result" class="text-sm text-slate-400"></div>
+    </div>
+  `;
+}
+
+function wireManualTradeForm() {
+  const teamA = document.getElementById('mt-team-a');
+  const teamB = document.getElementById('mt-team-b');
+  if (!teamA || !teamB) return;
+  renderManualPickColumn('A');
+  renderManualPickColumn('B');
+  teamA.addEventListener('change', () => {
+    manualTradeState.teamA = teamA.value;
+    manualTradeState.selectedA.clear();
+    // Keep teams distinct: if B == new A, swap B to something else.
+    if (teamB.value === teamA.value) {
+      const alt = (state.teams || []).find(t => t !== teamA.value);
+      if (alt) {
+        manualTradeState.teamB = alt;
+        teamB.value = alt;
+        manualTradeState.selectedB.clear();
+        document.getElementById('mt-b-label').textContent = `${alt} Sends`;
+        renderManualPickColumn('B');
+      }
+    }
+    document.getElementById('mt-a-label').textContent = `${teamA.value} Sends`;
+    renderManualPickColumn('A');
+  });
+  teamB.addEventListener('change', () => {
+    if (teamB.value === teamA.value) {
+      const alt = (state.teams || []).find(t => t !== teamA.value);
+      teamB.value = alt || teamB.value;
+    }
+    manualTradeState.teamB = teamB.value;
+    manualTradeState.selectedB.clear();
+    document.getElementById('mt-b-label').textContent = `${teamB.value} Sends`;
+    renderManualPickColumn('B');
+  });
+  document.getElementById('mt-force').addEventListener('change', e => {
+    manualTradeState.forceOverride = e.target.checked;
+  });
+  document.getElementById('mt-submit').addEventListener('click', submitManualTrade);
+}
+
+function renderManualPickColumn(side) {
+  const team = side === 'A' ? manualTradeState.teamA : manualTradeState.teamB;
+  const selected = side === 'A' ? manualTradeState.selectedA : manualTradeState.selectedB;
+  const el = document.getElementById(side === 'A' ? 'mt-a-picks' : 'mt-b-picks');
+  if (!el) return;
+  const allPicks = [...state.board, ...(state.futurePicks || [])];
+  const teamPicks = allPicks
+    .filter(p => p.current_team === team && !p.selected_player_id)
+    .sort((a, b) => (a.year_offset || 0) - (b.year_offset || 0) || a.overall - b.overall);
+  if (!teamPicks.length) {
+    el.innerHTML = '<div class="text-xs text-slate-500">No tradable picks.</div>';
+    updateManualTradeTotals();
+    return;
+  }
+  const nyBadge = '<span class="text-[10px] font-semibold text-amber-400 border border-amber-700 rounded px-1 leading-tight">NY</span>';
+  el.innerHTML = teamPicks.map(p => {
+    const checked = selected.has(p.overall) ? ' checked' : '';
+    const valStr = p.value != null ? ` <span class="text-slate-500">${p.value.toLocaleString()} pts</span>` : '';
+    const badge = p.year_offset ? ' ' + nyBadge : '';
+    return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
+      <span class="flex items-center gap-2">
+        <input type="checkbox" class="mt-pick mt-pick-${side.toLowerCase()}"
+               data-side="${side}" data-value="${p.value ?? 0}" value="${p.overall}"${checked}>
+        R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
+      </span>
+      ${valStr}
+    </label>`;
+  }).join('');
+  el.querySelectorAll('.mt-pick').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const overall = parseInt(cb.value, 10);
+      const set = cb.dataset.side === 'A' ? manualTradeState.selectedA : manualTradeState.selectedB;
+      if (cb.checked) set.add(overall);
+      else set.delete(overall);
+      updateManualTradeTotals();
+    });
+  });
+  updateManualTradeTotals();
+}
+
+function updateManualTradeTotals() {
+  const sumChecked = sel => Array.from(document.querySelectorAll(sel))
+    .reduce((s, cb) => s + (parseInt(cb.dataset.value, 10) || 0), 0);
+  const a = document.getElementById('mt-a-total');
+  const b = document.getElementById('mt-b-total');
+  if (a) a.textContent = sumChecked('.mt-pick-a:checked').toLocaleString() + ' pts';
+  if (b) b.textContent = sumChecked('.mt-pick-b:checked').toLocaleString() + ' pts';
+}
+
+async function submitManualTrade() {
+  const result = document.getElementById('mt-result');
+  const aOveralls = Array.from(manualTradeState.selectedA);
+  const bOveralls = Array.from(manualTradeState.selectedB);
+  if (!aOveralls.length || !bOveralls.length) {
+    result.textContent = 'Pick at least one pick on each side.';
+    return;
+  }
+  if (manualTradeState.teamA === manualTradeState.teamB) {
+    result.textContent = 'Pick two different teams.';
+    return;
+  }
+  const res = await api.post('/api/trade/manual', {
+    team_a: manualTradeState.teamA,
+    team_b: manualTradeState.teamB,
+    team_a_overalls: aOveralls,
+    team_b_overalls: bOveralls,
+    force_override: manualTradeState.forceOverride,
+  });
+  if (!res.ok) {
+    const msg = res.error === 'pick_already_made'
+      ? `Pick #${res.overall} has already been used.`
+      : res.error === 'team_a_does_not_own'
+        ? `${manualTradeState.teamA} no longer owns pick #${res.overall}.`
+        : res.error === 'team_b_does_not_own'
+          ? `${manualTradeState.teamB} no longer owns pick #${res.overall}.`
+          : res.error === 'both_sides_must_send' ? 'Both sides must send at least one pick.'
+          : res.error === 'same_team' ? 'Pick two different teams.'
+          : 'Error: ' + (res.error || 'unknown');
+    result.textContent = msg;
+    return;
+  }
+  if (!res.decision?.accepted) {
+    result.textContent = 'Trade refused: ' + (res.decision?.reason || 'unknown')
+      + ' — tick Force override to ignore the check.';
+    return;
+  }
+  const tag = res.decision.reason === 'forced'
+    ? '<span class="text-amber-400">Forced.</span>'
+    : '<span class="text-emerald-400">Accepted.</span>';
+  result.innerHTML = `${tag} Refreshing…`;
+  manualTradeState.selectedA.clear();
+  manualTradeState.selectedB.clear();
+  await reloadSessionAndRender();
+  // Stay on the manual tab so the user can run more trades.
+  if (document.getElementById('trade-hub-body')) {
+    renderTradeHubTab();
+  }
+}
+
+// ---------- Trade History modal ----------
+
+async function openTradeHistory() {
+  document.getElementById('modal-root').classList.add('trade-history-modal');
+  openModal('Trade History', 'Every trade executed in this draft, in order', '<div class="text-sm text-slate-400">Loading…</div>');
+  const res = await api.get('/api/trades').catch(() => ({ trades: [] }));
+  const trades = res.trades || [];
+  if (!trades.length) {
+    document.getElementById('modal-body').innerHTML = '<div class="text-sm text-slate-400 py-6 text-center">No trades have happened yet.</div>';
+    return;
+  }
+  document.getElementById('modal-body').innerHTML = `
+    <div class="trade-history-list pretty-scroll">
+      ${trades.map(renderTradeHistoryCard).join('')}
+    </div>
+  `;
+}
+
+function renderTradeHistoryCard(t) {
+  const fmtPick = p => {
+    const nyBadge = p.year_offset
+      ? ' <span class="text-[10px] font-semibold text-amber-400 border border-amber-700 rounded px-1 leading-tight">NY</span>'
+      : '';
+    const slot = p.draft_slot ?? p.overall;
+    const valStr = p.value != null
+      ? `<span class="font-mono text-accent-400">${p.value.toLocaleString()}</span> pts`
+      : '<span class="text-slate-600">—</span>';
+    const playerLine = p.selected_player_name
+      ? `<div class="th-pick-player">→ ${escapeHtml(p.selected_player_name)}${p.selected_position ? ` <span class="text-slate-500">· ${escapeHtml(p.selected_position)}</span>` : ''}</div>`
+      : '';
+    return `<div class="th-pick-row">
+      <span class="th-pick-label">R${p.round}.${p.pick_in_round}${nyBadge} <span class="text-slate-500 text-xs">#${slot}</span></span>
+      <span class="th-pick-val">${valStr}</span>
+      ${playerLine}
+    </div>`;
+  };
+  const totalA = (t.team_a_sends || []).reduce((s, p) => s + (p.value || 0), 0);
+  const totalB = (t.team_b_sends || []).reduce((s, p) => s + (p.value || 0), 0);
+  const teamPanel = (name, logo, sends, total, sendsToLabel) => {
+    const logoEl = logo
+      ? `<img src="${logo}" class="w-9 h-9 object-contain flex-shrink-0">`
+      : `<div class="w-9 h-9 rounded-full bg-ink-700 flex-shrink-0"></div>`;
+    return `
+      <div class="th-team-col">
+        <div class="th-team-head">
+          ${logoEl}
+          <div>
+            <div class="th-team-name">${escapeHtml(name)}</div>
+            <div class="th-team-sub">sends to ${escapeHtml(sendsToLabel)}</div>
+          </div>
+        </div>
+        <div class="th-picks">${(sends || []).map(fmtPick).join('') || '<div class="text-xs text-slate-500">—</div>'}</div>
+        <div class="th-total">Total: <span class="font-mono text-accent-400">${total.toLocaleString()} pts</span></div>
+      </div>`;
+  };
+  const tag = t.initiated_by === 'USER'
+    ? '<span class="th-tag th-tag-user">User-initiated</span>'
+    : '<span class="th-tag th-tag-ai">AI-initiated</span>';
+  return `
+    <div class="th-card">
+      <div class="th-card-header">
+        <div class="th-card-id">Trade #${t.trade_id}</div>
+        ${tag}
+      </div>
+      <div class="th-card-body">
+        ${teamPanel(t.team_a, t.team_a_logo, t.team_a_sends, totalA, t.team_b)}
+        <div class="th-arrow">⇄</div>
+        ${teamPanel(t.team_b, t.team_b_logo, t.team_b_sends, totalB, t.team_a)}
+      </div>
+    </div>
+  `;
+}
+
+// ---------- Rosters modal ----------
+
+const rostersState = { team: null, data: null, needs: [] };
+
+async function openRosters() {
+  document.getElementById('modal-root').classList.add('rosters-modal');
+  openModal('Rosters', 'Each team’s current roster, position by position', '<div class="text-sm text-slate-400">Loading rosters…</div>');
+  let res;
+  try {
+    res = await api.get('/api/rosters');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = '<div class="text-sm text-rose-400">Failed to load rosters.</div>';
+    return;
+  }
+  // Stored in alphabetical order by the backend; preserve that for the
+  // logo grid below.
+  rostersState.data = res.teams || [];
+  const names = rostersState.data.map(t => t.team);
+  if (!rostersState.team || !names.includes(rostersState.team)) {
+    rostersState.team = names.includes(state.userTeam) ? state.userTeam : names[0];
+  }
+  document.getElementById('modal-body').innerHTML = `
+    <div class="rosters-modal-inner">
+      <div class="rosters-team-grid pretty-scroll" id="rosters-team-grid">
+        ${rostersState.data.map(t => {
+          const sel = t.team === rostersState.team ? ' selected' : '';
+          const img = t.logo
+            ? `<img src="${t.logo}" alt="${escapeHtml(t.team)}">`
+            : `<div class="rosters-team-tile-fallback">${escapeHtml(t.team[0] || '?')}</div>`;
+          return `<button type="button" class="rosters-team-tile${sel}" data-roster-team="${escapeHtml(t.team)}">${img}<span class="rosters-team-tile-name">${escapeHtml(t.team)}</span></button>`;
+        }).join('')}
+      </div>
+      <div id="rosters-body" class="rosters-body pretty-scroll"></div>
+    </div>
+  `;
+  document.querySelectorAll('[data-roster-team]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      rostersState.team = btn.dataset.rosterTeam;
+      document.querySelectorAll('[data-roster-team]').forEach(b =>
+        b.classList.toggle('selected', b.dataset.rosterTeam === rostersState.team));
+      renderRostersBody();
+    });
+  });
+  await renderRostersBody();
+}
+
+// Position groups for the Rosters layout. Order chosen to read like a
+// standard depth chart: offense top-down, then defense, then special teams.
+const ROSTER_POSITION_GROUPS = [
+  { label: 'Offense', positions: ['QB', 'HB', 'FB', 'WR', 'TE'] },
+  { label: 'Offensive Line', positions: ['LT', 'LG', 'C', 'RG', 'RT'] },
+  { label: 'Defensive Line', positions: ['LE', 'DT', 'RE'] },
+  { label: 'Linebackers', positions: ['LOLB', 'MLB', 'ROLB'] },
+  { label: 'Defensive Backs', positions: ['CB', 'FS', 'SS'] },
+  { label: 'Special Teams', positions: ['K', 'P'] },
+];
+
+async function renderRostersBody() {
+  const body = document.getElementById('rosters-body');
+  if (!body) return;
+  const team = (rostersState.data || []).find(t => t.team === rostersState.team);
+  if (!team) {
+    body.innerHTML = '<div class="text-sm text-slate-400">Pick a team.</div>';
+    return;
+  }
+  // Fetch needs for the selected team — same endpoint + same on-clock-
+  // round filtering the left-rail Team Needs card uses, so the output
+  // matches what the user sees when the team is actually picking.
+  body.innerHTML = '<div class="text-sm text-slate-500">Loading needs…</div>';
+  try {
+    const res = await api.get('/api/needs/' + encodeURIComponent(team.team));
+    rostersState.needs = res.needs || [];
+  } catch (e) {
+    rostersState.needs = [];
+  }
+  const byPos = team.by_position || {};
+  // Render each group as a row of position columns. Empty positions still
+  // show as placeholder so missing depth is visible.
+  const groupHtml = ROSTER_POSITION_GROUPS.map(g => {
+    const cols = g.positions.map(pos => {
+      const players = byPos[pos] || [];
+      const rows = players.length
+        ? players.map(renderRosterPlayer).join('')
+        : '<div class="roster-empty">—</div>';
+      return `<div class="roster-pos-col">
+        <div class="roster-pos-label">${escapeHtml(pos)} <span class="text-slate-600 font-normal">(${players.length})</span></div>
+        <div class="roster-pos-players">${rows}</div>
+      </div>`;
+    }).join('');
+    return `<div class="roster-group">
+      <div class="roster-group-label">${escapeHtml(g.label)}</div>
+      <div class="roster-group-grid" style="--roster-cols:${g.positions.length}">${cols}</div>
+    </div>`;
+  }).join('');
+  // Also surface any positions on the roster that aren't in our predefined
+  // groups (rare, but possible for unmapped Madden codes) so nothing hides.
+  const known = new Set(ROSTER_POSITION_GROUPS.flatMap(g => g.positions));
+  const extras = Object.keys(byPos).filter(p => !known.has(p)).sort();
+  const extraHtml = extras.length ? `
+    <div class="roster-group">
+      <div class="roster-group-label">Other</div>
+      <div class="roster-group-grid" style="--roster-cols:${extras.length}">
+        ${extras.map(pos => {
+          const players = byPos[pos] || [];
+          return `<div class="roster-pos-col">
+            <div class="roster-pos-label">${escapeHtml(pos)} <span class="text-slate-600 font-normal">(${players.length})</span></div>
+            <div class="roster-pos-players">${players.map(renderRosterPlayer).join('')}</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>` : '';
+  // Team Needs panel — identical data + shuffle as the left-rail card.
+  const needs = rostersState.needs.slice(0, 8);
+  for (let i = needs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [needs[i], needs[j]] = [needs[j], needs[i]];
+  }
+  const needsHtml = needs.length
+    ? needs.map(n => `
+        <div class="need-row">
+          <span class="pos">${escapeHtml(n.label)}</span>
+        </div>`).join('')
+    : '<div class="text-xs text-slate-500">No needs computed.</div>';
+  const teamLogo = team.logo
+    ? `<img src="${team.logo}" alt="${escapeHtml(team.team)}" class="rosters-needs-logo">`
+    : '';
+  const needsPanel = `
+    <div class="rosters-needs-card">
+      <div class="rosters-needs-head">
+        ${teamLogo}
+        <div>
+          <div class="card-eyebrow">Team Needs</div>
+          <div class="rosters-needs-team">${escapeHtml(team.team)}</div>
+        </div>
+      </div>
+      <div class="rosters-needs-list">${needsHtml}</div>
+    </div>`;
+
+  body.innerHTML = `
+    <div class="rosters-content">
+      ${needsPanel}
+      <div class="rosters-roster">${groupHtml}${extraHtml}</div>
+    </div>
+  `;
+  body.querySelectorAll('[data-roster-pid]').forEach(row => {
+    row.addEventListener('click', () =>
+      openPlayerProfile(row.dataset.rosterPid, { returnTo: openRosters }));
+  });
+}
+
+function renderRosterPlayer(pl) {
+  const ovr = pl.is_rookie ? `<span class="roster-ovr text-slate-500">?</span>` : (pl.ovr != null ? `<span class="roster-ovr">${pl.ovr}</span>` : '');
+  const college = pl.college_logo
+    ? `<img src="${pl.college_logo}" alt="${escapeHtml(pl.college || '')}" class="roster-college-logo">`
+    : '<div class="roster-college-placeholder"></div>';
+  const rookieBadge = pl.is_rookie && pl.rookie_pick
+    ? `<div class="roster-rookie-badge" title="Drafted R${pl.rookie_pick.round}.${pl.rookie_pick.pick}">R${pl.rookie_pick.round}.${pl.rookie_pick.pick}</div>`
+    : '';
+  const clickable = pl.player_id ? ` data-roster-pid="${escapeHtml(pl.player_id)}"` : '';
+  const cls = 'roster-player' + (pl.is_rookie ? ' is-rookie' : '') + (pl.player_id ? ' clickable' : '');
+  return `<div class="${cls}"${clickable}>
+    ${ovr}
+    ${college}
+    <div class="roster-player-info">
+      <div class="roster-player-name">${escapeHtml(pl.first_name || '')} ${escapeHtml(pl.last_name || '')}</div>
+      <div class="roster-player-sub">${pl.age != null ? 'Age ' + pl.age : ''}${pl.college ? (pl.age != null ? ' · ' : '') + escapeHtml(pl.college) : ''}</div>
+    </div>
+    ${rookieBadge}
+  </div>`;
+}
+
+// ---------- GM Info modal ----------
+
+const GM_TRAITS = [
+  { key: 'NeedvsBPA',                     label: 'Need v BPA',  low: 'BPA Philosophy',    high: 'Reaches for Need' },
+  { key: 'BigBoardSkill',                 label: 'Scout',       low: 'Tendency to Reach', high: 'Sharp Evaluator'  },
+  { key: 'TradeUp',                       label: 'Trade Up',    low: 'Low',               high: 'High'             },
+  { key: 'TradeDown',                     label: 'Trade Down',  low: 'Low',               high: 'High'             },
+  { key: 'Non-Premium Positions 1st Rnd', label: 'Non-Prem R1', low: 'Tends to Avoid',   high: 'Values Normally'  },
+  { key: 'AvoidPoorCharacter',            label: 'Character',   low: 'No Impact',         high: 'Off-Board'        },
+];
+
+async function openGMInfo() {
+  document.getElementById('modal-root').classList.add('gm-info-modal');
+  openModal('GM Info', 'Draft tendencies for all 32 front offices', '<div class="text-sm text-slate-400">Loading…</div>');
+  let res;
+  try {
+    res = await api.get('/api/gm-info');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = '<div class="text-sm text-rose-400">Failed to load GM info.</div>';
+    return;
+  }
+  const gms = (res.gms || []).slice().sort((a, b) => (a.TeamName || '').localeCompare(b.TeamName || ''));
+  const headerCols = GM_TRAITS.map(t => `
+    <th class="gm-th">
+      <div>${escapeHtml(t.label)}</div>
+      <div class="gm-th-sub">1 = ${escapeHtml(t.low)}</div>
+      <div class="gm-th-sub">5 = ${escapeHtml(t.high)}</div>
+    </th>`
+  ).join('');
+  const rows = gms.map(gm => {
+    const logo = gm.logo
+      ? `<img src="${escapeHtml(gm.logo)}" class="w-7 h-7 object-contain flex-shrink-0" alt="">`
+      : `<div class="w-7 h-7 rounded bg-ink-700 flex-shrink-0"></div>`;
+    const traitCols = GM_TRAITS.map(t => {
+      const val = Math.max(1, Math.min(5, parseInt(gm[t.key]) || 3));
+      const pips = Array.from({length: 5}, (_, i) =>
+        `<span class="gm-pip${i < val ? ' filled' : ''}"></span>`
+      ).join('');
+      return `<td class="gm-td"><div class="gm-pips">${pips}</div></td>`;
+    }).join('');
+    return `<tr class="gm-row">
+      <td class="gm-team-cell">${logo}<span class="gm-team-name">${escapeHtml(gm.TeamName || '')}</span></td>
+      ${traitCols}
+    </tr>`;
+  }).join('');
+  document.getElementById('modal-body').innerHTML = `
+    <div class="gm-table-wrap pretty-scroll">
+      <table class="gm-table">
+        <thead><tr><th class="gm-th gm-th-team">Team</th>${headerCols}</tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function renderOffersTable(offers) {
@@ -1759,7 +2325,8 @@ let _modalReturnTo = null;
 function closeModal() {
   const root = document.getElementById('modal-root');
   root.classList.add('hidden');
-  root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open', 'player-modal');
+  root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open',
+    'player-modal', 'trade-hub-modal', 'trade-history-modal', 'rosters-modal', 'gm-info-modal');
   const returnTo = _modalReturnTo;
   _modalReturnTo = null;
   if (returnTo) returnTo();

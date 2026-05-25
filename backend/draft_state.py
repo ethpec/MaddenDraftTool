@@ -636,6 +636,153 @@ class DraftSession:
                 "offer": offer_summary,
             }
 
+    def submit_manual_trade(self, team_a: str, team_b: str,
+                            team_a_overalls: list[int],
+                            team_b_overalls: list[int],
+                            force_override: bool = False) -> dict[str, Any]:
+        """Manually execute a trade between any two teams.
+
+        ``team_a`` sends ``team_a_overalls`` to ``team_b`` and ``team_b``
+        sends ``team_b_overalls`` to ``team_a``. Both sides must send at
+        least one pick.
+
+        When ``force_override`` is True the trade always executes — no
+        willingness or value checks. When False, the team sending the
+        higher-value package must pass the same willingness roll and
+        value-ratio check used by the regular trade-down path.
+        """
+        with self.lock:
+            valid_teams = {g["TeamName"] for g in self.data.get("gm_info", []) if g.get("TeamName")}
+            if team_a not in valid_teams or team_b not in valid_teams:
+                return {"ok": False, "error": "invalid_team"}
+            if team_a == team_b:
+                return {"ok": False, "error": "same_team"}
+            if not team_a_overalls or not team_b_overalls:
+                return {"ok": False, "error": "both_sides_must_send"}
+
+            all_picks = self._pick_order + list(self._future_picks)
+            by_overall = {p.overall: p for p in all_picks}
+
+            a_set = set(team_a_overalls)
+            b_set = set(team_b_overalls)
+            if a_set & b_set:
+                return {"ok": False, "error": "overlapping_picks"}
+
+            a_records = [by_overall.get(o) for o in team_a_overalls]
+            b_records = [by_overall.get(o) for o in team_b_overalls]
+            if any(p is None for p in a_records) or any(p is None for p in b_records):
+                return {"ok": False, "error": "unknown_pick"}
+
+            for p in a_records:
+                if p.current_team != team_a:
+                    return {"ok": False, "error": "team_a_does_not_own", "overall": p.overall}
+                if p.selected_player_id is not None:
+                    return {"ok": False, "error": "pick_already_made", "overall": p.overall}
+                if p.overall == self._pick_must_select:
+                    return {"ok": False, "error": "pick_must_be_selected", "overall": p.overall}
+            for p in b_records:
+                if p.current_team != team_b:
+                    return {"ok": False, "error": "team_b_does_not_own", "overall": p.overall}
+                if p.selected_player_id is not None:
+                    return {"ok": False, "error": "pick_already_made", "overall": p.overall}
+                if p.overall == self._pick_must_select:
+                    return {"ok": False, "error": "pick_must_be_selected", "overall": p.overall}
+
+            a_dicts = [_pick_to_dict(p) for p in a_records]
+            b_dicts = [_pick_to_dict(p) for p in b_records]
+            a_val = sum(logic.pick_value(d, self.data["pick_values"]) for d in a_dicts)
+            b_val = sum(logic.pick_value(d, self.data["pick_values"]) for d in b_dicts)
+
+            # Always tag as USER — the user clicked the button to set this up,
+            # even if both involved teams are CPUs.
+            initiator = "USER"
+
+            if not force_override:
+                # Treat the team sending more value as the trade-down team;
+                # they must pass the willingness roll and the same m_down
+                # ratio check the auto-trade path uses.
+                if a_val >= b_val:
+                    down_team, down_dicts, down_val = team_a, a_dicts, a_val
+                    up_val = b_val
+                else:
+                    down_team, down_dicts, down_val = team_b, b_dicts, b_val
+                    up_val = a_val
+                # Headline pick for willingness scoring: highest-value pick the
+                # trade-down team sends.
+                headline = max(down_dicts,
+                               key=lambda d: logic.pick_value(d, self.data["pick_values"]))
+                snap = self._snapshot_for_logic()
+                # Reuse the cached roll only when the headline pick is the
+                # on-clock pick AND the trade-down team owns it. Otherwise
+                # roll fresh.
+                current = self.current_pick()
+                is_current = (current is not None
+                              and current.overall == headline["overall"]
+                              and current.current_team == down_team
+                              and down_team != self.user_team)
+                if is_current:
+                    self._ensure_pending_offers()
+                    willing = self._trade_down_willing
+                    m_down = self._trade_down_m_down
+                else:
+                    willing = (down_team == self.user_team
+                               or logic.willing_to_trade_down(snap, headline))
+                    m_down = (0.0 if down_team == self.user_team
+                              else logic._roll_trade_threshold(
+                                  headline.get("round", 1), is_trade_up=False))
+                if not willing:
+                    return {
+                        "ok": True,
+                        "decision": {
+                            "accepted": False,
+                            "reason": f"the {down_team} aren't looking to trade right now",
+                        },
+                    }
+                ratio = (up_val / down_val) if down_val > 0 else 0.0
+                if down_val > 0 and ratio < m_down:
+                    needed = down_val * m_down
+                    return {
+                        "ok": True,
+                        "decision": {
+                            "accepted": False,
+                            "reason": (f"offer value ({up_val:.0f}) below threshold "
+                                       f"({needed:.0f} needed for {m_down:.2f}× ratio)"),
+                            "threshold": m_down,
+                        },
+                    }
+
+            # Pick the headline pick (highest value team_a sends) so the
+            # TradeRecord reads naturally.
+            headline_a = max(a_records,
+                             key=lambda p: logic.pick_value(_pick_to_dict(p),
+                                                            self.data["pick_values"]))
+            other_a = [p for p in a_records if p is not headline_a]
+            # _apply_trade signature: headline_pick + picks_from_user (team_b -> team_a),
+            # team_a, team_b, initiator, return_picks (extra picks team_a sends to team_b).
+            self._apply_trade(headline_a, b_records, team_a, team_b, initiator,
+                              return_picks=other_a)
+            # Reset cooldown for whichever team is on the clock, if either.
+            current = self.current_pick()
+            if current is not None and current.current_team in (team_a, team_b):
+                self._events_since_trade_per_team[current.current_team] = 0
+                if current.overall in a_set or current.overall in b_set:
+                    self._pick_must_select = current.overall
+                self._clear_pending_offers()
+            return {
+                "ok": True,
+                "decision": {"accepted": True,
+                             "reason": "forced" if force_override else "offer accepted"},
+                "trade": {
+                    "team_a": team_a,
+                    "team_b": team_b,
+                    "team_a_sends": a_dicts,
+                    "team_b_sends": b_dicts,
+                    "team_a_value": round(a_val, 1),
+                    "team_b_value": round(b_val, 1),
+                    "forced": force_override,
+                },
+            }
+
     # -- internal ------------------------------------------------------------
 
     def _ensure_pending_offers(self) -> None:
