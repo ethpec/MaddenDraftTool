@@ -617,21 +617,12 @@ class DraftSession:
                     },
                 }
 
-            if not meets_threshold:
-                needed = denom * m_down
-                reason = (f"offer value ({offer_val:.0f}) below threshold "
-                          f"({needed:.0f} needed for {ratio:.2f}× ratio)")
-            else:
-                reason = "a competing offer was better"
+            reason = "below_threshold" if not meets_threshold else "competing_offer"
             return {
                 "ok": True,
                 "decision": {
                     "accepted": False,
                     "reason": reason,
-                    "offer_value": offer_val,
-                    "return_value": round(return_val, 1),
-                    "target_value": target_val,
-                    "threshold": m_down,
                 },
                 "offer": offer_summary,
             }

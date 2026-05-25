@@ -295,7 +295,7 @@ _TRADE_UP_OFFSET: float = 0.049
 # instead of the cached m_down=0. The relative offset prevents very narrow
 # windows; the hard floor blocks anyone from sending lowball offers below
 # 0.95× value back to the user.
-_USER_TRADE_DOWN_FLOOR_OFFSET: float = 0.05
+_USER_TRADE_DOWN_FLOOR_OFFSET: float = 0.075
 _USER_TRADE_DOWN_HARD_FLOOR: float = 0.95
 
 # Probability that a side will even consider including a future-year pick
@@ -307,7 +307,7 @@ _FUTURE_PICK_GATE_BONUS: dict[str, float] = {  # added to base when BPA/need is 
     "QB": 0.65, "WR": 0.175, "OT": 0.175, "EDGE": 0.175, "CB": 0.125,
 }
 _FUTURE_PICK_GATE_UP_LATE: float = 0.15      # future R3+ in trade-up offer
-_FUTURE_PICK_GATE_DOWN: float = 0.10         # future R3+ in trade-down return (R1/R2 always blocked)
+_FUTURE_PICK_GATE_DOWN: float = 0.075         # future R3+ in trade-down return (R1/R2 always blocked)
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
@@ -525,16 +525,16 @@ def _round_modifier_up(round_1: int) -> float:
     if round_1 == 1:
         return 1.25
     if round_1 == 2:
-        return 0.95
+        return 0.85
     if round_1 == 3:
-        return 0.90
+        return 0.85
     if round_1 == 4:
         return 0.65
     if round_1 == 5:
-        return 0.75
+        return 0.70
     if round_1 == 6:
-        return 0.95
-    return 1.05  # round 7+
+        return 0.70
+    return 0.65  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -544,16 +544,16 @@ def _round_modifier_down(round_1: int) -> float:
     if round_1 == 1:
         return 0.95
     if round_1 == 2:
-        return 1.15
-    if round_1 == 3:
-        return 1.35
-    if round_1 == 4:
         return 1.20
-    if round_1 == 5:
+    if round_1 == 3:
+        return 1.40
+    if round_1 == 4:
         return 1.45
+    if round_1 == 5:
+        return 1.65
     if round_1 == 6:
-        return 2.15
-    return 3.50  # round 7
+        return 2.50
+    return 5.00  # round 7
 
 
 def _cooldown_for_events_since(n: int | None) -> float:
@@ -616,6 +616,9 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
          teams (>5%) get up to 1.25x; pick-poor teams (<1.5%) drop to 0.50x.
       5. Round modifier from `_round_modifier_up`: R1-2 1.00×, R3-5 1.10×,
          R6-7 1.15×. Boosts late-round trade-ups.
+      6. R1 non-premium position dampener (BPA-based): picks 1-5 → 0.0 hard
+         block; picks 6-10 → 0.10×; picks 11-20 → 0.50×; picks 21-32 → 0.75×.
+         Premium positions (QB/WR/OT/EDGE/CB) are exempt (1.0×).
     Final result clamped to [0.1%, 50%] — trade-up willingness is the rarer event.
     """
     offering_team = gm.get("TeamName")
@@ -642,6 +645,21 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     # Component 1: BPA slide using team's private rank vs target slot.
     bpa = available[0] if available else None
     bpa_prob = _slide_prob_up(target_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None) * bpa_impact
+
+    # R1 non-premium dampener: teams rarely trade into the top of round 1 for
+    # non-premium positions. Hard block in top 5; graduated suppression 6-32.
+    non_prem_mult = 1.0
+    if round_1 == 1 and bpa:
+        bpa_grp = POSITION_GROUPS.get(bpa.get("position", ""), bpa.get("position", ""))
+        if bpa_grp not in _FUTURE_PICK_GATE_BONUS:
+            if pick_in_round <= 5:
+                return 0.0
+            elif pick_in_round <= 10:
+                non_prem_mult = 0.10
+            elif pick_in_round <= 20:
+                non_prem_mult = 0.50
+            else:
+                non_prem_mult = 0.75
 
     # Component 2: Best eligible need player slide using target pick's round window.
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
@@ -690,7 +708,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
     round_mod = _round_modifier_up(round_1)
     return max(0.001, min(0.50,
-        (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod))
+        (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod * non_prem_mult))
 
 
 def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:
