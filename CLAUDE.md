@@ -29,7 +29,7 @@ backend/
   logic.py                   Decision functions (mostly stubs today)
   exporter.py                Writes the three output xlsx files (+ zip)
 templates/index.html         App shell (Tailwind CDN, dark theme)
-static/js/app.js             All frontend behavior (single file, ~1000 lines)
+static/js/app.js             All frontend behavior (single file, ~2500 lines)
 static/css/app.css           Component styles layered on Tailwind
 static/nfl_logos/            32 NFL team logos (city-nickname.png)
 static/college_logos/        ~389 college logos (slugified name.png)
@@ -378,15 +378,80 @@ they later come on the clock.
 `_trade_down_willing`, `_trade_down_m_down`, and `_pick_must_select` are
 all cleared in `_advance()` alongside pending offers.
 
-### 5b. Trade Hub — incoming offers table
-When the user is on the clock the "Incoming Offers" table shows one row per
-CPU offer with: Team, You Receive, You Send, **Net Value** (offered − sent,
-gold/red), and **Net Ratio** (offered value ÷ (target value + return value),
-gold if ≥ 1.0, red if < 1.0). Both columns share the same `font-mono text-xs`
-styling. Net Ratio gives a quick read on whether the offer is above water
-independent of absolute pick values.
+### 5b. Trade Hub — tabs and incoming offers table
+Trade Hub now has two tabs (persisted in `tradeHubState.tab`):
 
-### 5c. Combine / Pro Day data in player profile
+- **Your Trade** (original flow) — when user is on the clock: "Incoming
+  Offers" table + propose-a-trade form. When an AI is on the clock:
+  trade-up form with on-clock pick pre-selected. When draft is complete:
+  empty state with a note to use Two-Team Trade for hypotheticals.
+- **Two-Team Trade** — craft a trade between any two teams (CPU-CPU,
+  user-CPU, etc.). Pick both teams from dropdowns, check off picks on
+  each side, see running Jimmy-Johnson point totals. Optional **Force
+  override** checkbox bypasses willingness and value checks. Calls
+  `POST /api/trade/manual` → `DraftSession.submit_manual_trade`.
+
+The "Incoming Offers" table shows one row per CPU offer with: Team, You
+Receive, You Send, **Net Value** (offered − sent, gold/red), and **Net
+Ratio** (offered value ÷ (target value + return value), gold if ≥ 1.0,
+red if < 1.0). Both columns share the same `font-mono text-xs` styling.
+
+`DraftSession.submit_manual_trade(team_a, team_b, team_a_overalls,
+team_b_overalls, force_override)` — validates ownership, no-already-used,
+no-must-select; when `force_override=False` treats the higher-value sender
+as the trade-down team and applies the same willingness roll + m_down ratio
+check the auto-trade path uses. Always tags the record as `USER` initiator.
+
+### 5c. Trade History modal
+Header button (clock icon + count badge). Calls `GET /api/trades`, which
+now returns enriched records: `team_a_logo`, `team_b_logo`, per-pick
+`value` (Jimmy-Johnson), and current `selected_player_name` /
+`selected_player_id` / `selected_position` (reflects whoever ultimately
+drafted with the pick, even if ownership changed post-trade). Each card
+shows both sides' picks with values, a player line if drafted, and a
+USER / AI-initiated tag. Count badge updates on every `renderAll()`.
+
+### 5d. Rosters modal
+Header button (people icon). Calls `GET /api/rosters`, which returns all
+32 teams' current `data["players"]` rosters (mutates as rookies are
+drafted) grouped by position, sorted OVR desc. Filters out OVR ≤ 0 rows
+(Madden placeholder slots). Response shape per team: `{team, logo,
+by_position: {POS: [{first_name, last_name, ovr, age, college,
+college_logo, player_id, is_rookie, rookie_pick}]}}`.
+
+The modal has a 16-column logo grid at the top (team picker) and a
+two-column body: sticky Team Needs card on the left (same data as the
+left-rail card, weights not shown), position-grouped roster on the right.
+Groups: Offense (QB/HB/FB/WR/TE), Offensive Line (LT/LG/C/RG/RT),
+Defensive Line (LE/DT/RE), Linebackers (LOLB/MLB/ROLB), Defensive Backs
+(CB/FS/SS), Special Teams (K/P). Any Madden positions not in those groups
+appear in an "Other" section so nothing is hidden.
+
+**Drafted rookies display `?` in the OVR box** (the actual OVR is still
+used for sort order — `?` is a deliberate UI choice, not a data gap).
+Rookies get a gold `R{round}.{pick}` badge and a gold-tinted row border.
+Clicking a player row opens their player profile modal (with
+`returnTo: openRosters`).
+
+### 5e. GM Info modal
+Header button (checklist icon). Calls `GET /api/gm-info`, which now
+includes a `logo` field per team (injected server-side from `nfl_logo_map`).
+Renders a scrollable table of all 32 teams sorted alphabetically. Six
+trait columns, each with a 5-pip indicator (gold = filled):
+
+| Key | Label | 1 means | 5 means |
+|-----|-------|---------|---------|
+| `NeedvsBPA` | Need v BPA | BPA Philosophy | Reaches for Need |
+| `BigBoardSkill` | Scout | Tendency to Reach | Sharp Evaluator |
+| `TradeUp` | Trade Up | Low | High |
+| `TradeDown` | Trade Down | Low | High |
+| `Non-Premium Positions 1st Rnd` | Non-Prem R1 | Tends to Avoid | Values Normally |
+| `AvoidPoorCharacter` | Character | No Impact | Off-Board |
+
+Column headers show the 1/5 descriptions in two small subtitle lines.
+Defined in `GM_TRAITS` constant in `app.js`.
+
+### 5f. Combine / Pro Day data in player profile
 `CombineProDayData.xlsx` is loaded by `data_loader.load_combine_pro_day`
 and keyed by `PlayerTableRow` (the 1-indexed row number in Player.xlsx,
 stored on each player record as `player_table_row`). Each entry holds raw
@@ -474,9 +539,11 @@ Madden code in their subtitle (e.g. `LE · Alabama`).
   `field-*`) configured in `<script>tailwind.config = {...}</script>`
   inside `index.html`.
 - **Modal pattern**: everything reuses the single `#modal-root` element.
-  Each modal sets a class on it (`big-board-modal-open`,
-  `full-board-modal`) which CSS uses to size/style the dialog. Always
-  remove all of those classes in `closeModal`.
+  Each modal sets a class on it which CSS uses to size/style the dialog.
+  Current classes: `big-board-modal-open`, `full-board-modal`,
+  `picker-modal`, `player-modal`, `trade-hub-modal`,
+  `trade-history-modal`, `rosters-modal`, `gm-info-modal`. Always
+  remove **all** of these in `closeModal`.
 - **Confirm dialogs**: use `confirmAction({ title, message,
   confirmLabel, onConfirm })` for any destructive or "you sure?"
   action. Used by Sim to Round, Sim to End of Draft, and Sim to Pick
@@ -490,10 +557,12 @@ Madden code in their subtitle (e.g. `LE · Alabama`).
 ## UI layout
 
 - **Header (sticky)**: brand + year, **Big Board** pill (left side),
-  **Trade Hub** pill (always available — has a ringing-phone SVG
-  icon and a red badge showing incoming-offer count when the user is
-  on the clock), then sim controls on the right (Sim Pick, Sim to My
-  Pick, Sim to Round dropdown, Full Draft Order, Export).
+  then four nav-tab buttons: **Trade Hub** (ringing-phone icon, red
+  badge showing incoming-offer count when user is on the clock),
+  **Trade History** (clock icon, count badge showing total trades),
+  **Rosters** (people icon), **GM Info** (checklist icon). Sim
+  controls on the right (Sim Pick, Sim to My Pick, Sim to Round
+  dropdown, Full Draft Order, Export).
 - **Left column**: On The Clock (logo + team + pick meta), Last
   Selection, Team Needs, Previous Selections.
 - **Center column**: Current Round grid (with click-to-sim on
@@ -517,8 +586,9 @@ GET  /api/board                          All picks (with team logos)
 GET  /api/big-board/public               Mel Kiper consensus board (all rookies)
 GET  /api/big-board/team/<team_name>     One team's private board (with team_rank/original_rank/consensus_rank)
 GET  /api/needs/<team_name>              Computed needs list
-GET  /api/gm-info                        All GM trait rows
-GET  /api/trades                         Trade log
+GET  /api/gm-info                        All GM trait rows (includes logo per team)
+GET  /api/rosters                        All 32 teams' current rosters grouped by position (reflects drafted rookies)
+GET  /api/trades                         Trade log (enriched: logos, pick values, selected player per pick)
 POST /api/pick/make                      { player_id } — user-team-only pick (kept for legacy; UI uses force-make)
 POST /api/pick/force-make                { player_id } — universal pick for whoever's on the clock
 POST /api/pick/sim                       Sim the current AI pick
@@ -529,6 +599,7 @@ POST /api/pick/sim-until-end             Drives the draft to completion (ignores
 GET  /api/trade/down-offers              AI offers for user's pick (only valid when user on clock)
 POST /api/trade/up                       { target_overall, offered_overalls }
 POST /api/trade/accept-offer             { from_team } — user accepts a cached AI trade-up offer
+POST /api/trade/manual                   { team_a, team_b, team_a_overalls, team_b_overalls, force_override }
 POST /api/export                         Write all 3 xlsx files + zip
 GET  /api/export/download/<kind>         kind = outcome | picks | trades | zip
 ```
@@ -546,6 +617,9 @@ GET  /api/export/download/<kind>         kind = outcome | picks | trades | zip
 - **Do** match the existing dark/gold visual language when adding UI.
 - **Do** use `confirmAction` for any sim/export action that's destructive
   or large in scope — don't fire automatically on dropdown change.
+- **Don't** show `TrueWeight` values in the Team Needs UI — weights are
+  used internally for need selection but are intentionally hidden from
+  the display (both the left-rail card and the Rosters modal needs panel).
 - **Do** smoke-test by starting `python app.py` and hitting at least:
   start session as a non-Steelers team -> sim a few -> open Big Board ->
   draft from it -> sim to end of draft -> export. Any of those breaking
