@@ -120,7 +120,7 @@
             <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
             <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
           </svg>
-          <span>Rosters</span>
+          <span>Rosters/Draft Picks</span>
         </button>
         <button class="nav-tab-btn" data-action="gm-info">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
@@ -196,10 +196,15 @@
 
     <!-- Right column: team boards -->
     <section class="right-rail col-span-3 space-y-6">
+      <div class="card right-picks-card">
+        <div class="card-eyebrow">Your Draft Picks</div>
+        <div id="user-picks-snapshot" class="user-picks-snapshot"></div>
+      </div>
+
       <div class="card">
         <div class="card-eyebrow">Team Big Boards <span class="text-slate-500 normal-case tracking-normal text-xs">(testing/private)</span></div>
         <select id="team-board-picker" class="mt-2 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs"></select>
-        <div id="team-board" class="mt-3 max-h-[640px] overflow-y-auto pretty-scroll"></div>
+        <div id="team-board" class="team-board-list pretty-scroll"></div>
       </div>
     </section>
   </main>

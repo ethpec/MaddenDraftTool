@@ -214,6 +214,7 @@ function renderAll() {
   renderPreviousSelections();
   renderRoundTitle();
   renderRoundGrid();
+  renderUserPicksSnapshot();
   renderTeamBoard();
   renderSimRoundSelect();
   updateTradeHistoryCount();
@@ -255,7 +256,7 @@ function renderOnTheClock() {
     return;
   }
   teamEl.textContent = c.current_team;
-  metaEl.textContent = `Round ${c.round}, Pick ${c.pick_in_round} (Overall ${c.overall})` +
+  metaEl.textContent = `${roundPickText(c)} (Overall ${c.overall})` +
     (c.original_team !== c.current_team ? ` · via ${c.original_team}` : '');
   if (logoEl) {
     logoEl.innerHTML = c.current_team_logo
@@ -299,7 +300,7 @@ function renderLastPick() {
     : '';
   el.innerHTML = `
     <div class="text-center">${collegeBlock}</div>
-    <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center">${teamLogo}<span>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)}</span></div>
+    <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center">${teamLogo}<span>${roundPickLabel(p)} · ${escapeHtml(p.current_team)}</span></div>
     <div class="mt-1 text-base font-semibold text-center">${escapeHtml(p.selected_player_name || '')}</div>
     ${p.position ? `<div class="text-xs text-slate-400 text-center">${escapeHtml(p.position)}${p.college ? ' · ' + escapeHtml(p.college) : ''}</div>` : ''}
   `;
@@ -342,7 +343,7 @@ function renderPreviousSelections() {
     return `<div class="ps-row">
       <span class="ps-pos">${escapeHtml(pos)}</span>
       ${logo}
-      <span class="ps-meta">${escapeHtml(p.selected_player_name)} <span class="ps-rd">R${p.round} P${p.pick_in_round}</span></span>
+      <span class="ps-meta">${escapeHtml(p.selected_player_name)} <span class="ps-rd">R${p.round} P${roundPickNumber(p)}</span></span>
     </div>`;
   }).join('');
 }
@@ -376,7 +377,7 @@ function promptSimUntilOverall(overall) {
   const target = state.board.find(p => p.overall === overall);
   if (!target) return;
   confirmAction({
-    title: `Sim to R${target.round}.${target.pick_in_round}?`,
+    title: `Sim to ${roundPickLabel(target)}?`,
     message: `Sim through every pick before overall #${overall}, stopping with the ${target.current_team} on the clock.`,
     confirmLabel: 'Sim',
     onConfirm: () => simUntilOverall(overall),
@@ -403,6 +404,77 @@ function getPositionByPlayerId() {
   return _positionByPlayerId;
 }
 function invalidatePositionLookup() { _positionByPlayerId = null; }
+
+function knownPicksForDisplay() {
+  return [...(state.board || []), ...(state.futurePicks || [])];
+}
+
+function pickDisplayKey(p) {
+  return p?.draft_slot ?? p?.overall ?? p?.pick_in_round ?? 0;
+}
+
+function roundPickNumber(p, picks = knownPicksForDisplay()) {
+  if (!p?.round) return p?.pick_in_round ?? '?';
+  const round = Number(p.round);
+  const yearOffset = Number(p.year_offset || 0);
+  const pool = (picks || [])
+    .filter(q => q
+      && Number(q.round) === round
+      && Number(q.year_offset || 0) === yearOffset)
+    .slice()
+    .sort((a, b) => pickDisplayKey(a) - pickDisplayKey(b));
+  if (pool.length) {
+    const idx = pool.findIndex(q =>
+      (p.overall != null && q.overall === p.overall)
+      || (p.draft_slot != null && q.draft_slot === p.draft_slot));
+    if (idx >= 0) return idx + 1;
+  }
+  return p.pick_in_round ?? '?';
+}
+
+function roundPickLabel(p) {
+  return `R${p.round}.${roundPickNumber(p)}`;
+}
+
+function roundPickText(p) {
+  return `Round ${p.round}, Pick ${roundPickNumber(p)}`;
+}
+
+function renderUserPicksSnapshot() {
+  const el = document.getElementById('user-picks-snapshot');
+  if (!el) return;
+  const current = (state.board || [])
+    .filter(p => p.current_team === state.userTeam && !p.selected_player_id)
+    .slice()
+    .sort((a, b) => (a.overall || 9999) - (b.overall || 9999));
+  const next = (state.futurePicks || [])
+    .filter(p => p.current_team === state.userTeam)
+    .slice()
+    .sort((a, b) => (a.draft_slot || a.overall || 9999) - (b.draft_slot || b.overall || 9999));
+  const line = (label, picks) => {
+    const chips = picks.length
+      ? picks.map(renderUserPickChip).join('')
+      : '<span class="user-picks-empty">none</span>';
+    return `<div class="user-picks-line">
+      <div class="user-picks-label">${label}</div>
+      <div class="user-picks-chips">${chips}</div>
+    </div>`;
+  };
+  el.innerHTML = `
+    ${line('This', current)}
+    ${line('Next', next)}
+  `;
+}
+
+function renderUserPickChip(p) {
+  const slot = p.draft_slot ?? p.overall;
+  const via = p.original_team && p.original_team !== p.current_team
+    ? ` via ${p.original_team}`
+    : '';
+  return `<span class="user-pick-chip" title="${roundPickLabel(p)} · #${slot}${escapeHtml(via)}">
+    ${roundPickLabel(p)}<span>#${slot}</span>
+  </span>`;
+}
 
 function renderPickCell(p) {
   const onClock = state.session.current_pick && state.session.current_pick.overall === p.overall;
@@ -431,7 +503,7 @@ function renderPickCell(p) {
     : '';
   return `
     <div class="${cls.join(' ')}" data-overall="${p.overall}"${simmable ? ' role="button" tabindex="0"' : ''}>
-      <div class="pick-num">R${p.round}.${p.pick_in_round} · #${p.overall}</div>
+      <div class="pick-num">${roundPickLabel(p)} · #${p.overall}</div>
       <div class="pick-header">${logo}<div class="pick-team">${escapeHtml(p.current_team)}</div></div>
       ${playerLine}
       ${trade}
@@ -472,7 +544,7 @@ function renderTeamBoard() {
     `;
   }).join('');
   const el = document.getElementById('team-board');
-  el.innerHTML = rows;
+  el.innerHTML = rows || '<div class="text-xs text-slate-500 py-2">No available players.</div>';
   el.querySelectorAll('[data-draft-id]').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -546,7 +618,7 @@ async function simPick() {
   if (res.trade) {
     showTradeModal(res.trade, res.pick);
   } else if (res.pick) {
-    toast(`R${res.pick.round}.${res.pick.pick_in_round}: ${res.pick.current_team} → ${res.pick.selected_player_name}`);
+    toast(`${roundPickLabel(res.pick)}: ${res.pick.current_team} → ${res.pick.selected_player_name}`);
   }
 }
 
@@ -573,7 +645,7 @@ function showTradeModal(trade, pick) {
       ? `<span class="font-mono text-accent-400">${val.toLocaleString()}</span>`
       : '<span class="text-slate-600">—</span>';
     return `<div class="flex items-center justify-between py-1 text-sm">
-      <span>R${p.round}.${p.pick_in_round}${nyBadge} <span class="text-slate-500 text-xs">#${p.draft_slot ?? p.overall}</span></span>
+      <span>${roundPickLabel(p)}${nyBadge} <span class="text-slate-500 text-xs">#${p.draft_slot ?? p.overall}</span></span>
       <span class="ml-3">${valStr} pts</span>
     </div>`;
   };
@@ -770,12 +842,12 @@ function openTradeUpModal(opts = {}) {
     ? state.session.current_pick.overall : null;
   const targetOpts = targets.map(p => {
     const sel = preselect === p.overall ? ' selected' : '';
-    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
+    return `<option value="${p.overall}"${sel}>${roundPickLabel(p)} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
   }).join('');
   const offerCheckboxes = myUnpickedPicks.map(p => `
     <label class="flex items-center gap-2 text-sm py-1">
       <input type="checkbox" class="trade-up-offer" value="${p.overall}">
-      <span>R${p.round}.${p.pick_in_round} (overall ${p.overall})</span>
+      <span>${roundPickLabel(p)} (overall ${p.overall})</span>
     </label>
   `).join('');
   const subtitle = opts.targetCurrent && state.session.current_pick
@@ -860,7 +932,7 @@ async function renderTradeHubTab() {
   if (isUserPick) {
     const res = await api.get('/api/trade/down-offers').catch(() => ({ ok: false }));
     const offers = (res.ok && res.offers) || [];
-    const targetLabel = `R${c.round}.${c.pick_in_round} · pick #${c.draft_slot ?? c.overall}`;
+    const targetLabel = `${roundPickLabel(c)} · pick #${c.draft_slot ?? c.overall}`;
     const offersBlock = offers.length
       ? renderOffersTable(offers)
       : '<div class="text-sm text-slate-400">No incoming trade-up offers right now.</div>';
@@ -884,7 +956,7 @@ async function renderTradeHubTab() {
     body.innerHTML = `
       <div class="space-y-3">
         <div class="card-eyebrow">Trade Up to ${escapeHtml(c.current_team)}'s Pick</div>
-        <div class="text-xs text-slate-500">R${c.round}.${c.pick_in_round} · pick #${c.draft_slot ?? c.overall}</div>
+        <div class="text-xs text-slate-500">${roundPickLabel(c)} · pick #${c.draft_slot ?? c.overall}</div>
         ${buildTradeForm(c, isUserPick)}
       </div>
     `;
@@ -912,7 +984,7 @@ function buildTradeForm(currentPick, isUserPick) {
     const sel = preselectOverall === p.overall ? ' selected' : '';
     const valStr = p.value != null ? ` · ${p.value.toLocaleString()} pts` : '';
     const nyStr = p.year_offset ? ' [NY]' : '';
-    return `<option value="${p.overall}"${sel}>R${p.round}.${p.pick_in_round}${nyStr} · ${escapeHtml(p.current_team)} (#${p.draft_slot ?? p.overall}${valStr})</option>`;
+    return `<option value="${p.overall}"${sel}>${roundPickLabel(p)}${nyStr} · ${escapeHtml(p.current_team)} (#${p.draft_slot ?? p.overall}${valStr})</option>`;
   }).join('');
 
   const myPicksHtml = myUnpickedPicks.length
@@ -922,7 +994,7 @@ function buildTradeForm(currentPick, isUserPick) {
         return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
           <span class="flex items-center gap-2">
             <input type="checkbox" class="trade-up-offer" value="${p.overall}" data-value="${p.value ?? 0}" onchange="updateTradeTotals()">
-            R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
+            ${roundPickLabel(p)}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
           </span>
           ${valStr}
         </label>`;
@@ -980,7 +1052,7 @@ function updateTargetTeamPicks(targetOverall) {
       return `<label class="flex items-center justify-between gap-2 text-sm py-1 text-slate-300">
         <span class="flex items-center gap-2">
           <input type="checkbox" class="trade-their-pick" value="${p.overall}" data-value="${p.value ?? 0}" checked disabled>
-          R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
+          ${roundPickLabel(p)}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
           <span class="text-xs text-accent-400">(target)</span>
         </span>
         ${valStr}
@@ -989,7 +1061,7 @@ function updateTargetTeamPicks(targetOverall) {
     return `<label class="flex items-center justify-between gap-2 text-sm py-1 cursor-pointer">
       <span class="flex items-center gap-2">
         <input type="checkbox" class="trade-their-pick" value="${p.overall}" data-value="${p.value ?? 0}" onchange="updateTradeTotals()">
-        R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
+        ${roundPickLabel(p)}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
       </span>
       ${valStr}
     </label>`;
@@ -1167,7 +1239,7 @@ function renderManualPickColumn(side) {
       <span class="flex items-center gap-2">
         <input type="checkbox" class="mt-pick mt-pick-${side.toLowerCase()}"
                data-side="${side}" data-value="${p.value ?? 0}" value="${p.overall}"${checked}>
-        R${p.round}.${p.pick_in_round}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
+        ${roundPickLabel(p)}${badge} <span class="text-slate-500">#${p.draft_slot ?? p.overall}</span>
       </span>
       ${valStr}
     </label>`;
@@ -1274,7 +1346,7 @@ function renderTradeHistoryCard(t) {
       ? `<div class="th-pick-player">→ ${escapeHtml(p.selected_player_name)}${p.selected_position ? ` <span class="text-slate-500">· ${escapeHtml(p.selected_position)}</span>` : ''}</div>`
       : '';
     return `<div class="th-pick-row">
-      <span class="th-pick-label">R${p.round}.${p.pick_in_round}${nyBadge} <span class="text-slate-500 text-xs">#${slot}</span></span>
+      <span class="th-pick-label">${roundPickLabel(p)}${nyBadge} <span class="text-slate-500 text-xs">#${slot}</span></span>
       <span class="th-pick-val">${valStr}</span>
       ${playerLine}
     </div>`;
@@ -1318,14 +1390,18 @@ function renderTradeHistoryCard(t) {
 
 // ---------- Rosters modal ----------
 
-const rostersState = { team: null, data: null, needs: [] };
+const rostersState = { team: null, data: null, needs: [], board: [] };
 
 async function openRosters() {
   document.getElementById('modal-root').classList.add('rosters-modal');
-  openModal('Rosters', 'Each team’s current roster, position by position', '<div class="text-sm text-slate-400">Loading rosters…</div>');
+  openModal('Rosters/Draft Picks', 'Each team’s current roster and live draft-pick ownership', '<div class="text-sm text-slate-400">Loading rosters…</div>');
   let res;
+  let boardRes;
   try {
-    res = await api.get('/api/rosters');
+    [res, boardRes] = await Promise.all([
+      api.get('/api/rosters'),
+      api.get('/api/board'),
+    ]);
   } catch (e) {
     document.getElementById('modal-body').innerHTML = '<div class="text-sm text-rose-400">Failed to load rosters.</div>';
     return;
@@ -1333,6 +1409,9 @@ async function openRosters() {
   // Stored in alphabetical order by the backend; preserve that for the
   // logo grid below.
   rostersState.data = res.teams || [];
+  rostersState.board = boardRes.picks || state.board || [];
+  state.board = rostersState.board;
+  state.futurePicks = boardRes.future_picks || state.futurePicks || [];
   const names = rostersState.data.map(t => t.team);
   if (!rostersState.team || !names.includes(rostersState.team)) {
     rostersState.team = names.includes(state.userTeam) ? state.userTeam : names[0];
@@ -1439,6 +1518,14 @@ async function renderRostersBody() {
           <span class="pos">${escapeHtml(n.label)}</span>
         </div>`).join('')
     : '<div class="text-xs text-slate-500">No needs computed.</div>';
+  const draftPicks = getRosterCurrentDraftPicks(team.team);
+  const remainingPickCount = draftPicks.filter(p => !p.selected_player_id).length;
+  const picksSummary = draftPicks.length
+    ? `${remainingPickCount} left · ${draftPicks.length} total`
+    : 'No current picks';
+  const picksHtml = draftPicks.length
+    ? draftPicks.map(renderRosterDraftPick).join('')
+    : '<div class="rosters-picks-empty">No current-year picks owned.</div>';
   const teamLogo = team.logo
     ? `<img src="${team.logo}" alt="${escapeHtml(team.team)}" class="rosters-needs-logo">`
     : '';
@@ -1452,6 +1539,11 @@ async function renderRostersBody() {
         </div>
       </div>
       <div class="rosters-needs-list">${needsHtml}</div>
+      <div class="rosters-picks-head">
+        <div class="card-eyebrow">Current Draft Picks</div>
+        <div class="rosters-picks-summary">${escapeHtml(picksSummary)}</div>
+      </div>
+      <div class="rosters-picks-list">${picksHtml}</div>
     </div>`;
 
   body.innerHTML = `
@@ -1466,13 +1558,42 @@ async function renderRostersBody() {
   });
 }
 
+function getRosterCurrentDraftPicks(teamName) {
+  return (rostersState.board || state.board || [])
+    .filter(p => p && !p.year_offset && p.current_team === teamName)
+    .slice()
+    .sort((a, b) => (a.overall || 9999) - (b.overall || 9999));
+}
+
+function renderRosterDraftPick(p) {
+  const slot = p.draft_slot ?? p.overall;
+  const via = p.original_team && p.original_team !== p.current_team
+    ? `<span class="rosters-pick-via">via ${escapeHtml(p.original_team)}</span>`
+    : '';
+  const selected = p.selected_player_name
+    ? `<div class="rosters-pick-player">${escapeHtml(p.selected_player_name)}</div>`
+    : '<div class="rosters-pick-player is-open">Available</div>';
+  const cls = 'rosters-pick-row' + (p.selected_player_id ? ' is-made' : '');
+  return `<div class="${cls}">
+    <div class="rosters-pick-main">
+      <span class="rosters-pick-round">${roundPickLabel(p)}</span>
+      <span class="rosters-pick-slot">#${slot}</span>
+      ${via}
+    </div>
+    ${selected}
+  </div>`;
+}
+
 function renderRosterPlayer(pl) {
   const ovr = pl.is_rookie ? `<span class="roster-ovr text-slate-500">?</span>` : (pl.ovr != null ? `<span class="roster-ovr">${pl.ovr}</span>` : '');
   const college = pl.college_logo
     ? `<img src="${pl.college_logo}" alt="${escapeHtml(pl.college || '')}" class="roster-college-logo">`
     : '<div class="roster-college-placeholder"></div>';
+  const rookiePickLabel = pl.is_rookie && pl.rookie_pick
+    ? roundPickLabel({ round: pl.rookie_pick.round, overall: pl.rookie_pick.overall })
+    : '';
   const rookieBadge = pl.is_rookie && pl.rookie_pick
-    ? `<div class="roster-rookie-badge" title="Drafted R${pl.rookie_pick.round}.${pl.rookie_pick.pick}">R${pl.rookie_pick.round}.${pl.rookie_pick.pick}</div>`
+    ? `<div class="roster-rookie-badge" title="Drafted ${rookiePickLabel}">${rookiePickLabel}</div>`
     : '';
   const clickable = pl.player_id ? ` data-roster-pid="${escapeHtml(pl.player_id)}"` : '';
   const cls = 'roster-player' + (pl.is_rookie ? ' is-rookie' : '') + (pl.player_id ? ' clickable' : '');
@@ -1543,7 +1664,7 @@ async function openGMInfo() {
 }
 
 function renderOffersTable(offers) {
-  const fmtPick = p => `R${p.round}.${p.pick_in_round}${p.year_offset ? ' <span class="text-[9px] text-amber-400">NY</span>' : ''}`;
+  const fmtPick = p => `${roundPickLabel(p)}${p.year_offset ? ' <span class="text-[9px] text-amber-400">NY</span>' : ''}`;
   const fmtList = picks => picks && picks.length
     ? picks.map(fmtPick).join(', ')
     : '<span class="text-slate-600">—</span>';
@@ -1771,7 +1892,7 @@ async function openBigBoardModal() {
     ? `<img src="${c.current_team_logo}" alt="${escapeHtml(onClock)}" class="h-10 w-10 object-contain">`
     : '';
   const subtitle = c
-    ? `Drafting for ${onClock} · R${c.round}.${c.pick_in_round} (overall ${c.overall})`
+    ? `Drafting for ${onClock} · ${roundPickLabel(c)} (overall ${c.overall})`
     : 'Draft is complete — viewing only';
   const positionList = ['ALL', ...POSITION_ORDER].map(pos => {
     const label = pos === 'ALL' ? 'All' : pos;
