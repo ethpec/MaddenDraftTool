@@ -1551,18 +1551,18 @@ body {
   color: #8a98ac;
 }
 
-/* 4. Brand mark — gradient tile + soft glow, replaces the flat "M" */
-header .h-8.w-8.rounded.bg-accent-500 {
-  background: linear-gradient(135deg, #f8c043 0%, #f0b020 55%, #c98c0a 100%) !important;
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.4) inset,
-    0 -1px 0 rgba(0,0,0,0.25) inset,
-    0 0 0 1px rgba(248,192,67,0.35),
-    0 4px 14px rgba(240,176,32,0.25);
-  border-radius: 8px;
-  letter-spacing: -0.02em;
-  font-size: 16px;
+/* 4. Brand mark — inline NFL shield SVG */
+.nfl-shield {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5))
+          drop-shadow(0 0 8px rgba(29,58,138,0.35));
+  transition: transform 200ms ease;
 }
+.nfl-shield:hover { transform: translateY(-1px) scale(1.04); }
+.nfl-shield svg { width: 100%; height: 100%; display: block; }
 
 /* 5. Vertical divider after brand, before nav cluster */
 header .flex.items-center.gap-3 + button {

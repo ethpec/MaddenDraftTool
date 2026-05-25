@@ -54,7 +54,34 @@
     <div class="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-3">
       <div class="flex items-center gap-4">
         <div class="flex items-center gap-3">
-          <div class="h-8 w-8 rounded bg-accent-500 grid place-items-center text-ink-950 font-bold">M</div>
+          <div class="nfl-shield" aria-label="NFL">
+            <svg viewBox="0 0 64 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <!-- Outer shield with subtle gradient -->
+              <defs>
+                <linearGradient id="nfl-shield-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#1d3a8a"/>
+                  <stop offset="100%" stop-color="#0e1f55"/>
+                </linearGradient>
+              </defs>
+              <path d="M32 1 L60 9 V36 C60 56 47 70 32 78 C17 70 4 56 4 36 V9 Z"
+                    fill="url(#nfl-shield-grad)" stroke="#f1f5f9" stroke-width="1.5"/>
+              <!-- Red horizontal band -->
+              <path d="M5 21 H59 V31 H5 Z" fill="#c8102e"/>
+              <!-- Stars on the band -->
+              <g fill="#f1f5f9">
+                <circle cx="14" cy="26" r="1.6"/>
+                <circle cx="24" cy="26" r="1.6"/>
+                <circle cx="34" cy="26" r="1.6"/>
+                <circle cx="44" cy="26" r="1.6"/>
+                <circle cx="54" cy="26" r="1.6"/>
+              </g>
+              <!-- NFL wordmark -->
+              <text x="32" y="58" text-anchor="middle"
+                    font-family="Inter, Arial, sans-serif"
+                    font-weight="900" font-size="18"
+                    letter-spacing="0.5" fill="#f1f5f9">NFL</text>
+            </svg>
+          </div>
           <div>
             <div class="text-sm font-semibold leading-none">Madden Draft Tool</div>
             <div class="text-[11px] uppercase tracking-wider text-slate-400" id="header-year"></div>
