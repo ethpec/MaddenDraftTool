@@ -19,7 +19,7 @@ from . import logic
 
 # OVR boost applied to a rookie's roster entry when drafted, by round.
 # Makes it more likely a position need registers as filled after the pick.
-_ROOKIE_OVR_BOOST: dict[int, int] = {1: 5, 2: 4, 3: 3, 4: 2, 5: 2, 6: 1, 7: 1}
+_ROOKIE_OVR_BOOST: dict[int, int] = {1: 5, 2: 4, 3: 4, 4: 3, 5: 3, 6: 3, 7: 3}
 
 
 USER_TEAM_NAME = "Steelers"

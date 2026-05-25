@@ -441,7 +441,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
         hot_zone = 0.15
     elif 30 <= current_slot <= 32 or 34 <= current_slot <= 35:
         hot_zone = 0.075
-    elif 20 <= current_slot <= 29 or 36 <= current_slot <= 42:
+    elif 2 <= current_slot <= 10 or 20 <= current_slot <= 29 or 36 <= current_slot <= 42:
         hot_zone = 0.05
     else:
         hot_zone = 0.025
@@ -519,11 +519,13 @@ def _round_modifier_up(round_1: int) -> float:
     bigger boost since late-round picks change hands more freely.
     """
     if round_1 == 1:
-        return 1.20
-    if round_1 in (2, 3):
+        return 1.25
+    if round_1 == 2:
         return 0.95
+    if round_1 == 3:
+        return 0.85
     if round_1 == 4:
-        return 0.70
+        return 0.65
     if round_1 == 5:
         return 0.75
     if round_1 == 6:
@@ -536,18 +538,18 @@ def _round_modifier_down(round_1: int) -> float:
     (teams hold their R1 picks tightly) and boosts late rounds significantly.
     """
     if round_1 == 1:
-        return 0.75
+        return 0.95
     if round_1 == 2:
-        return 1.10
+        return 1.15
     if round_1 == 3:
-        return 1.20
+        return 1.25
     if round_1 == 4:
-        return 1.40
+        return 1.20
     if round_1 == 5:
-        return 1.55
+        return 1.45
     if round_1 == 6:
         return 2.25
-    return 2.75  # round 7
+    return 3.50  # round 7
 
 
 def _cooldown_for_events_since(n: int | None) -> float:

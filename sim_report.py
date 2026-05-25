@@ -18,7 +18,7 @@ from backend.draft_state import DraftSession, _pick_to_dict
 from backend import logic
 
 # Seeds to compare. Add/remove as needed.
-SEEDS = [1, 42, 43, 100, 432, 999, 2091, 8720, 12345]
+SEEDS = [1, 42, 43, 100, 432, 999, 2091, 8720, 12345, 25000]
 
 def run_sim(seed: int) -> dict:
     # Fresh data copy + fresh session per seed. `load_all` returns a deepcopy
