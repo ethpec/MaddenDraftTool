@@ -1,5 +1,20 @@
 # Madden Draft Tool
 
+## Demo
+
+<!--
+  To make this video play inline:
+    1. Open this README on github.com
+    2. Click the pencil (Edit) icon
+    3. Drag `recording_small.mp4` from your Desktop into the editor on
+       the line below this comment
+    4. GitHub uploads it and replaces this comment block with a
+       user-attachments URL — that URL plays inline on github.com
+    5. Commit the edit
+-->
+
+<!-- paste video here -->
+
 Run the NFL draft outside Madden so we can apply richer trade and pick
 logic, then export results in a shape Madden can re-import. Local web
 app — Python backend, JavaScript frontend, opens in any browser.
