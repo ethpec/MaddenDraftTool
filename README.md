@@ -1,12 +1,11 @@
 # Madden Draft Tool
+Run the NFL draft outside Madden so we can apply richer trade and pick
+logic, then export results in a shape Madden can re-import. Local web
+app — Python backend, JavaScript frontend, opens in any browser.
 
 ## Demo Video
 
 https://github.com/user-attachments/assets/fba4b6cb-d308-4358-a0a8-9e28c3542257
-
-Run the NFL draft outside Madden so we can apply richer trade and pick
-logic, then export results in a shape Madden can re-import. Local web
-app — Python backend, JavaScript frontend, opens in any browser.
 
 ## What it does
 
