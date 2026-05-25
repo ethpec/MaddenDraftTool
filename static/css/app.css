@@ -120,21 +120,10 @@
   transition: all 140ms ease;
   position: relative;
 }
-.select-player-btn::after {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 999px;
-  background: radial-gradient(circle, rgba(248,192,67,0.5), transparent 70%);
-  opacity: 0;
-  z-index: -1;
-  transition: opacity 200ms ease;
-}
 .select-player-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 1px 0 rgba(255,255,255,0.3) inset, 0 4px 16px rgba(240,176,32,0.4);
 }
-.select-player-btn:hover::after { opacity: 1; }
 .select-player-btn:active { transform: translateY(0); }
 .select-player-btn svg { stroke: #06080d; }
 
@@ -154,15 +143,6 @@
   color: #f8c043;
   transition: all 120ms ease;
   overflow: hidden;
-}
-.trade-hub-btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle at center, rgba(240,176,32,0.18), transparent 70%);
-  opacity: 0;
-  animation: hub-pulse 2.2s ease-in-out infinite;
-  pointer-events: none;
 }
 .trade-hub-btn:hover {
   background: linear-gradient(180deg, #3a2a0c 0%, #20180a 100%);
@@ -921,7 +901,7 @@
   border-radius: 6px;
 }
 .pp-header-info { min-width: 0; flex: 1; }
-.pp-name { font-size: 22px; font-weight: 700; color: #f1f5f9; letter-spacing: -0.01em; }
+.pp-name { font-size: 22px; font-weight: 700; color: #f1f5f9; letter-spacing: 0; }
 .pp-bio { font-size: 12px; color: #94a3b8; margin-top: 4px; }
 .pp-drafted {
   margin-top: 6px;
@@ -1513,216 +1493,673 @@
 }
 
 /* ============================================================
-   UI Polish Pass — additive, override-style. Targets visual
-   depth, button consistency, header presence, and motion.
-   Remove this block to revert to the prior look.
+   Professional UI polish pass
    ============================================================ */
 
-/* 1. Body type rhythm — slightly tighter tracking for modern feel */
-body {
-  letter-spacing: -0.005em;
+:root {
+  color-scheme: dark;
+  --page: #06080d;
+  --surface-0: #0a0e15;
+  --surface-1: #0e141f;
+  --surface-2: #111927;
+  --surface-3: #172235;
+  --line-soft: rgba(148, 163, 184, 0.12);
+  --line: rgba(148, 163, 184, 0.18);
+  --text: #e5edf7;
+  --muted: #94a3b8;
+  --faint: #64748b;
+  --accent: #f0b020;
+  --accent-strong: #f8c043;
+  --success: #22c55e;
+  --danger: #f87171;
+}
+
+html {
+  background: var(--page);
+}
+
+.app-shell {
+  letter-spacing: 0;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  background:
+    linear-gradient(180deg, rgba(8, 12, 20, 0.98) 0%, rgba(6, 8, 13, 1) 44%, #05070b 100%);
 }
 
-/* 2. Card depth — top highlight line + soft hover lift.
-   Pseudo-elements give the impression of an extruded surface
-   without changing the actual border color. */
-.card {
-  position: relative;
-  background: linear-gradient(180deg, #131826 0%, #0d1118 100%);
-  border-color: #1d2435;
-  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+.app-shell .tracking-tight,
+.app-shell .tracking-wider,
+.app-shell .tracking-normal {
+  letter-spacing: 0 !important;
 }
-.card::before {
+
+.app-shell * {
+  letter-spacing: 0 !important;
+}
+
+button,
+select,
+input {
+  font: inherit;
+}
+
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+.pick-cell.simmable:focus-visible,
+.bb-row:focus-visible,
+.bbm-row:focus-visible {
+  outline: 2px solid rgba(248, 192, 67, 0.62);
+  outline-offset: 2px;
+}
+
+.setup-screen {
+  padding: 24px;
+  background:
+    linear-gradient(160deg, #05070b 0%, #0b111b 52%, #070a10 100%);
+}
+
+.setup-card {
+  position: relative;
+  overflow: hidden;
+  border-radius: 10px !important;
+  border-color: var(--line) !important;
+  background: linear-gradient(180deg, rgba(17, 25, 39, 0.98) 0%, rgba(9, 13, 20, 0.98) 100%) !important;
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+}
+
+.setup-card::before,
+.card::before,
+.modal-panel::before {
   content: '';
   position: absolute;
-  top: 0; left: 12px; right: 12px;
+  left: 12px;
+  right: 12px;
+  top: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.11), transparent);
   pointer-events: none;
-  border-radius: 12px 12px 0 0;
 }
 
-/* 3. Card eyebrow — refined letter-spacing for legibility */
-.card-eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  color: #8a98ac;
+.app-header {
+  border-color: var(--line-soft) !important;
+  background: rgba(8, 12, 19, 0.94) !important;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.32);
 }
 
-/* 4. Brand mark — inline NFL shield SVG */
+.app-header-inner {
+  min-height: 66px;
+  gap: 14px;
+}
+
+.app-header-main,
+.command-bar {
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.app-header-main {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.command-bar {
+  justify-content: flex-end;
+  flex: 0 1 auto;
+}
+
+.brand-block {
+  min-width: 205px;
+  padding-right: 16px;
+  margin-right: 2px;
+  border-right: 1px solid var(--line-soft);
+}
+
+.brand-title {
+  color: var(--text);
+}
+
 .nfl-shield {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 40px;
   display: grid;
   place-items: center;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.5))
-          drop-shadow(0 0 8px rgba(29,58,138,0.35));
-  transition: transform 200ms ease;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.5))
+          drop-shadow(0 0 8px rgba(29, 58, 138, 0.32));
+  transition: transform 160ms ease, filter 160ms ease;
 }
-.nfl-shield:hover { transform: translateY(-1px) scale(1.04); }
-.nfl-shield svg { width: 100%; height: 100%; display: block; }
 
-/* 5. Vertical divider after brand, before nav cluster */
-header .flex.items-center.gap-3 + button {
+.nfl-shield:hover {
+  transform: translateY(-1px);
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.52))
+          drop-shadow(0 0 10px rgba(29, 58, 138, 0.42));
+}
+
+.nfl-shield svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.select-player-btn::after,
+.trade-hub-btn::before {
+  display: none;
+}
+
+.card {
   position: relative;
-}
-header .flex.items-center.gap-3 + button::before {
-  content: '';
-  position: absolute;
-  left: -10px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 1px;
-  height: 22px;
-  background: linear-gradient(180deg, transparent, #252d42, transparent);
-  pointer-events: none;
+  overflow: hidden;
+  border-radius: 8px;
+  border-color: var(--line-soft);
+  background: linear-gradient(180deg, rgba(18, 27, 42, 0.96) 0%, rgba(10, 14, 21, 0.98) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.035) inset,
+    0 16px 36px rgba(0, 0, 0, 0.22);
 }
 
-/* 6. Button family harmonization — same lift behavior across
-   sim-btn / action-btn / nav-tab-btn / trade-hub-header-btn */
-.sim-btn, .action-btn, .nav-tab-btn, .trade-hub-header-btn {
-  transition: transform 140ms ease, background 140ms ease,
-              border-color 140ms ease, color 140ms ease,
-              box-shadow 140ms ease;
+.th-card,
+.rosters-needs-card,
+.roster-group,
+.modal-panel,
+.setup-card {
+  border-radius: 8px !important;
 }
-.sim-btn:hover, .action-btn:hover, .nav-tab-btn:hover,
-.trade-hub-header-btn:hover {
+
+.card-eyebrow {
+  color: #9aa8bb;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.sim-btn,
+.action-btn,
+.nav-tab-btn,
+.trade-hub-header-btn,
+.select-player-btn,
+.primary-btn,
+.bbm-draft,
+.bb-action {
+  border-radius: 6px;
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.sim-btn,
+.nav-tab-btn,
+.trade-hub-header-btn {
+  border-color: var(--line);
+  background: linear-gradient(180deg, #131b29 0%, #0b1018 100%);
+  color: #d6e0eb;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
+}
+
+.sim-btn:hover,
+.action-btn:hover,
+.nav-tab-btn:hover,
+.trade-hub-header-btn:hover,
+.select-player-btn:hover,
+.primary-btn:hover,
+.bbm-draft:hover,
+.bb-action:hover {
   transform: translateY(-1px);
 }
-.sim-btn:active, .action-btn:active, .nav-tab-btn:active,
-.trade-hub-header-btn:active, .primary-btn:active {
+
+.sim-btn:hover,
+.nav-tab-btn:hover,
+.trade-hub-header-btn:hover {
+  border-color: rgba(248, 192, 67, 0.42);
+  color: #ffffff;
+  background: linear-gradient(180deg, #1a2638 0%, #101722 100%);
+}
+
+.primary-btn,
+.select-player-btn,
+.bbm-draft,
+.bb-action {
+  border: 1px solid rgba(248, 192, 67, 0.74);
+  background: linear-gradient(180deg, #f8c043 0%, #e5a51d 100%);
+  color: #080b11;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.32) inset,
+    0 8px 18px rgba(240, 176, 32, 0.18);
+}
+
+.primary-btn:hover,
+.select-player-btn:hover,
+.bbm-draft:hover,
+.bb-action:hover {
+  background: linear-gradient(180deg, #ffd166 0%, #efb226 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.38) inset,
+    0 12px 24px rgba(240, 176, 32, 0.26);
+}
+
+.sim-btn:active,
+.action-btn:active,
+.nav-tab-btn:active,
+.trade-hub-header-btn:active,
+.select-player-btn:active,
+.primary-btn:active,
+.bbm-draft:active,
+.bb-action:active {
   transform: translateY(0);
 }
 
-/* 7. Primary button — slight depth + active feedback */
-.primary-btn {
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.25) inset,
-    0 -1px 0 rgba(0,0,0,0.2) inset,
-    0 2px 6px rgba(240,176,32,0.25);
-  transition: transform 140ms ease, background 140ms ease, box-shadow 140ms ease;
-}
-.primary-btn:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    0 1px 0 rgba(255,255,255,0.3) inset,
-    0 -1px 0 rgba(0,0,0,0.2) inset,
-    0 4px 12px rgba(240,176,32,0.35);
-}
-
-/* 8. Sim-round select — make it match the other header buttons */
-.sim-select {
-  border-radius: 6px;
-  transition: transform 140ms ease, background 140ms ease, border-color 140ms ease;
-}
-.sim-select:hover:not(:disabled) {
-  background: #1a2030;
-  border-color: #38456a;
-  transform: translateY(-1px);
+.sim-select,
+#round-picker,
+#team-board-picker,
+#year-select,
+#trade-up-target,
+#mt-team-a,
+#mt-team-b,
+.bbm-sort-select,
+.bbm-search {
+  border-color: var(--line);
+  background-color: var(--surface-1);
+  color: var(--text);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
 }
 
-/* 9. Pick cells — refined completed + on-clock states */
+.sim-select:hover:not(:disabled),
+#round-picker:hover,
+#team-board-picker:hover,
+#year-select:hover,
+#trade-up-target:hover,
+#mt-team-a:hover,
+#mt-team-b:hover,
+.bbm-sort-select:hover,
+.bbm-search:hover {
+  border-color: rgba(148, 163, 184, 0.34);
+  background-color: var(--surface-2);
+}
+
+.team-grid {
+  border-color: var(--line-soft);
+  background: rgba(5, 7, 11, 0.56);
+}
+
+.team-tile,
+.rosters-team-tile {
+  border-color: rgba(148, 163, 184, 0.08);
+  background: linear-gradient(180deg, #111927 0%, #0b1018 100%);
+}
+
+.team-tile:hover,
+.rosters-team-tile:hover {
+  transform: translateY(-1px);
+  border-color: rgba(148, 163, 184, 0.34);
+  background: linear-gradient(180deg, #172235 0%, #101722 100%);
+}
+
+.team-tile.selected,
+.rosters-team-tile.selected {
+  border-color: rgba(248, 192, 67, 0.72);
+  background: linear-gradient(180deg, rgba(73, 53, 14, 0.75) 0%, rgba(28, 22, 12, 0.95) 100%);
+  box-shadow: 0 0 0 1px rgba(248, 192, 67, 0.22) inset, 0 10px 22px rgba(240, 176, 32, 0.1);
+}
+
+#app.app-layout:not(.hidden) {
+  grid-template-columns: minmax(260px, 0.92fr) minmax(600px, 2fr) minmax(280px, 1fr);
+  align-items: start;
+}
+
+#app.app-layout > .left-rail,
+#app.app-layout > .draft-stage,
+#app.app-layout > .right-rail {
+  grid-column: auto;
+  min-width: 0;
+}
+
+.draft-progress {
+  height: 7px;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: #070a10;
+}
+
+.draft-progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2dd4bf 0%, #22c55e 48%, #f0b020 100%);
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.2);
+  transition: width 240ms ease;
+}
+
+.draft-progress-meta {
+  margin-top: 7px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+#round-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .pick-cell {
-  background: linear-gradient(180deg, #0d1118 0%, #0a0d14 100%);
+  min-height: 84px;
+  border-radius: 8px;
+  border-color: var(--line-soft);
+  background: linear-gradient(180deg, #0d131d 0%, #080c13 100%);
   transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
+
 .pick-cell.completed {
-  background: linear-gradient(180deg, #11151f 0%, #0d1118 100%);
-  box-shadow: 0 1px 0 rgba(255,255,255,0.03) inset, 0 0 0 1px #1a2030 inset;
+  background: linear-gradient(180deg, #121a28 0%, #0c121b 100%);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
 }
-.pick-cell.completed .pick-team { color: #cbd5e1; }
+
+.pick-cell.user-pick {
+  border-color: rgba(248, 192, 67, 0.82);
+  box-shadow: 0 0 0 1px rgba(248, 192, 67, 0.54) inset, 0 0 18px rgba(240, 176, 32, 0.12);
+}
+
 .pick-cell.on-clock {
-  background: linear-gradient(180deg, #0e1c14 0%, #0a0f0c 100%);
+  border-color: rgba(34, 197, 94, 0.9);
+  background: linear-gradient(180deg, rgba(16, 42, 29, 0.9) 0%, rgba(8, 17, 13, 0.98) 100%);
 }
+
 @keyframes pulse {
-  0%, 100% { box-shadow: 0 0 0 1px #22c55e inset, 0 0 24px rgba(34,197,94,0.18); }
-  50%      { box-shadow: 0 0 0 1px #22c55e inset, 0 0 40px rgba(34,197,94,0.36); }
+  0%, 100% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.95) inset, 0 0 22px rgba(34, 197, 94, 0.18); }
+  50% { box-shadow: 0 0 0 1px rgba(34, 197, 94, 1) inset, 0 0 34px rgba(34, 197, 94, 0.34); }
 }
 
-/* 10. Pretty-scroll — thinner, more refined */
-.pretty-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
-.pretty-scroll::-webkit-scrollbar-thumb {
-  background: #252d42;
-  border-radius: 3px;
-  border: 1px solid transparent;
-  background-clip: padding-box;
+.pick-cell.simmable:hover {
+  border-color: rgba(148, 163, 184, 0.36);
+  background: linear-gradient(180deg, #142033 0%, #0d131e 100%);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.18);
 }
-.pretty-scroll::-webkit-scrollbar-thumb:hover { background: #38456a; background-clip: padding-box; }
-/* Firefox */
-.pretty-scroll { scrollbar-width: thin; scrollbar-color: #252d42 transparent; }
 
-/* 11. Modal entrance — gentle fade-in for the backdrop + card */
+.pick-cell .pick-team,
+.bb-row .bb-name,
+.bbm-name,
+.pp-name,
+.th-team-name,
+.gm-team-name {
+  color: var(--text);
+}
+
+.pick-cell .pick-player,
+.bb-row .bb-sub,
+.bbm-sub,
+.ps-rd {
+  color: #7f8da1;
+}
+
+.pick-cell .pick-pos {
+  border-radius: 4px;
+  background: rgba(240, 176, 32, 0.14);
+  color: #ffd166;
+}
+
+.need-row,
+.ps-row {
+  border-radius: 6px;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.need-row:hover,
+.ps-row:hover {
+  background: rgba(148, 163, 184, 0.08);
+  transform: translateX(2px);
+}
+
+.need-row .pos {
+  letter-spacing: 0;
+}
+
+.bb-row {
+  border-bottom-color: rgba(148, 163, 184, 0.08);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.bb-row:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.bbm-table,
+.th-picks,
+.roster-pos-col,
+.gm-table-wrap {
+  border-color: var(--line-soft);
+  background: rgba(5, 7, 11, 0.38);
+}
+
+.bbm-thead {
+  background: #0a0f17;
+  box-shadow: 0 1px 0 var(--line-soft);
+}
+
+.bbm-row {
+  border-bottom-color: rgba(148, 163, 184, 0.08);
+}
+
+.bbm-row:hover,
+.gm-row:hover {
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.nav-tab-count:not(.hidden),
+.trade-hub-badge {
+  border: 1px solid rgba(248, 192, 67, 0.26);
+  background: rgba(240, 176, 32, 0.14);
+  color: #ffd166;
+}
+
+.modal-panel {
+  position: relative;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 10px !important;
+  border-color: var(--line) !important;
+  background: linear-gradient(180deg, rgba(17, 25, 39, 0.98) 0%, rgba(8, 12, 18, 0.98) 100%) !important;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.62), 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+}
+
+#modal-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+#modal-root.big-board-modal-open #modal-body,
+#modal-root.rosters-modal #modal-body,
+#modal-root.full-board-modal #modal-body {
+  overflow: hidden;
+}
+
 #modal-root:not(.hidden) {
   animation: modal-backdrop-in 160ms ease-out;
 }
-#modal-root:not(.hidden) > div {
+
+#modal-root:not(.hidden) .modal-panel {
   animation: modal-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
+
 @keyframes modal-backdrop-in {
-  from { background-color: rgba(0,0,0,0); }
-  to   { background-color: rgba(0,0,0,0.7); }
-}
-@keyframes modal-card-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.985); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { background-color: rgba(0, 0, 0, 0); }
+  to { background-color: rgba(0, 0, 0, 0.7); }
 }
 
-/* 12. Modal close button — bigger hit target, clearer state */
+@keyframes modal-card-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 #modal-close {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
   border-radius: 6px;
-  font-size: 14px;
-  line-height: 1;
-  transition: all 140ms ease;
-  color: #64748b;
+  color: var(--muted);
+  transition: background 140ms ease, color 140ms ease, transform 140ms ease;
 }
+
 #modal-close:hover {
-  background: #1a2030;
-  color: #f1f5f9;
+  background: rgba(148, 163, 184, 0.1);
+  color: #ffffff;
 }
 
-/* 13. Toast — softer entry, refined shadow */
 #toast {
-  border-color: #252d42;
-  background: linear-gradient(180deg, #1a2030 0%, #11151f 100%);
-  box-shadow: 0 12px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.02);
+  border-color: var(--line);
+  background: linear-gradient(180deg, #182234 0%, #101722 100%);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.52);
 }
 
-/* 14. Need rows — subtle row divider effect on hover, accent text */
-.need-row { transition: background 120ms ease, transform 120ms ease; }
-.need-row:hover { background: #161c2b; transform: translateX(2px); }
-.need-row .pos { letter-spacing: -0.005em; }
-
-/* 15. Previous Selections rows — same micro-shift on hover */
-.ps-row { transition: background 120ms ease, transform 120ms ease; }
-.ps-row:hover { background: #161c2b; transform: translateX(2px); }
-
-/* 16. Big Board / team-board rows — consistent hover treatment */
-.bb-row { transition: background 120ms ease; }
-
-/* 17. Header nav-tab badge — calmer color when 0 */
-.nav-tab-count:not(.hidden) {
-  background: #2a1f08;
-  color: #f8c043;
-  border: 1px solid rgba(240,176,32,0.25);
+.pretty-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #2d3a52 transparent;
 }
 
-/* 18. Empty placeholders — consistent dashed style */
+.pretty-scroll::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.pretty-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pretty-scroll::-webkit-scrollbar-thumb {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: #2d3a52;
+  background-clip: padding-box;
+}
+
+.pretty-scroll::-webkit-scrollbar-thumb:hover {
+  background: #40506d;
+  background-clip: padding-box;
+}
+
 .bb-logo-placeholder,
 .ps-logo-placeholder,
 .roster-college-placeholder,
-.pp-college-logo-placeholder {
-  background: repeating-linear-gradient(
-    -45deg,
-    #0d1118,
-    #0d1118 4px,
-    #11151f 4px,
-    #11151f 8px
-  );
-  border: 1px dashed #1a2030;
+.pp-college-logo-placeholder,
+.bbm-logo-placeholder {
+  background:
+    linear-gradient(135deg, rgba(148, 163, 184, 0.06) 25%, transparent 25%) 0 0 / 8px 8px,
+    #0b1018;
+  border: 1px dashed rgba(148, 163, 184, 0.18);
+}
+
+@media (max-width: 1320px) {
+  #app.app-layout:not(.hidden) {
+    grid-template-columns: minmax(250px, 0.82fr) minmax(560px, 1.7fr);
+  }
+
+  #app.app-layout > .right-rail {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 980px) {
+  .app-header-inner {
+    align-items: flex-start;
+  }
+
+  .brand-block {
+    width: 100%;
+    min-width: 0;
+    padding-right: 0;
+    margin-right: 0;
+    border-right: 0;
+  }
+
+  .command-bar {
+    justify-content: flex-start;
+  }
+
+  #app.app-layout:not(.hidden) {
+    grid-template-columns: 1fr;
+  }
+
+  #app.app-layout > .right-rail {
+    grid-column: auto;
+  }
+
+  #round-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .rosters-content {
+    grid-template-columns: 1fr;
+  }
+
+  .rosters-needs-card {
+    position: relative;
+  }
+
+  .roster-group-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 700px) {
+  .setup-screen,
+  #modal-root {
+    padding: 14px;
+  }
+
+  .app-header-inner,
+  #app.app-layout {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .app-header-inner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .app-header-main,
+  .command-bar {
+    width: 100%;
+    gap: 8px;
+  }
+
+  .app-header-main > button,
+  .command-bar > button,
+  .command-bar > select {
+    flex: 1 1 150px;
+    justify-content: center;
+  }
+
+  .select-player-btn,
+  .trade-hub-header-btn,
+  .nav-tab-btn,
+  .sim-btn,
+  .primary-btn,
+  .sim-select {
+    min-height: 36px;
+  }
+
+  #round-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .th-card-body,
+  .pp-header {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 460px) {
+  #round-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .team-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
 }

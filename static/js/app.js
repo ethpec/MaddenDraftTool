@@ -26,6 +26,38 @@ const state = {
   lastPick: null,
 };
 
+const PICK_SELECTION_SOUND_SRC = '/static/sounds/selection.mp3';
+const TRADE_SOUND_SRC = '/static/sounds/trade.mp3';
+const USER_ON_CLOCK_CHIME_SRC = '/static/sounds/chime.mp3';
+
+function playSound(src, volume = 0.7) {
+  const audio = new Audio(src);
+  audio.volume = volume;
+  audio.play().catch(() => {
+    // Browsers may block sound if the action was not user-initiated.
+  });
+}
+
+function playPickSelectionSound() {
+  playSound(PICK_SELECTION_SOUND_SRC, 0.65);
+}
+
+function playTradeSound() {
+  playSound(TRADE_SOUND_SRC, 0.75);
+}
+
+function playUserOnClockChime() {
+  playSound(USER_ON_CLOCK_CHIME_SRC, 0.7);
+}
+
+function maybePlayUserOnClockChime(previousSession, nextSession) {
+  const previousTeam = previousSession?.current_pick?.current_team;
+  const nextTeam = nextSession?.current_pick?.current_team;
+  if (previousTeam && previousTeam !== state.userTeam && nextTeam === state.userTeam) {
+    playUserOnClockChime();
+  }
+}
+
 // ---------- bootstrap ----------
 
 const setupState = { selectedTeam: null };
@@ -205,6 +237,17 @@ function renderOnTheClock() {
   const teamEl = document.getElementById('on-the-clock-team');
   const metaEl = document.getElementById('on-the-clock-meta');
   const logoEl = document.getElementById('on-the-clock-logo');
+  const progressBar = document.getElementById('draft-progress-bar');
+  const progressMeta = document.getElementById('draft-progress-meta');
+  const made = state.session.picks_made || 0;
+  const total = state.session.total_picks || 0;
+  if (progressBar) {
+    const pct = total ? Math.min(100, Math.max(0, (made / total) * 100)) : 0;
+    progressBar.style.width = pct + '%';
+  }
+  if (progressMeta) {
+    progressMeta.textContent = total ? `${made} of ${total} selections made` : '';
+  }
   if (!c) {
     teamEl.textContent = 'Draft Complete';
     metaEl.textContent = `${state.session.picks_made} of ${state.session.total_picks} picks`;
@@ -494,6 +537,11 @@ async function simPick() {
   }
   const res = await api.post('/api/pick/sim');
   if (!res.ok) return toast('Sim failed: ' + (res.error || 'unknown'));
+  if (res.trade) {
+    playTradeSound();
+  } else if (res.pick) {
+    playPickSelectionSound();
+  }
   await reloadSessionAndRender();
   if (res.trade) {
     showTradeModal(res.trade, res.pick);
@@ -656,11 +704,13 @@ async function submitPick(playerId) {
   if (!c) return toast('Draft complete.');
   const res = await api.post('/api/pick/force-make', { player_id: playerId });
   if (!res.ok) return toast('Pick failed: ' + res.error);
+  playPickSelectionSound();
   await reloadSessionAndRender();
   toast(`${res.drafted_for || c.current_team} drafted.`);
 }
 
 async function reloadSessionAndRender() {
+  const previousSession = state.session;
   const [s, b, pub] = await Promise.all([
     api.get('/api/session'),
     api.get('/api/board'),
@@ -671,6 +721,7 @@ async function reloadSessionAndRender() {
   state.futurePicks = b.future_picks || [];
   state.publicBoard = pub.players;
   invalidatePositionLookup();
+  maybePlayUserOnClockChime(previousSession, state.session);
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;
     document.getElementById('round-picker').value = String(state.selectedRound);
