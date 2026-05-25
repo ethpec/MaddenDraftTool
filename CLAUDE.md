@@ -214,8 +214,13 @@ Implemented:
       target → round 2+ (no future 1sts allowed); round-3+ target →
       `target_round − 1`.
     - each side capped at 1 future pick AND gated by independent future-pick
-      rolls: trade-up side `_FUTURE_PICK_GATE_UP` (15%), trade-down side
-      `_FUTURE_PICK_GATE_DOWN` (10%)
+      rolls. Trade-up side uses a **split gate**: R1/R2 futures gate at
+      `_FUTURE_PICK_GATE_UP_PREMIUM` (2.5%) base, boosted by
+      `_FUTURE_PICK_GATE_BONUS` only when the top board player is *both* a
+      premium position group *and* an eligible need in the target round's
+      window (QB +0.65, WR/OT/EDGE +0.175, CB +0.125); R3+ futures gate at
+      `_FUTURE_PICK_GATE_UP_LATE` (15%). Trade-down return: R1/R2 futures
+      always blocked (0%); R3+ gated at `_FUTURE_PICK_GATE_DOWN` (10%).
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
   for rolling/caching `m_down`.
@@ -657,7 +662,8 @@ is fully dynamic.
 - CPU trade probability tuning — `_slide_prob` / `_slide_prob_up` bucket
   thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
   `_TRADE_UP_OFFSET` (±0.049, applied as a uniform random offset per offer),
-  `_FUTURE_PICK_GATE_UP` (0.15) / `_FUTURE_PICK_GATE_DOWN` (0.10), and the complexity
+  `_FUTURE_PICK_GATE_UP_PREMIUM` (0.025) / `_FUTURE_PICK_GATE_UP_LATE` (0.15) /
+  `_FUTURE_PICK_GATE_DOWN` (0.10) / `_FUTURE_PICK_GATE_BONUS` position bonuses, and the complexity
   tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
 - Position group cap tuning — `MaxDrafted` values in `DraftMaxPerPositionGroup.xlsx`
   are initial guesses; refine based on play-testing.

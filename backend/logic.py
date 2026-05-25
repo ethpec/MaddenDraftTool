@@ -302,8 +302,12 @@ _USER_TRADE_DOWN_HARD_FLOOR: float = 0.95
 # in their package. Each side rolls independently per offer. Trade-down side
 # is slightly more restrictive — teams are less willing to accept NEXT YEAR
 # capital back than they are to spend it moving up.
-_FUTURE_PICK_GATE_UP: float = 0.15
-_FUTURE_PICK_GATE_DOWN: float = 0.10
+_FUTURE_PICK_GATE_UP_PREMIUM: float = 0.025   # future R1/R2 base gate; boosted by target position
+_FUTURE_PICK_GATE_BONUS: dict[str, float] = {  # added to base when BPA/need is this group
+    "QB": 0.65, "WR": 0.175, "OT": 0.175, "EDGE": 0.175, "CB": 0.125,
+}
+_FUTURE_PICK_GATE_UP_LATE: float = 0.15      # future R3+ in trade-up offer
+_FUTURE_PICK_GATE_DOWN: float = 0.10         # future R3+ in trade-down return (R1/R2 always blocked)
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
@@ -439,9 +443,9 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
         hot_zone = -0.50
     elif current_slot == 33:
         hot_zone = 0.15
-    elif 30 <= current_slot <= 32 or 34 <= current_slot <= 35:
+    elif 2 <= current_slot <= 10 or 30 <= current_slot <= 32 or 34 <= current_slot <= 35:
         hot_zone = 0.075
-    elif 2 <= current_slot <= 10 or 20 <= current_slot <= 29 or 36 <= current_slot <= 42:
+    elif 20 <= current_slot <= 29 or 36 <= current_slot <= 42:
         hot_zone = 0.05
     else:
         hot_zone = 0.025
@@ -467,7 +471,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
     gm_multiplier = {1: 0.9, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
     round_mod = _round_modifier_down(round_1)
-    return max(0.075, min(0.95,
+    return max(0.10, min(0.95,
         (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult * round_mod))
 
 
@@ -523,13 +527,13 @@ def _round_modifier_up(round_1: int) -> float:
     if round_1 == 2:
         return 0.95
     if round_1 == 3:
-        return 0.85
+        return 0.90
     if round_1 == 4:
         return 0.65
     if round_1 == 5:
         return 0.75
     if round_1 == 6:
-        return 0.85
+        return 0.95
     return 1.05  # round 7+
 
 
@@ -542,13 +546,13 @@ def _round_modifier_down(round_1: int) -> float:
     if round_1 == 2:
         return 1.15
     if round_1 == 3:
-        return 1.25
+        return 1.35
     if round_1 == 4:
         return 1.20
     if round_1 == 5:
         return 1.45
     if round_1 == 6:
-        return 2.25
+        return 2.15
     return 3.50  # round 7
 
 
@@ -685,7 +689,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
     round_mod = _round_modifier_up(round_1)
-    return max(0.001, min(0.5,
+    return max(0.001, min(0.50,
         (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod))
 
 
@@ -1040,8 +1044,27 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         team_picks = [p for p in all_picks
                       if p.get("current_team") == team and _is_eligible(p)]
-        if random.random() > _FUTURE_PICK_GATE_UP:
-            team_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]
+        # Position-aware gate for future R1/R2. Bonus applies only when the
+        # top board player is a premium position (QB/WR/OT/EDGE/CB) AND that
+        # position is also an eligible need in the target round's window.
+        _pm = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
+        _board = state.get("team_boards", {}).get(team, [])
+        _avail = [_pm[pid] for pid in _board if pid in _pm and not _pm[pid].get("drafted")]
+        _bpa_grp = POSITION_GROUPS.get(
+            (_avail[0].get("position", "") if _avail else ""), "") or (
+            _avail[0].get("position", "") if _avail else "")
+        _, (win_min, win_max), _ = _round_bucket(round_1, pick.get("pick_in_round", 1))
+        _gm_idx = gm.get("TeamIndex")
+        _needs = _get_needs(state, team, int(_gm_idx)) if _gm_idx is not None else []
+        _eligible = {n["position"] for n in _needs if win_min < n["weight"] <= win_max}
+        _bonus = (_FUTURE_PICK_GATE_BONUS.get(_bpa_grp, 0.0)
+                  if _bpa_grp in _eligible else 0.0)
+        if random.random() > _FUTURE_PICK_GATE_UP_PREMIUM + _bonus:
+            team_picks = [p for p in team_picks
+                          if not (p.get("year_offset", 0) > 0 and p.get("round", 99) <= 2)]
+        if random.random() > _FUTURE_PICK_GATE_UP_LATE:
+            team_picks = [p for p in team_picks
+                          if not (p.get("year_offset", 0) > 0 and p.get("round", 99) >= 3)]
 
         # Future-pick round floor: when the trade-up team is offering a future
         # pick, that pick's round must be no earlier than (target_round - 1),
@@ -1053,7 +1076,10 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
                       or p.get("round", 1) >= min_future_round]
 
         # Independent gate: does this AI get to ask for a future return pick?
+        # Future R1/R2 are never included in a trade-down return package.
         down_team_picks = down_team_picks_all
+        down_team_picks = [p for p in down_team_picks
+                           if not (p.get("year_offset", 0) > 0 and p.get("round", 99) <= 2)]
         if random.random() > _FUTURE_PICK_GATE_DOWN:
             down_team_picks = [p for p in down_team_picks if p.get("year_offset", 0) == 0]
 
@@ -1072,7 +1098,7 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
         future_picks_eligible = [p for p in team_picks
                                  if p.get("year_offset", 0) > 0
                                  and value_of[id(p)] < 1.15 * target_val]
-        if future_picks_eligible:
+        if future_picks_eligible and round_1 != 1:
             f_high = max(future_picks_eligible, key=lambda p: value_of[id(p)])
             anchors.append(f_high)
 
