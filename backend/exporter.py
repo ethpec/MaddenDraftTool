@@ -84,16 +84,21 @@ def _write_updated_picks(session: DraftSession, year: str | int | None, path: Pa
     """Rewrite the original DraftPicks.xlsx with updated CurrentTeam + selections.
 
     We re-open the source file to preserve column order/format, mutate
-    just the rows for YearOffset == 0, and save under a new name.
+    CurrentTeam (and SelectedPlayer for current-year picks), and save under
+    a new name. Both current-year (YearOffset=0) and future picks
+    (YearOffset=1) are updated so traded next-year picks reflect their new
+    owner on re-import.
     """
     source = resolve_year_folder(year) / "DraftPicks.xlsx"
     wb = openpyxl.load_workbook(source)
     ws = wb.active
 
-    # Collect mutations indexed by (Round, PickNumber).
-    by_round_pick: dict[tuple[int, int], Any] = {}
+    # Index picks by (year_offset, Round, PickNumber) — both current and future.
+    by_key: dict[tuple[int, int, int], Any] = {}
     for pick in session.board():
-        by_round_pick[(pick.round_1 - 1, pick.pick_in_round_1 - 1)] = pick
+        by_key[(0, pick.round_1 - 1, pick.pick_in_round_1 - 1)] = pick
+    for pick in session.future_picks():
+        by_key[(1, pick.round_1 - 1, pick.pick_in_round_1 - 1)] = pick
 
     # Find header positions.
     headers = [c.value for c in ws[1]]
@@ -107,16 +112,16 @@ def _write_updated_picks(session: DraftSession, year: str | int | None, path: Pa
     }
 
     for row_i in range(2, ws.max_row + 1):
-        if (ws.cell(row_i, h["YearOffset"]).value or 0) != 0:
-            continue
+        year_off = int(ws.cell(row_i, h["YearOffset"]).value or 0)
         rnd = ws.cell(row_i, h["Round"]).value or 0
         pk = ws.cell(row_i, h["PickNumber"]).value or 0
-        pick = by_round_pick.get((rnd, pk))
+        pick = by_key.get((year_off, rnd, pk))
         if not pick:
             continue
         idx = name_to_idx.get(pick.current_team)
         if idx is not None:
-            ws.cell(row_i, h["CurrentTeam"]).value = _encode_team_id(idx)
+            original = ws.cell(row_i, h["CurrentTeam"]).value
+            ws.cell(row_i, h["CurrentTeam"]).value = _encode_team_id(idx, original)
         if pick.selected_player_id:
             ws.cell(row_i, h["SelectedPlayer"]).value = pick.selected_player_id
     wb.save(path)
@@ -152,12 +157,13 @@ def _total_pick_value(picks: list[dict[str, Any]], pv_table: dict[str, Any]) -> 
     return round(sum(pick_value(p, pv_table) for p in picks), 1)
 
 
-def _encode_team_id(team_index: int) -> str:
-    """Inverse of data_loader._decode_team_id.
+def _encode_team_id(team_index: int, original_value: Any = None) -> str:
+    """Reconstruct the 32-bit binary team ID used by DraftPicks.xlsx.
 
-    Reuses the high-bit prefix observed in the source file. Real game
-    re-import may need the full original 24-bit prefix; for now we
-    preserve the prefix from one of the sample IDs.
+    The high 24 bits are a version-specific prefix that varies across Madden
+    releases. We read it from the row's existing value so the output always
+    matches what the game expects, regardless of version.
     """
-    prefix = "001011010100101000000000"
+    s = str(original_value) if original_value is not None else ""
+    prefix = s[:24] if len(s) == 32 and all(c in "01" for c in s) else "001011010100101000000000"
     return prefix + format(team_index & 0xFF, "08b")

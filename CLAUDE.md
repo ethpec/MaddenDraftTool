@@ -667,9 +667,11 @@ is fully dynamic.
   tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
 - Position group cap tuning — `MaxDrafted` values in `DraftMaxPerPositionGroup.xlsx`
   are initial guesses; refine based on play-testing.
-- Per-row prefix preservation in `exporter._encode_team_id` if Madden
-  re-import rejects the heuristic prefix (the team ID encoding bug for
-  traded picks was fixed — this remaining gap is only the 24-bit prefix).
+- `exporter._encode_team_id` now reads the 24-bit prefix from each row's
+  existing `CurrentTeam` value so the output matches the game's expected
+  format regardless of Madden version. Future picks (YearOffset=1) are
+  also updated in `_write_updated_picks` so traded next-year picks reflect
+  their new owner on re-import.
 - Trade-value heuristics in `logic.pick_value` work; pick value lookup
   uses 0-indexed `Pick` column in `DraftPickValue.xlsx` (subtract 1 from
   `draft_slot` before lookup — see `_pick_point_value` in `app.py` for
