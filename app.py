@@ -30,6 +30,52 @@ def _require_session():
     return _session, None
 
 
+def _portrait_url(player: dict[str, Any] | None, portrait_files: list[str]) -> str | None:
+    """Resolve a player's portrait URL from /static/portraits/.
+
+    Preferred: BigBoard's ``GenericHeadAssetName`` (e.g. ``gen_2_BMH_S_002``)
+    maps directly to ``plpo_generic_2_BMH_S_002.png`` — Madden's actual
+    assigned portrait for that prospect. This is exact, not a guess.
+
+    Fallback: when no asset name is present (e.g. vets without a BigBoard
+    entry), hash ``PLYR_PORTRAIT`` (or the player's name) into the
+    sorted portraits list so the same player always gets the same image.
+    """
+    if not player or not portrait_files:
+        return None
+    # Direct mapping path — BigBoard prospects carry the asset name.
+    asset = player.get("GenericHeadAssetName")
+    if asset:
+        fname = str(asset).replace("gen_", "plpo_generic_", 1) + ".png"
+        # Validate the file actually exists before returning the URL;
+        # if Madden ever ships an asset name we don't have on disk,
+        # silently fall through to the hash fallback.
+        if fname in _PORTRAIT_FILES_SET:
+            return "/static/portraits/" + fname
+    # Hash fallback for players without a known asset name.
+    seed = player.get("PLYR_PORTRAIT")
+    try:
+        seed = int(seed) if seed else 0
+    except (TypeError, ValueError):
+        seed = 0
+    if seed <= 0:
+        seed = hash((player.get("FirstName") or "",
+                     player.get("LastName") or "")) & 0xFFFFFFFF
+    idx = seed % len(portrait_files)
+    return "/static/portraits/" + portrait_files[idx]
+
+
+# Cached set of available portrait filenames for O(1) existence checks
+# inside _portrait_url. Refreshed lazily by _refresh_portrait_set when
+# a new session is started.
+_PORTRAIT_FILES_SET: set[str] = set()
+
+
+def _refresh_portrait_set(portrait_files: list[str]) -> None:
+    global _PORTRAIT_FILES_SET
+    _PORTRAIT_FILES_SET = set(portrait_files)
+
+
 def _serialize_session(session: DraftSession) -> dict[str, Any]:
     current = session.current_pick()
     nfl_logos = session.data.get("nfl_logo_map", {})
@@ -48,6 +94,8 @@ def _serialize_session(session: DraftSession) -> dict[str, Any]:
             last_d["college"] = match.get("college")
             last_d["college_logo"] = match.get("college_logo")
             last_d["position"] = match.get("position")
+            last_d["portrait_url"] = _portrait_url(
+                match, session.data.get("portrait_files", []))
     return {
         "year": _session_year,
         "user_team": session.user_team,
@@ -237,6 +285,7 @@ def api_session_start():
     data = data_loader.load_all(year)
     _session = DraftSession(data, user_team=user_team)
     _session_year = data.get("folder_name") or str(year)
+    _refresh_portrait_set(data.get("portrait_files", []))
     return jsonify({
         "ok": True,
         "session": _serialize_session(_session),
@@ -311,6 +360,7 @@ def api_player(player_id: str):
         "position": p.get("position"),
         "college": p.get("college"),
         "college_logo": p.get("college_logo"),
+        "portrait_url": _portrait_url(p, sess.data.get("portrait_files", [])),
         "consensus_rank": p.get("BigBoardRank"),
         "prospect_type": p.get("ProspectType"),
         "projected_round": p.get("PLYR_DRAFTROUND"),

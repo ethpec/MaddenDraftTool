@@ -16,25 +16,57 @@
   color: #94a3b8;
   font-weight: 600;
 }
+/* Sim/command buttons — secondary action category. Visually distinct
+   from the nav pills (which switch views): leading chevron, mono-ish
+   feel, cooler slate tint, sharper corners. Clear "do something" vs
+   "navigate somewhere" affordance. */
 .sim-btn {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 12px;
-  border-radius: 6px;
-  border: 1px solid #252d42;
-  background: #11151f;
-  color: #e2e8f0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  padding: 5px 11px 5px 8px;
+  border-radius: 4px;
+  border: 1px solid #2a3550;
+  background: linear-gradient(180deg, #0e1320 0%, #0a0e18 100%);
+  color: #cbd5e1;
   transition: all 120ms ease;
 }
-.sim-btn:hover { background: #1a2030; border-color: #38456a; color: #fff; }
+.sim-btn::before {
+  content: '›';
+  display: inline-block;
+  font-family: 'JetBrains Mono', ui-monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5b8fd6;
+  line-height: 1;
+  transform: translateY(-1px);
+  transition: transform 140ms ease, color 140ms ease;
+}
+.sim-btn:hover {
+  background: linear-gradient(180deg, #131a2a 0%, #0e1320 100%);
+  border-color: #3b4d75;
+  color: #fff;
+}
+.sim-btn:hover::before {
+  color: #8ab4f8;
+  transform: translate(2px, -1px);
+}
 .sim-select {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid #252d42;
-  background: #11151f;
-  color: #e2e8f0;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: 4px;
+  border: 1px solid #2a3550;
+  background: linear-gradient(180deg, #0e1320 0%, #0a0e18 100%);
+  color: #cbd5e1;
+  transition: all 120ms ease;
+}
+.sim-select:hover:not(:disabled) {
+  background: linear-gradient(180deg, #131a2a 0%, #0e1320 100%);
+  border-color: #3b4d75;
 }
 .sim-select:disabled { opacity: 0.4; cursor: not-allowed; }
 .primary-btn {
@@ -220,6 +252,25 @@
   border-color: #f0b020;
   box-shadow: 0 0 0 1px #f0b020 inset;
 }
+
+/* Main board: every pick cell opens the team's roster — hover affordance
+   applies to all states (completed, on-clock, simmable). The on-clock
+   pulse takes precedence so we don't change its border on hover. */
+#round-grid .pick-cell {
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+#round-grid .pick-cell:not(.on-clock):hover {
+  border-color: #38456a;
+  transform: translateY(-1px);
+}
+#round-grid .pick-cell.user-pick:not(.on-clock):hover {
+  border-color: #f8c043;
+}
+#round-grid .pick-cell:focus {
+  outline: none;
+  box-shadow: 0 0 0 1px #f0b020 inset;
+}
 @keyframes pulse {
   0%, 100% { box-shadow: 0 0 0 1px #22c55e inset, 0 0 24px rgba(34,197,94,0.15); }
   50%      { box-shadow: 0 0 0 1px #22c55e inset, 0 0 36px rgba(34,197,94,0.30); }
@@ -352,13 +403,26 @@
   color: #64748b;
   font-weight: 600;
 }
+.user-pick-chip.jumpable {
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease,
+              color 120ms ease, transform 120ms ease;
+}
+.user-pick-chip.jumpable:hover {
+  border-color: #f0b020;
+  background: linear-gradient(180deg, #2a1f08 0%, #1a1410 100%);
+  color: #f8c043;
+  transform: translateY(-1px);
+}
+.user-pick-chip.jumpable:hover span { color: #c98c0a; }
+.user-pick-chip.jumpable:active { transform: translateY(0); }
 .user-picks-empty {
   font-size: 10px;
   color: #475569;
 }
 .team-board-list {
   margin-top: 8px;
-  max-height: 370px;
+  max-height: 492px;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -403,8 +467,47 @@
   gap: 8px;
   padding: 4px 6px;
   border-radius: 4px;
+  transition: background 120ms ease, transform 120ms ease;
 }
 .ps-row:hover { background: #11151f; }
+.ps-row.clickable { cursor: pointer; }
+.ps-row.clickable:hover {
+  background: #1a2030;
+  transform: translateX(2px);
+}
+.ps-row.clickable:focus {
+  outline: none;
+  background: #1a2030;
+  box-shadow: 0 0 0 1px #f0b020 inset;
+}
+
+/* Last Selection — clickable card */
+.last-pick-card {
+  border-radius: 8px;
+  padding: 2px;
+  transition: background 140ms ease, transform 140ms ease;
+}
+.last-pick-card.clickable { cursor: pointer; }
+.last-pick-card.clickable:hover {
+  background: rgba(240,176,32,0.04);
+  transform: translateY(-1px);
+}
+.last-pick-card.clickable:hover .last-pick-portrait-img,
+.last-pick-card.clickable:hover .last-pick-portrait-fallback {
+  border-color: #38456a;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.05) inset,
+    0 8px 22px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(248,192,67,0.25);
+}
+.last-pick-card.clickable:hover .last-pick-name {
+  color: #f8c043;
+}
+.last-pick-card.clickable:focus {
+  outline: none;
+  background: rgba(240,176,32,0.08);
+}
+.last-pick-name { transition: color 140ms ease; }
 .ps-pos { font-size: 11px; font-weight: 700; color: #e2e8f0; font-family: 'JetBrains Mono', ui-monospace; }
 .ps-logo { width: 22px; height: 22px; object-fit: contain; }
 .ps-logo-placeholder {
@@ -424,17 +527,66 @@
   max-width: 96rem;
 }
 .full-board {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 78vh;
+  overflow-y: auto;
+}
+.fb-round-section { min-width: 0; }
+.fb-round-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 2px 8px;
+}
+.fb-round-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #f8c043;
+  padding: 4px 10px;
+  border: 1px solid #c98c0a;
+  background: linear-gradient(180deg, #2a1f08 0%, #1a1410 100%);
+  border-radius: 4px;
+  box-shadow: 0 0 12px rgba(240,176,32,0.18);
+  flex-shrink: 0;
+}
+.fb-round-line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, #38456a, #1a2030 40%, transparent);
+}
+.fb-round-user-count {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f8c043;
+  background: #1a1410;
+  border: 1px solid #c98c0a;
+  border-radius: 999px;
+  padding: 3px 10px;
+  flex-shrink: 0;
+}
+.fb-round-grid {
   display: grid;
   grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 4px;
-  max-height: 70vh;
-  overflow-y: auto;
 }
 .full-board .pick-cell {
   min-height: 54px;
   min-width: 0;
   padding: 5px 6px;
   border-radius: 6px;
+}
+/* Make the user-pick gold ring more prominent at full-board scale */
+.full-board .pick-cell.user-pick {
+  border-color: #f8c043;
+  box-shadow:
+    0 0 0 1px #f8c043 inset,
+    0 0 12px rgba(240,176,32,0.28);
 }
 .full-board .pick-cell .pick-num {
   font-size: 9px;
@@ -1266,8 +1418,6 @@
   background: #0b0e15;
   border: 1px solid #1a2030;
   border-radius: 8px;
-  max-height: 168px;
-  overflow-y: auto;
   flex-shrink: 0;
 }
 @media (max-width: 1400px) {
@@ -1319,6 +1469,7 @@
   flex: 1;
   overflow-y: auto;
   padding: 0 4px 4px;
+  min-height: 0;
 }
 .rosters-content {
   display: grid;
@@ -1331,13 +1482,8 @@
   border-radius: 10px;
   background: linear-gradient(180deg, #11151f 0%, #0e1219 100%);
   padding: 12px 14px;
-  position: sticky;
-  top: 0;
   display: flex;
   flex-direction: column;
-  max-height: calc(84vh - 190px);
-  min-height: 0;
-  overflow: hidden;
 }
 .rosters-needs-head {
   display: flex;
@@ -1384,30 +1530,12 @@
   white-space: nowrap;
 }
 .rosters-picks-list {
+  /* All draft picks render inline — no inner scroll. If the left
+     column grows tall, the rosters-body scroll handles it. */
   display: flex;
   flex-direction: column;
-  flex: 1 1 auto;
   gap: 5px;
   margin-top: 8px;
-  min-height: 160px;
-  max-height: none;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding-right: 2px;
-  scrollbar-width: thin;
-  scrollbar-color: #2d3a52 transparent;
-}
-.rosters-picks-list::-webkit-scrollbar { width: 7px; }
-.rosters-picks-list::-webkit-scrollbar-track { background: transparent; }
-.rosters-picks-list::-webkit-scrollbar-thumb {
-  border: 1px solid transparent;
-  border-radius: 999px;
-  background: #2d3a52;
-  background-clip: padding-box;
-}
-.rosters-picks-list::-webkit-scrollbar-thumb:hover {
-  background: #40506d;
-  background-clip: padding-box;
 }
 .rosters-pick-row {
   border: 1px solid #1a2030;
@@ -1855,7 +1983,6 @@ input:focus-visible,
   letter-spacing: 0;
 }
 
-.sim-btn,
 .action-btn,
 .nav-tab-btn,
 .trade-hub-header-btn,
@@ -1872,7 +1999,6 @@ input:focus-visible,
     box-shadow 140ms ease;
 }
 
-.sim-btn,
 .nav-tab-btn,
 .trade-hub-header-btn {
   border-color: var(--line);
@@ -1881,7 +2007,6 @@ input:focus-visible,
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
 }
 
-.sim-btn:hover,
 .action-btn:hover,
 .nav-tab-btn:hover,
 .trade-hub-header-btn:hover,
@@ -1892,7 +2017,12 @@ input:focus-visible,
   transform: translateY(-1px);
 }
 
-.sim-btn:hover,
+.sim-btn:hover {
+  /* sim-btn keeps its slate hover styling from its own rule above;
+     just add the standard lift here. */
+  transform: translateY(-1px);
+}
+
 .nav-tab-btn:hover,
 .trade-hub-header-btn:hover {
   border-color: rgba(248, 192, 67, 0.42);
@@ -1934,7 +2064,6 @@ input:focus-visible,
 }
 
 .sim-select,
-#round-picker,
 #team-board-picker,
 #year-select,
 #trade-up-target,
@@ -1949,7 +2078,6 @@ input:focus-visible,
 }
 
 .sim-select:hover:not(:disabled),
-#round-picker:hover,
 #team-board-picker:hover,
 #year-select:hover,
 #trade-up-target:hover,
@@ -2346,4 +2474,128 @@ input:focus-visible,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+}
+
+/* ============================================================
+   Player portraits — drawn from /static/portraits/. The portrait
+   is the primary visual on the Last Selection card and the
+   Player Profile header; the college logo overlays the corner.
+   ============================================================ */
+
+.last-pick-portrait-wrap {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  margin: 0 auto 4px;
+  border-radius: 12px;
+  overflow: visible;
+}
+.last-pick-portrait-img,
+.last-pick-portrait-fallback {
+  width: 96px;
+  height: 96px;
+  border-radius: 12px;
+  display: block;
+  object-fit: cover;
+  background: linear-gradient(180deg, #1a2030 0%, #0d1118 100%);
+  border: 1px solid #1d2435;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.04) inset,
+    0 6px 18px rgba(0,0,0,0.5);
+}
+.last-pick-portrait-fallback {
+  display: grid;
+  place-items: center;
+  font-size: 36px;
+  font-weight: 800;
+  color: #475569;
+  letter-spacing: -0.02em;
+}
+.last-pick-college-chip {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  background: #0b0e15;
+  border: 1px solid #1d2435;
+  border-radius: 50%;
+  padding: 3px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.6);
+}
+
+.pp-portrait-stack {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+}
+.pp-portrait {
+  width: 96px;
+  height: 96px;
+  border-radius: 14px;
+  object-fit: cover;
+  background: linear-gradient(180deg, #1a2030 0%, #0d1118 100%);
+  border: 1px solid #1d2435;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.05) inset,
+    0 8px 22px rgba(0,0,0,0.55);
+}
+.pp-portrait-college-chip {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  background: #0b0e15;
+  border: 1px solid #1d2435;
+  border-radius: 50%;
+  padding: 4px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.6);
+}
+
+/* ============================================================
+   Round tabs — replaces the legacy <select> round picker.
+   One-click round switching, gold active state.
+   ============================================================ */
+.round-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: #0b0e15;
+  border: 1px solid #1d2435;
+  border-radius: 8px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+}
+.round-tab {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  font-family: 'JetBrains Mono', ui-monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+.round-tab:hover {
+  background: #11151f;
+  color: #e2e8f0;
+}
+.round-tab.active {
+  background: linear-gradient(180deg, #f8c043 0%, #f0b020 55%, #c98c0a 100%);
+  color: #06080d;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,0.35) inset,
+    0 -1px 0 rgba(0,0,0,0.2) inset,
+    0 2px 6px rgba(240,176,32,0.3);
+}
+.round-tab.active:hover {
+  background: linear-gradient(180deg, #fbd166 0%, #f8c043 55%, #d99a14 100%);
 }

@@ -26,9 +26,10 @@ FILES_ROOT = REPO_ROOT / "Files"
 FALLBACK_FOLDER_NAME = "TestFiles"
 NFL_LOGOS_DIR = REPO_ROOT / "static" / "nfl_logos"
 COLLEGE_LOGOS_DIR = REPO_ROOT / "static" / "college_logos"
+PORTRAITS_DIR = REPO_ROOT / "static" / "portraits"
 DATA_CACHE_DIRNAME = ".cache"
-PLAYER_CACHE_VERSION = 2
-LOAD_ALL_CACHE_VERSION = 4
+PLAYER_CACHE_VERSION = 3
+LOAD_ALL_CACHE_VERSION = 6
 _LOAD_ALL_CACHE_LOCK = threading.Lock()
 _LOAD_ALL_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 
@@ -50,6 +51,7 @@ PLAYER_COLUMNS_OF_INTEREST: tuple[str, ...] = (
     "PLYR_ASSETNAME",
     "PLYR_DRAFTROUND",
     "PLYR_DRAFTPICK",
+    "PLYR_PORTRAIT",
 )
 
 
@@ -110,6 +112,20 @@ def build_nfl_logo_map() -> dict[str, str]:
         if fname in file_set:
             out[team] = "/static/nfl_logos/" + fname
     return out
+
+
+def build_portrait_files() -> list[str]:
+    """Return a sorted list of portrait filenames from ``static/portraits``.
+
+    There's no published Madden mapping of PLYR_PORTRAIT IDs to these
+    files, so the API layer hashes the player's portrait ID (or name)
+    into this list to pick a stable per-player portrait. Same player ->
+    same portrait every render.
+    """
+    if not PORTRAITS_DIR.is_dir():
+        return []
+    return sorted(f.name for f in PORTRAITS_DIR.iterdir()
+                  if f.is_file() and f.suffix.lower() == ".png")
 
 
 def build_college_logo_map(colleges: Any) -> dict[str, str]:
@@ -254,7 +270,8 @@ def load_big_board(folder: Path) -> dict[str, Any]:
     """
     headers, rows = _read_sheet(folder / "BigBoard.xlsx")
     keep_cols = {"FirstName", "LastName", "Player_ID", "Drafted",
-                 "BigBoardRank", "PLYR_DRAFTROUND", "PLYR_DRAFTPICK", "ProspectType"}
+                 "BigBoardRank", "PLYR_DRAFTROUND", "PLYR_DRAFTPICK", "ProspectType",
+                 "GenericHeadAssetName"}
     players: list[dict[str, Any]] = []
     for row in rows:
         record = {headers[i]: row[i] for i in range(len(headers))
@@ -656,6 +673,9 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             p["position"] = match.get("Position")
             if college_name:
                 p["college_logo"] = college_logo_map.get(college_name)
+            # Propagate the Madden portrait ID; the API layer turns this
+            # (or a name-hash fallback) into a portraits-folder URL.
+            p["PLYR_PORTRAIT"] = match.get("PLYR_PORTRAIT")
             ptr = match.get("player_table_row")
             if ptr is not None and ptr in combine_data:
                 p["combine_data"] = combine_data[ptr]
@@ -688,6 +708,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
         "colleges": colleges,
         "college_logo_map": college_logo_map,
         "nfl_logo_map": nfl_logo_map,
+        "portrait_files": build_portrait_files(),
     }
     with _LOAD_ALL_CACHE_LOCK:
         _LOAD_ALL_CACHE.clear()

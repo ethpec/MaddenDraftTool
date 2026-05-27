@@ -165,30 +165,47 @@ async function refreshAll() {
   // Populate team-pickers if not already done.
   populateTeamPickers(gms.gms.map(g => g.TeamName));
 
-  // Round picker.
+  // Round tabs — clickable 1..maxRound. One click to switch rounds.
   const maxRound = Math.max(...state.board.map(p => p.round));
   const rp = document.getElementById('round-picker');
-  if (rp.options.length === 0) {
+  if (!rp.dataset.bound) {
+    rp.innerHTML = '';
     for (let r = 1; r <= maxRound; r++) {
-      const o = document.createElement('option');
-      o.value = String(r);
-      o.textContent = `Round ${r}`;
-      rp.appendChild(o);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'round-tab';
+      btn.dataset.round = String(r);
+      btn.textContent = String(r);
+      btn.setAttribute('role', 'tab');
+      btn.setAttribute('aria-label', `Round ${r}`);
+      btn.addEventListener('click', () => {
+        state.selectedRound = r;
+        renderRoundTitle();
+        renderRoundGrid();
+        updateRoundTabsActive();
+      });
+      rp.appendChild(btn);
     }
-    rp.addEventListener('change', () => {
-      state.selectedRound = parseInt(rp.value, 10);
-      renderRoundGrid();
-    });
+    rp.dataset.bound = '1';
   }
 
   // Auto-snap selected round to the round of the current pick.
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;
-    rp.value = String(state.selectedRound);
   }
+  updateRoundTabsActive();
 
   await refreshContextual();
   renderAll();
+}
+
+function updateRoundTabsActive() {
+  const tabs = document.querySelectorAll('#round-picker .round-tab');
+  tabs.forEach(b => {
+    const r = parseInt(b.dataset.round, 10);
+    b.classList.toggle('active', r === state.selectedRound);
+    b.setAttribute('aria-selected', r === state.selectedRound ? 'true' : 'false');
+  });
 }
 
 async function refreshContextual() {
@@ -292,18 +309,41 @@ function renderLastPick() {
     el.innerHTML = '<div class="text-xs text-slate-500">No picks yet.</div>';
     return;
   }
-  const collegeBlock = p.college_logo
-    ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="mx-auto h-12 w-12 object-contain mb-2">`
-    : (p.college ? `<div class="text-[10px] uppercase tracking-wider text-slate-500 text-center mb-1">${escapeHtml(p.college)}</div>` : '');
+  // Portrait is the primary visual; college logo overlays the corner.
+  // Both fall back gracefully — silhouette tile if no portrait, blank
+  // corner if no college logo.
+  const portraitInner = p.portrait_url
+    ? `<img src="${p.portrait_url}" alt="${escapeHtml(p.selected_player_name || '')}" class="last-pick-portrait-img">`
+    : `<div class="last-pick-portrait-fallback">${escapeHtml((p.selected_player_name || '?')[0])}</div>`;
+  const collegeChip = p.college_logo
+    ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="last-pick-college-chip">`
+    : '';
   const teamLogo = p.current_team_logo
     ? `<img src="${p.current_team_logo}" alt="${escapeHtml(p.current_team)}" class="h-4 w-4 object-contain">`
     : '';
+  const clickable = p.selected_player_id ? ' clickable' : '';
+  const attr = p.selected_player_id
+    ? ` data-player-id="${escapeHtml(p.selected_player_id)}" role="button" tabindex="0" title="View ${escapeHtml(p.selected_player_name || 'player')}"`
+    : '';
   el.innerHTML = `
-    <div class="text-center">${collegeBlock}</div>
-    <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center">${teamLogo}<span>${roundPickLabel(p)} · ${escapeHtml(p.current_team)}</span></div>
-    <div class="mt-1 text-base font-semibold text-center">${escapeHtml(p.selected_player_name || '')}</div>
-    ${p.position ? `<div class="text-xs text-slate-400 text-center">${escapeHtml(p.position)}${p.college ? ' · ' + escapeHtml(p.college) : ''}</div>` : ''}
+    <div class="last-pick-card${clickable}"${attr}>
+      <div class="last-pick-portrait-wrap">
+        ${portraitInner}
+        ${collegeChip}
+      </div>
+      <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center mt-2">${teamLogo}<span>${roundPickLabel(p)} · ${escapeHtml(p.current_team)}</span></div>
+      <div class="mt-1 text-base font-semibold text-center last-pick-name">${escapeHtml(p.selected_player_name || '')}</div>
+      ${p.position ? `<div class="text-xs text-slate-400 text-center">${escapeHtml(p.position)}${p.college ? ' · ' + escapeHtml(p.college) : ''}</div>` : ''}
+    </div>
   `;
+  const card = el.querySelector('.last-pick-card.clickable');
+  if (card) {
+    const trigger = () => openPlayerProfile(card.dataset.playerId);
+    card.addEventListener('click', trigger);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  }
 }
 
 function renderTeamNeeds() {
@@ -340,12 +380,19 @@ function renderPreviousSelections() {
     const logo = player.college_logo
       ? `<img src="${player.college_logo}" alt="${escapeHtml(player.college || '')}" class="ps-logo">`
       : `<div class="ps-logo-placeholder"></div>`;
-    return `<div class="ps-row">
+    return `<div class="ps-row clickable" data-player-id="${escapeHtml(p.selected_player_id)}" role="button" tabindex="0" title="View ${escapeHtml(p.selected_player_name)}">
       <span class="ps-pos">${escapeHtml(pos)}</span>
       ${logo}
       <span class="ps-meta">${escapeHtml(p.selected_player_name)} <span class="ps-rd">R${p.round} P${roundPickNumber(p)}</span></span>
     </div>`;
   }).join('');
+  el.querySelectorAll('[data-player-id]').forEach(row => {
+    const trigger = () => openPlayerProfile(row.dataset.playerId);
+    row.addEventListener('click', trigger);
+    row.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
 }
 
 function renderRoundTitle() {
@@ -356,7 +403,7 @@ function renderRoundGrid(target = 'round-grid') {
   const el = document.getElementById(target);
   const picks = state.board.filter(p => p.round === state.selectedRound);
   el.innerHTML = picks.map(p => renderPickCell(p)).join('');
-  bindSimToPickClicks(el);
+  bindOpenTeamRosterClicks(el);
 }
 
 function bindSimToPickClicks(rootEl) {
@@ -368,6 +415,37 @@ function bindSimToPickClicks(rootEl) {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
     });
   });
+}
+
+function bindOpenTeamRosterClicks(rootEl) {
+  // Main-board pick cells:
+  //   - Completed pick (player drafted) → opens that player's profile
+  //   - Future / on-clock pick           → opens the owning team's roster
+  // (The Full Draft Order modal keeps the older "click to sim" behavior
+  // via bindSimToPickClicks.)
+  if (!rootEl) return;
+  rootEl.querySelectorAll('.pick-cell').forEach(cell => {
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick) return;
+    const trigger = pick.selected_player_id
+      ? () => openPlayerProfile(pick.selected_player_id)
+      : () => openRosterForTeam(pick.current_team);
+    cell.style.cursor = 'pointer';
+    cell.setAttribute('role', 'button');
+    cell.setAttribute('tabindex', '0');
+    cell.addEventListener('click', trigger);
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
+}
+
+function openRosterForTeam(teamName) {
+  if (!teamName) return;
+  // Preset rostersState so openRosters picks the right team on load.
+  rostersState.team = teamName;
+  openRosters();
 }
 
 function promptSimUntilOverall(overall) {
@@ -451,9 +529,9 @@ function renderUserPicksSnapshot() {
     .filter(p => p.current_team === state.userTeam)
     .slice()
     .sort((a, b) => (a.draft_slot || a.overall || 9999) - (b.draft_slot || b.overall || 9999));
-  const line = (label, picks) => {
+  const line = (label, picks, jumpable) => {
     const chips = picks.length
-      ? picks.map(renderUserPickChip).join('')
+      ? picks.map(p => renderUserPickChip(p, jumpable)).join('')
       : '<span class="user-picks-empty">none</span>';
     return `<div class="user-picks-line">
       <div class="user-picks-label">${label}</div>
@@ -461,17 +539,34 @@ function renderUserPicksSnapshot() {
     </div>`;
   };
   el.innerHTML = `
-    ${line('This', current)}
-    ${line('Next', next)}
+    ${line('This', current, true)}
+    ${line('Next', next, false)}
   `;
+  el.querySelectorAll('[data-jump-round]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const r = parseInt(chip.dataset.jumpRound, 10);
+      if (!r) return;
+      state.selectedRound = r;
+      renderRoundTitle();
+      renderRoundGrid();
+      updateRoundTabsActive();
+      // If the round card is off-screen, scroll it into view so the
+      // click feels like a "jump" instead of a silent state change.
+      const card = document.getElementById('round-title')?.closest('.card');
+      if (card) card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  });
 }
 
-function renderUserPickChip(p) {
+function renderUserPickChip(p, jumpable) {
   const slot = p.draft_slot ?? p.overall;
   const via = p.original_team && p.original_team !== p.current_team
     ? ` via ${p.original_team}`
     : '';
-  return `<span class="user-pick-chip" title="${roundPickLabel(p)} · #${slot}${escapeHtml(via)}">
+  const cls = 'user-pick-chip' + (jumpable ? ' jumpable' : '');
+  const jumpAttr = jumpable ? ` data-jump-round="${p.round}"` : '';
+  const titleSuffix = jumpable ? ' — click to view Round ' + p.round : '';
+  return `<span class="${cls}"${jumpAttr} title="${roundPickLabel(p)} · #${slot}${escapeHtml(via)}${titleSuffix}">
     ${roundPickLabel(p)}<span>#${slot}</span>
   </span>`;
 }
@@ -796,7 +891,7 @@ async function reloadSessionAndRender() {
   maybePlayUserOnClockChime(previousSession, state.session);
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;
-    document.getElementById('round-picker').value = String(state.selectedRound);
+    updateRoundTabsActive();
   }
   await refreshContextual();
   renderAll();
@@ -2314,9 +2409,18 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
       `<div class="text-sm text-rose-400">Failed to load player.</div>`;
     return;
   }
-  const collegeLogo = p.college_logo
-    ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="pp-college-logo">`
-    : `<div class="pp-college-logo-placeholder"></div>`;
+  // Portrait is the main hero image with the college logo stacked
+  // below it. Falls back to the college logo only if no portrait URL.
+  const portraitBlock = p.portrait_url
+    ? `<div class="pp-portrait-stack">
+         <img src="${p.portrait_url}" alt="${escapeHtml(p.first_name + ' ' + p.last_name)}" class="pp-portrait">
+         ${p.college_logo
+           ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="pp-portrait-college-chip">`
+           : ''}
+       </div>`
+    : (p.college_logo
+        ? `<img src="${p.college_logo}" alt="${escapeHtml(p.college || '')}" class="pp-college-logo">`
+        : `<div class="pp-college-logo-placeholder"></div>`);
   const bioBits = [
     p.position,
     p.height,
@@ -2430,7 +2534,7 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
   const body = `
     <div class="player-profile">
       <div class="pp-header">
-        ${collegeLogo}
+        ${portraitBlock}
         <div class="pp-header-info">
           <div class="pp-name">${escapeHtml(p.first_name)} ${escapeHtml(p.last_name)}</div>
           <div class="pp-bio">${bioBits}</div>
@@ -2446,7 +2550,31 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
 }
 
 function openFullBoard() {
-  const html = `<div class="full-board pretty-scroll">${state.board.map(renderPickCell).join('')}</div>`;
+  // Group picks by round so we can drop a round-divider between sections.
+  // Each section is its own 8-wide grid; the user's picks keep the gold
+  // border treatment from `.pick-cell.user-pick` so they're easy to find.
+  const rounds = new Map();
+  for (const p of state.board) {
+    if (!rounds.has(p.round)) rounds.set(p.round, []);
+    rounds.get(p.round).push(p);
+  }
+  const sections = Array.from(rounds.entries()).map(([round, picks]) => {
+    const userCount = picks.filter(p => p.current_team === state.userTeam).length;
+    const userBadge = userCount
+      ? `<span class="fb-round-user-count">${userCount} pick${userCount === 1 ? '' : 's'}</span>`
+      : '';
+    return `
+      <div class="fb-round-section">
+        <div class="fb-round-divider">
+          <span class="fb-round-label">Round ${round}</span>
+          <span class="fb-round-line"></span>
+          ${userBadge}
+        </div>
+        <div class="fb-round-grid">${picks.map(renderPickCell).join('')}</div>
+      </div>
+    `;
+  }).join('');
+  const html = `<div class="full-board pretty-scroll">${sections}</div>`;
   document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
   bindSimToPickClicks(document.getElementById('modal-body'));
