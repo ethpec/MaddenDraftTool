@@ -993,19 +993,21 @@
   color: #64748b;
   margin-top: 1px;
 }
-/* Color-coded grade cells (mirrors player profile palette). */
-.bbm-td-attr.g-a { color: #4ade80; background: rgba(31,122,77,0.18); }
-.bbm-td-attr.g-b { color: #60a5fa; background: rgba(44,106,158,0.18); }
+/* Color-coded grade cells (mirrors player profile palette).
+   Letters: F=red, D=orange, C=yellow, B=green, A=blue (top of scale).
+   Stars: 1=gray, 2=red, 3=orange, 4=yellow, 5=lt green, 6=green, 7=blue. */
+.bbm-td-attr.g-a { color: #60a5fa; background: rgba(44,106,158,0.22); }
+.bbm-td-attr.g-b { color: #4ade80; background: rgba(31,122,77,0.18); }
 .bbm-td-attr.g-c { color: #facc15; background: rgba(107,100,32,0.18); }
 .bbm-td-attr.g-d { color: #fb923c; background: rgba(138,74,26,0.18); }
 .bbm-td-attr.g-f { color: #f87171; background: rgba(138,39,39,0.18); }
-.bbm-td-attr.g-star-1 { color: #f87171; background: rgba(138,39,39,0.18); }
-.bbm-td-attr.g-star-2 { color: #fb923c; background: rgba(138,74,26,0.18); }
-.bbm-td-attr.g-star-3 { color: #facc15; background: rgba(107,100,32,0.18); }
-.bbm-td-attr.g-star-4 { color: #60a5fa; background: rgba(44,106,158,0.18); }
-.bbm-td-attr.g-star-5 { color: #4ade80; background: rgba(31,122,77,0.18); }
-.bbm-td-attr.g-star-6 { color: #86efac; background: rgba(22,163,74,0.22); }
-.bbm-td-attr.g-star-7 { color: #f8c043; background: rgba(192,138,28,0.25); }
+.bbm-td-attr.g-star-1 { color: #94a3b8; background: rgba(71,85,105,0.18); }
+.bbm-td-attr.g-star-2 { color: #f87171; background: rgba(138,39,39,0.18); }
+.bbm-td-attr.g-star-3 { color: #fb923c; background: rgba(138,74,26,0.18); }
+.bbm-td-attr.g-star-4 { color: #facc15; background: rgba(107,100,32,0.18); }
+.bbm-td-attr.g-star-5 { color: #86efac; background: rgba(22,163,74,0.18); }
+.bbm-td-attr.g-star-6 { color: #4ade80; background: rgba(31,122,77,0.22); }
+.bbm-td-attr.g-star-7 { color: #60a5fa; background: rgba(44,106,158,0.22); }
 .bbm-td-attr.g-unknown { color: #475569; }
 .bbm-td-attr.active-col.g-a,
 .bbm-td-attr.active-col.g-b,
@@ -1204,32 +1206,33 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
-/* Letter-grade colors */
-.pp-attr.g-a { border-color: #1f7a4d; background: #0e2018; }
-.pp-attr.g-a .pp-attr-value { color: #4ade80; }
-.pp-attr.g-b { border-color: #2c6a9e; background: #0d1a26; }
-.pp-attr.g-b .pp-attr-value { color: #60a5fa; }
+/* Letter-grade colors — A=blue (top), B=green, C=yellow, D=orange, F=red */
+.pp-attr.g-a { border-color: #2c6a9e; background: #0d1a26; }
+.pp-attr.g-a .pp-attr-value { color: #60a5fa; }
+.pp-attr.g-b { border-color: #1f7a4d; background: #0e2018; }
+.pp-attr.g-b .pp-attr-value { color: #4ade80; }
 .pp-attr.g-c { border-color: #6b6420; background: #1a180c; }
 .pp-attr.g-c .pp-attr-value { color: #facc15; }
 .pp-attr.g-d { border-color: #8a4a1a; background: #1a1109; }
 .pp-attr.g-d .pp-attr-value { color: #fb923c; }
 .pp-attr.g-f { border-color: #8a2727; background: #1a0c0c; }
 .pp-attr.g-f .pp-attr-value { color: #f87171; }
-/* Star tiers ("1-Poor" to "7-Elite") */
-.pp-attr.g-star-1 { border-color: #8a2727; background: #1a0c0c; }
-.pp-attr.g-star-1 .pp-attr-value { color: #f87171; }
-.pp-attr.g-star-2 { border-color: #8a4a1a; background: #1a1109; }
-.pp-attr.g-star-2 .pp-attr-value { color: #fb923c; }
-.pp-attr.g-star-3 { border-color: #6b6420; background: #1a180c; }
-.pp-attr.g-star-3 .pp-attr-value { color: #facc15; }
-.pp-attr.g-star-4 { border-color: #2c6a9e; background: #0d1a26; }
-.pp-attr.g-star-4 .pp-attr-value { color: #60a5fa; }
-.pp-attr.g-star-5 { border-color: #1f7a4d; background: #0e2018; }
-.pp-attr.g-star-5 .pp-attr-value { color: #4ade80; }
-.pp-attr.g-star-6 { border-color: #16a34a; background: #0f2a1a; }
-.pp-attr.g-star-6 .pp-attr-value { color: #86efac; }
-.pp-attr.g-star-7 { border-color: #c08a1c; background: #2a1f08; }
-.pp-attr.g-star-7 .pp-attr-value { color: #f8c043; }
+/* Star tiers: 1=gray (worst), 2=red, 3=orange, 4=yellow,
+   5=light green, 6=deeper green, 7=blue (best). */
+.pp-attr.g-star-1 { border-color: #475569; background: #11151f; }
+.pp-attr.g-star-1 .pp-attr-value { color: #94a3b8; }
+.pp-attr.g-star-2 { border-color: #8a2727; background: #1a0c0c; }
+.pp-attr.g-star-2 .pp-attr-value { color: #f87171; }
+.pp-attr.g-star-3 { border-color: #8a4a1a; background: #1a1109; }
+.pp-attr.g-star-3 .pp-attr-value { color: #fb923c; }
+.pp-attr.g-star-4 { border-color: #6b6420; background: #1a180c; }
+.pp-attr.g-star-4 .pp-attr-value { color: #facc15; }
+.pp-attr.g-star-5 { border-color: #16a34a; background: #0e2018; }
+.pp-attr.g-star-5 .pp-attr-value { color: #86efac; }
+.pp-attr.g-star-6 { border-color: #1f7a4d; background: #0e2018; }
+.pp-attr.g-star-6 .pp-attr-value { color: #4ade80; }
+.pp-attr.g-star-7 { border-color: #2c6a9e; background: #0d1a26; }
+.pp-attr.g-star-7 .pp-attr-value { color: #60a5fa; }
 .pp-attr.g-unknown .pp-attr-value { color: #64748b; }
 .pp-attr.g-stat { border-color: #2d3748; background: #0d1018; }
 .pp-attr.g-stat .pp-attr-value { color: #e2e8f0; }
@@ -1246,6 +1249,66 @@
   color: #64748b;
   font-style: italic;
   margin-top: 1px;
+}
+
+/* Draft confirmation dialog */
+.draft-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.draft-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #1a2030;
+}
+.draft-confirm-logo {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.draft-confirm-team {
+  font-size: 16px;
+  font-weight: 700;
+  color: #e2e8f0;
+  line-height: 1.2;
+  margin-top: 2px;
+}
+.draft-confirm-pick {
+  font-family: 'JetBrains Mono', ui-monospace;
+  font-size: 11px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+.draft-confirm-player-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #1d2435;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #0e1320 0%, #0a0e18 100%);
+}
+.draft-confirm-college {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.draft-confirm-player-info { min-width: 0; }
+.draft-confirm-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #f1f5f9;
+  letter-spacing: -0.01em;
+}
+.draft-confirm-meta {
+  font-size: 12px;
+  color: #94a3b8;
+  margin-top: 2px;
 }
 
 /* Trade Hub tabs */

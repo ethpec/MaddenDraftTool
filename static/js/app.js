@@ -870,6 +870,18 @@ async function submitPick(playerId) {
   // separate "force pick" mode anymore.
   const c = state.session.current_pick;
   if (!c) return toast('Draft complete.');
+
+  // Confirmation dialog — guards against accidental Draft clicks.
+  const player = (state.publicBoard || []).find(p => p.player_id === playerId);
+  const name = player ? `${player.first_name} ${player.last_name}` : 'this player';
+  const ok = await confirmAction({
+    title: 'Confirm Draft',
+    message: `Are you sure you want to draft ${name}?`,
+    confirmLabel: 'Yes',
+    cancelLabel: 'No',
+  });
+  if (!ok) return;
+
   const res = await api.post('/api/pick/force-make', { player_id: playerId });
   if (!res.ok) return toast('Pick failed: ' + res.error);
   playPickSelectionSound();
@@ -1446,9 +1458,14 @@ function renderTradeHistoryCard(t) {
       ${playerLine}
     </div>`;
   };
-  const totalA = (t.team_a_sends || []).reduce((s, p) => s + (p.value || 0), 0);
-  const totalB = (t.team_b_sends || []).reduce((s, p) => s + (p.value || 0), 0);
-  const teamPanel = (name, logo, sends, total, sendsToLabel) => {
+  // Show each team's "haul" — what they RECEIVED — rather than what they
+  // sent. team_a's column → team_b_sends (everything A received); same
+  // pattern flipped for team_b.
+  const aReceived = t.team_b_sends || [];
+  const bReceived = t.team_a_sends || [];
+  const totalA = aReceived.reduce((s, p) => s + (p.value || 0), 0);
+  const totalB = bReceived.reduce((s, p) => s + (p.value || 0), 0);
+  const teamPanel = (name, logo, received, total, fromLabel) => {
     const logoEl = logo
       ? `<img src="${logo}" class="w-9 h-9 object-contain flex-shrink-0">`
       : `<div class="w-9 h-9 rounded-full bg-ink-700 flex-shrink-0"></div>`;
@@ -1458,10 +1475,10 @@ function renderTradeHistoryCard(t) {
           ${logoEl}
           <div>
             <div class="th-team-name">${escapeHtml(name)}</div>
-            <div class="th-team-sub">sends to ${escapeHtml(sendsToLabel)}</div>
+            <div class="th-team-sub">receives from ${escapeHtml(fromLabel)}</div>
           </div>
         </div>
-        <div class="th-picks">${(sends || []).map(fmtPick).join('') || '<div class="text-xs text-slate-500">—</div>'}</div>
+        <div class="th-picks">${received.map(fmtPick).join('') || '<div class="text-xs text-slate-500">—</div>'}</div>
         <div class="th-total">Total: <span class="font-mono text-accent-400">${total.toLocaleString()} pts</span></div>
       </div>`;
   };
@@ -1475,9 +1492,9 @@ function renderTradeHistoryCard(t) {
         ${tag}
       </div>
       <div class="th-card-body">
-        ${teamPanel(t.team_a, t.team_a_logo, t.team_a_sends, totalA, t.team_b)}
+        ${teamPanel(t.team_a, t.team_a_logo, aReceived, totalA, t.team_b)}
         <div class="th-arrow">⇄</div>
-        ${teamPanel(t.team_b, t.team_b_logo, t.team_b_sends, totalB, t.team_a)}
+        ${teamPanel(t.team_b, t.team_b_logo, bReceived, totalB, t.team_a)}
       </div>
     </div>
   `;
@@ -2598,23 +2615,34 @@ function openModal(title, subtitle, bodyHtml) {
 }
 
 function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm }) {
-  // Lightweight confirm dialog reusing the modal root. Awaits a user
-  // click on Confirm before calling onConfirm; Cancel just closes.
-  const safeMessage = typeof message === 'string'
-    ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
-    : message;  // allow trusted HTML for richer body
-  const body = `
-    ${safeMessage}
-    <div class="mt-4 flex items-center justify-end gap-2">
-      <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
-      <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
-    </div>
-  `;
-  openModal(title, '', body);
-  document.getElementById('confirm-cancel').addEventListener('click', closeModal);
-  document.getElementById('confirm-go').addEventListener('click', async () => {
-    closeModal();
-    if (onConfirm) await onConfirm();
+  // Lightweight confirm dialog reusing the modal root.
+  //
+  // Two ways to use:
+  //   1. Pass `onConfirm` — fires when user confirms (legacy fire-and-forget).
+  //   2. `await confirmAction({...})` — returns a Promise<boolean> resolving
+  //      true on confirm / false on cancel.
+  // Both work simultaneously, so existing callers stay untouched.
+  return new Promise((resolve) => {
+    const safeMessage = typeof message === 'string'
+      ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
+      : message;  // allow trusted HTML for richer body
+    const body = `
+      ${safeMessage}
+      <div class="mt-4 flex items-center justify-end gap-2">
+        <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
+        <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
+      </div>
+    `;
+    openModal(title, '', body);
+    document.getElementById('confirm-cancel').addEventListener('click', () => {
+      closeModal();
+      resolve(false);
+    });
+    document.getElementById('confirm-go').addEventListener('click', async () => {
+      closeModal();
+      if (onConfirm) await onConfirm();
+      resolve(true);
+    });
   });
 }
 
