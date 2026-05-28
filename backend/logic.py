@@ -154,15 +154,15 @@ def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float,
         if pick_in_round <= 10:
             return 0.10, (2.50, 100), 3
         if pick_in_round <= 16:
-            return 0.15, (2.50, 100), 5
-        return 0.20, (2.50, 100), 5
+            return 0.15, (2.50, 100), 4
+        return 0.20, (2.50, 100), 4
     return {
         2: (0.30, (2.00, 100), 5),
-        3: (0.40, (1.75, 100), 8),
-        4: (0.60, (1.25, 1.75), 10),
-        5: (0.70, (1.00, 1.50), 12),
-        6: (0.80, (0.75, 1.50), 15),
-        7: (0.90, (0.50, 1.50), 16),
+        3: (0.40, (1.75, 100), 6),
+        4: (0.50, (1.25, 1.75), 8),
+        5: (0.66, (1.00, 1.50), 10),
+        6: (0.75, (0.75, 1.50), 12),
+        7: (0.85, (0.50, 1.50), 15),
     }.get(round_1, (0.50, (1.50, 100), 10))
 
 
@@ -304,10 +304,10 @@ _USER_TRADE_DOWN_HARD_FLOOR: float = 0.95
 # capital back than they are to spend it moving up.
 _FUTURE_PICK_GATE_UP_PREMIUM: float = 0.025   # future R1/R2 base gate; boosted by target position
 _FUTURE_PICK_GATE_BONUS: dict[str, float] = {  # added to base when BPA/need is this group
-    "QB": 0.65, "WR": 0.175, "OT": 0.175, "EDGE": 0.175, "CB": 0.125,
+    "QB": 0.475, "WR": 0.125, "OT": 0.125, "EDGE": 0.125, "CB": 0.075,
 }
 _FUTURE_PICK_GATE_UP_LATE: float = 0.15      # future R3+ in trade-up offer
-_FUTURE_PICK_GATE_DOWN: float = 0.075         # future R3+ in trade-down return (R1/R2 always blocked)
+_FUTURE_PICK_GATE_DOWN: float = 0.25          # future R3+ in trade-down return; only rolls if trade-up team also passed _FUTURE_PICK_GATE_UP_LATE (R1/R2 always blocked)
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
@@ -377,7 +377,7 @@ def _slide_prob_up(current_slot: int, rank: int | None) -> float:
         return 0.05
     if ratio >= 0.0:
         return 0.01
-    return 0.001
+    return 0.00
 
 
 def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> float:
@@ -531,10 +531,10 @@ def _round_modifier_up(round_1: int) -> float:
     if round_1 == 4:
         return 0.65
     if round_1 == 5:
-        return 0.70
+        return 0.60
     if round_1 == 6:
-        return 0.70
-    return 0.65  # round 7+
+        return 0.65
+    return 0.50  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -548,9 +548,9 @@ def _round_modifier_down(round_1: int) -> float:
     if round_1 == 3:
         return 1.40
     if round_1 == 4:
-        return 1.45
+        return 1.40
     if round_1 == 5:
-        return 1.65
+        return 1.75
     if round_1 == 6:
         return 2.50
     return 5.00  # round 7
@@ -646,20 +646,43 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     bpa = available[0] if available else None
     bpa_prob = _slide_prob_up(target_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None) * bpa_impact
 
-    # R1 non-premium dampener: teams rarely trade into the top of round 1 for
-    # non-premium positions. Hard block in top 5; graduated suppression 6-32.
+    # R1 non-premium dampener: two independent multipliers, one for BPA and
+    # one for top eligible need. Each uses the same scale (hard block top 5,
+    # graduated suppression 6-32) and both are multiplied into the final result.
+    def _non_prem_factor() -> float:
+        if pick_in_round <= 5:
+            return 0.0
+        elif pick_in_round <= 10:
+            return 0.10
+        elif pick_in_round <= 20:
+            return 0.50
+        return 0.75
+
     non_prem_mult = 1.0
     if round_1 == 1 and bpa:
         bpa_grp = POSITION_GROUPS.get(bpa.get("position", ""), bpa.get("position", ""))
         if bpa_grp not in _FUTURE_PICK_GATE_BONUS:
-            if pick_in_round <= 5:
+            factor = _non_prem_factor()
+            if factor == 0.0:
                 return 0.0
-            elif pick_in_round <= 10:
-                non_prem_mult = 0.10
-            elif pick_in_round <= 20:
-                non_prem_mult = 0.50
-            else:
-                non_prem_mult = 0.75
+            non_prem_mult *= factor
+        # Check top eligible need independently.
+        _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
+        gm_idx = gm.get("TeamIndex")
+        _needs = _get_needs(state, offering_team, int(gm_idx)) if gm_idx is not None else []
+        _eligible = {n["position"] for n in _needs if win_min < n["weight"] <= win_max}
+        top_need = next(
+            (p for p in available
+             if POSITION_GROUPS.get(p.get("position"), p.get("position")) in _eligible),
+            None,
+        )
+        if top_need:
+            need_grp = POSITION_GROUPS.get(top_need.get("position", ""), top_need.get("position", ""))
+            if need_grp not in _FUTURE_PICK_GATE_BONUS:
+                factor = _non_prem_factor()
+                if factor == 0.0:
+                    return 0.0
+                non_prem_mult *= factor
 
     # Component 2: Best eligible need player slide using target pick's round window.
     _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
@@ -954,6 +977,12 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
                 for ret in return_combos:
                     if sum(1 for p in ret if p.get("year_offset", 0) > 0) > _MAX_FUTURE_PICKS_PER_SIDE:
                         continue
+                    # Reject combos where the trade-down return includes a
+                    # future pick but the trade-up offer doesn't — future
+                    # picks must flow from the trade-up side first.
+                    if (any(p.get("year_offset", 0) > 0 for p in ret)
+                            and not any(p.get("year_offset", 0) > 0 for p in offered)):
+                        continue
                     # Reject 1-for-1 same-year swaps: meaningless when pick
                     # values are near-equal (common late in the draft).
                     if (n_offered == 1 and n_return == 0
@@ -1095,10 +1124,16 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         # Independent gate: does this AI get to ask for a future return pick?
         # Future R1/R2 are never included in a trade-down return package.
+        # Future R3+ only allowed if the trade-up team is also including a
+        # future R3+ pick in their offer (reciprocal future-pick requirement).
         down_team_picks = down_team_picks_all
         down_team_picks = [p for p in down_team_picks
                            if not (p.get("year_offset", 0) > 0 and p.get("round", 99) <= 2)]
-        if random.random() > _FUTURE_PICK_GATE_DOWN:
+        up_team_has_future_late = any(
+            p.get("year_offset", 0) > 0 and p.get("round", 99) >= 3
+            for p in team_picks
+        )
+        if not up_team_has_future_late or random.random() > _FUTURE_PICK_GATE_DOWN:
             down_team_picks = [p for p in down_team_picks if p.get("year_offset", 0) == 0]
 
         current_year_picks = [p for p in team_picks if p.get("year_offset", 0) == 0]

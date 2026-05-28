@@ -31,7 +31,7 @@
 
   <!-- Setup gate (hidden once a session starts) -->
   <div id="setup" class="setup-screen fixed inset-0 z-40 flex items-center justify-center bg-ink-950">
-    <div class="setup-card w-full max-w-md rounded-xl border border-ink-700 bg-ink-900 p-8 shadow-2xl">
+    <div class="setup-card w-full max-w-2xl rounded-xl border border-ink-700 bg-ink-900 p-8 shadow-2xl">
       <h1 class="text-2xl font-bold tracking-tight">Madden Draft Tool</h1>
       <p class="mt-1 text-sm text-slate-400">Pick a draft year and which team you'll control.</p>
       <div class="mt-6 space-y-4">
@@ -129,6 +129,15 @@
           </svg>
           <span>GM Info</span>
         </button>
+        <button class="nav-tab-btn" data-action="open-board-zoom">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+          </svg>
+          <span>Full Draft Order</span>
+        </button>
       </div>
       <div class="command-bar flex items-center gap-2">
         <button class="sim-btn" data-action="sim-pick">Sim Pick</button>
@@ -136,7 +145,6 @@
         <select id="sim-round-select" class="sim-select" aria-label="Sim to round">
           <option value="" disabled selected>Sim to Round…</option>
         </select>
-        <button class="sim-btn" data-action="open-board-zoom">Full Draft Order</button>
         <button class="primary-btn" data-action="export">Export</button>
       </div>
     </div>
@@ -185,10 +193,7 @@
             <div class="card-eyebrow">Current Round</div>
             <div id="round-title" class="text-xl font-bold tracking-tight">Round 1</div>
           </div>
-          <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-400">Round</label>
-            <select id="round-picker" class="rounded border border-ink-600 bg-ink-800 px-2 py-1 text-xs"></select>
-          </div>
+          <div id="round-picker" class="round-tabs" role="tablist" aria-label="Pick a round"></div>
         </div>
         <div id="round-grid" class="mt-4 grid grid-cols-4 gap-2"></div>
       </div>
