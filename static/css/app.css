@@ -578,6 +578,25 @@
   min-width: 0;
   padding: 5px 6px;
   border-radius: 6px;
+  transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+}
+.full-board .pick-cell.completed {
+  cursor: pointer;
+}
+.full-board .pick-cell.completed:hover {
+  border-color: #38456a;
+  transform: translateY(-1px);
+}
+.full-board .pick-cell.completed:hover .pick-player {
+  color: #f8c043;
+}
+.full-board .pick-cell.completed:focus {
+  outline: none;
+  border-color: #f0b020;
+  box-shadow: 0 0 0 1px #f0b020 inset;
+}
+.full-board .pick-cell.user-pick.completed:hover {
+  border-color: #f8c043;
 }
 /* Make the user-pick gold ring more prominent at full-board scale */
 .full-board .pick-cell.user-pick {
@@ -1005,8 +1024,8 @@
 .bbm-td-attr.g-star-2 { color: #f87171; background: rgba(138,39,39,0.18); }
 .bbm-td-attr.g-star-3 { color: #fb923c; background: rgba(138,74,26,0.18); }
 .bbm-td-attr.g-star-4 { color: #facc15; background: rgba(107,100,32,0.18); }
-.bbm-td-attr.g-star-5 { color: #86efac; background: rgba(22,163,74,0.18); }
-.bbm-td-attr.g-star-6 { color: #4ade80; background: rgba(31,122,77,0.22); }
+.bbm-td-attr.g-star-5 { color: #a3e635; background: rgba(132,204,22,0.18); }
+.bbm-td-attr.g-star-6 { color: #22c55e; background: rgba(22,163,74,0.25); }
 .bbm-td-attr.g-star-7 { color: #60a5fa; background: rgba(44,106,158,0.22); }
 .bbm-td-attr.g-unknown { color: #475569; }
 .bbm-td-attr.active-col.g-a,
@@ -1160,6 +1179,120 @@
   font-weight: 600;
   margin-top: 2px;
 }
+.pp-meta-value.pp-meta-ovr {
+  font-family: 'JetBrains Mono', ui-monospace;
+  color: #f8c043;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.pp-meta-value.pp-meta-dev {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  /* Default — overridden by per-trait classes below. */
+  color: #cbd5e1;
+}
+.pp-meta-value.pp-meta-dev-normal {
+  /* Distinct gray that still reads against the dark card bg. */
+  color: #cbd5e1;
+}
+.pp-meta-value.pp-meta-dev-star {
+  color: #f8c043;
+  text-shadow: 0 0 12px rgba(240,176,32,0.35);
+}
+.pp-meta-value.pp-meta-dev-superstar {
+  color: #60a5fa;
+  text-shadow: 0 0 12px rgba(96,165,250,0.35);
+}
+.pp-meta-value.pp-meta-dev-xfactor {
+  /* X-Factor leans toward Madden's purple/magenta treatment. */
+  color: #c084fc;
+  text-shadow: 0 0 12px rgba(192,132,252,0.4);
+}
+
+/* Corner badge in pick cells (top-right). Only rendered for Star /
+   Superstar / X-Factor — small enough to not crowd the cell, color +
+   glow matches the language used elsewhere. */
+.pick-cell .pick-dev-badge {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 13px;
+  line-height: 1;
+  pointer-events: none;
+  z-index: 2;
+}
+.pick-cell .pick-dev-badge.dev-star {
+  color: #f8c043;
+  text-shadow: 0 0 6px rgba(240,176,32,0.75);
+}
+.pick-cell .pick-dev-badge.dev-superstar {
+  color: #7dd3fc;
+  text-shadow:
+    0 0 6px rgba(56,189,248,0.85),
+    0 0 12px rgba(125,211,252,0.5);
+  animation: dev-sparkle 2.8s ease-in-out infinite;
+}
+.pick-cell .pick-dev-badge.dev-xfactor {
+  color: #c084fc;
+  text-shadow:
+    0 0 6px rgba(192,132,252,0.9),
+    0 0 14px rgba(216,180,254,0.55);
+  animation: dev-sparkle 2.4s ease-in-out infinite;
+}
+/* Slightly smaller in the dense full-board layout. */
+.full-board .pick-cell .pick-dev-badge {
+  font-size: 11px;
+  top: 3px;
+  right: 4px;
+}
+
+/* Dev trait inline badges (used in the Last Selection card and
+   anywhere else we surface the trait with an icon). */
+.dev-trait-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.dev-trait-badge .dev-icon {
+  font-size: 12px;
+  line-height: 1;
+  transform: translateY(-0.5px);
+}
+.dev-trait-badge.dev-normal { color: #cbd5e1; }
+/* Star: solid gold five-point with a warm soft glow. */
+.dev-trait-badge.dev-star { color: #f8c043; }
+.dev-trait-badge.dev-star .dev-icon {
+  color: #f8c043;
+  text-shadow: 0 0 6px rgba(240,176,32,0.6);
+}
+/* Superstar: cool blue four-point sparkle (✦) — same symbol as X-Factor
+   but the blue + cyan glow reads as the "elite cool" tier. */
+.dev-trait-badge.dev-superstar { color: #7dd3fc; }
+.dev-trait-badge.dev-superstar .dev-icon {
+  color: #7dd3fc;
+  font-size: 13px;
+  text-shadow:
+    0 0 6px rgba(56,189,248,0.7),
+    0 0 12px rgba(125,211,252,0.4);
+  animation: dev-sparkle 2.8s ease-in-out infinite;
+}
+/* X-Factor: magenta sparkle with stronger glow. */
+.dev-trait-badge.dev-xfactor { color: #d8b4fe; }
+.dev-trait-badge.dev-xfactor .dev-icon {
+  color: #c084fc;
+  font-size: 13px;
+  text-shadow:
+    0 0 6px rgba(192,132,252,0.75),
+    0 0 14px rgba(216,180,254,0.5);
+  animation: dev-sparkle 2.4s ease-in-out infinite;
+}
+@keyframes dev-sparkle {
+  0%, 100% { opacity: 1; transform: translateY(-0.5px) scale(1); }
+  50%      { opacity: 0.78; transform: translateY(-0.5px) scale(1.12); }
+}
 .pp-section-title {
   font-size: 11px;
   color: #94a3b8;
@@ -1227,10 +1360,10 @@
 .pp-attr.g-star-3 .pp-attr-value { color: #fb923c; }
 .pp-attr.g-star-4 { border-color: #6b6420; background: #1a180c; }
 .pp-attr.g-star-4 .pp-attr-value { color: #facc15; }
-.pp-attr.g-star-5 { border-color: #16a34a; background: #0e2018; }
-.pp-attr.g-star-5 .pp-attr-value { color: #86efac; }
-.pp-attr.g-star-6 { border-color: #1f7a4d; background: #0e2018; }
-.pp-attr.g-star-6 .pp-attr-value { color: #4ade80; }
+.pp-attr.g-star-5 { border-color: #84cc16; background: #181f0c; }
+.pp-attr.g-star-5 .pp-attr-value { color: #a3e635; }
+.pp-attr.g-star-6 { border-color: #16a34a; background: #082417; }
+.pp-attr.g-star-6 .pp-attr-value { color: #22c55e; }
 .pp-attr.g-star-7 { border-color: #2c6a9e; background: #0d1a26; }
 .pp-attr.g-star-7 .pp-attr-value { color: #60a5fa; }
 .pp-attr.g-unknown .pp-attr-value { color: #64748b; }
@@ -1607,6 +1740,26 @@
 .rosters-pick-row.is-made {
   background: #11151f;
   opacity: 0.82;
+}
+.rosters-pick-row.clickable {
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease,
+              transform 140ms ease, opacity 140ms ease;
+}
+.rosters-pick-row.clickable:hover {
+  background: #1a2030;
+  border-color: #38456a;
+  opacity: 1;
+  transform: translateY(-1px);
+}
+.rosters-pick-row.clickable:hover .rosters-pick-player {
+  color: #f8c043;
+}
+.rosters-pick-row.clickable:focus {
+  outline: none;
+  border-color: #f0b020;
+  box-shadow: 0 0 0 1px #f0b020 inset;
+  opacity: 1;
 }
 .rosters-pick-main {
   display: flex;

@@ -334,7 +334,7 @@ function renderLastPick() {
       <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center mt-2">${teamLogo}<span>${roundPickLabel(p)} · ${escapeHtml(p.current_team)}</span></div>
       <div class="mt-1 text-base font-semibold text-center last-pick-name">${escapeHtml(p.selected_player_name || '')}</div>
       ${p.position ? `<div class="text-xs text-slate-400 text-center">${escapeHtml(p.position)}${p.college ? ' · ' + escapeHtml(p.college) : ''}</div>` : ''}
-      ${(p.ovr != null || p.development_trait != null) ? `<div class="text-xs text-slate-400 text-center mt-0.5">${p.ovr != null ? `<span class="text-accent-gold font-semibold">OVR: ${escapeHtml(String(p.ovr))}</span>` : ''}${p.ovr != null && p.development_trait != null ? ' · ' : ''}${p.development_trait != null ? `DevTrait: ${escapeHtml(String(p.development_trait))}` : ''}</div>` : ''}
+      ${(p.ovr != null || p.development_trait != null) ? `<div class="text-xs text-slate-400 text-center mt-0.5">${p.ovr != null ? `<span class="text-accent-gold font-semibold">OVR: ${escapeHtml(String(p.ovr))}</span>` : ''}${p.ovr != null && p.development_trait != null ? ' · ' : ''}${p.development_trait != null ? renderDevTraitBadge(p.development_trait) : ''}</div>` : ''}
     </div>
   `;
   const card = el.querySelector('.last-pick-card.clickable');
@@ -345,6 +345,25 @@ function renderLastPick() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
     });
   }
+}
+
+function renderDevTraitBadge(trait) {
+  // Renders the dev trait with a per-tier icon. Star tier gets a gold
+  // five-point star; Superstar gets a cool blue four-point sparkle
+  // (visually distinct + reads as "more elite"); X-Factor gets a
+  // magenta sparkle. Normal stays plain text in slate.
+  const t = String(trait || '').toLowerCase().replace(/[^a-z]/g, '');
+  const label = escapeHtml(String(trait));
+  if (t.includes('xfactor')) {
+    return `<span class="dev-trait-badge dev-xfactor"><span class="dev-icon">✦</span>${label}</span>`;
+  }
+  if (t.includes('superstar')) {
+    return `<span class="dev-trait-badge dev-superstar"><span class="dev-icon">✦</span>${label}</span>`;
+  }
+  if (t.includes('star')) {
+    return `<span class="dev-trait-badge dev-star"><span class="dev-icon">★</span>${label}</span>`;
+  }
+  return `<span class="dev-trait-badge dev-normal">${label}</span>`;
 }
 
 function renderTeamNeeds() {
@@ -473,6 +492,7 @@ async function simUntilOverall(overall) {
 // public board changes (handled in reloadSessionAndRender). Avoids
 // O(n*m) scans when rendering many pick cells at once.
 let _positionByPlayerId = null;
+let _devTraitByPlayerId = null;
 function getPositionByPlayerId() {
   if (_positionByPlayerId === null) {
     _positionByPlayerId = {};
@@ -482,7 +502,19 @@ function getPositionByPlayerId() {
   }
   return _positionByPlayerId;
 }
-function invalidatePositionLookup() { _positionByPlayerId = null; }
+function getDevTraitByPlayerId() {
+  if (_devTraitByPlayerId === null) {
+    _devTraitByPlayerId = {};
+    for (const pl of state.publicBoard) {
+      if (pl.player_id) _devTraitByPlayerId[pl.player_id] = pl.development_trait;
+    }
+  }
+  return _devTraitByPlayerId;
+}
+function invalidatePositionLookup() {
+  _positionByPlayerId = null;
+  _devTraitByPlayerId = null;
+}
 
 function knownPicksForDisplay() {
   return [...(state.board || []), ...(state.futurePicks || [])];
@@ -584,10 +616,15 @@ function renderPickCell(p) {
   if (completed) cls.push('completed');
   if (simmable) cls.push('simmable');
   let playerLine;
+  let devBadge = '';
   if (completed) {
     const pos = getPositionByPlayerId()[p.selected_player_id];
     const posTag = pos ? `<span class="pick-pos">${escapeHtml(displayPosition(pos))}</span>` : '';
     playerLine = `<div class="pick-player">${posTag}${escapeHtml(p.selected_player_name)}</div>`;
+    // Small dev-trait badge top-right — only for Star / Superstar /
+    // X-Factor, so the cell stays clean for the 90%+ of Normal picks.
+    const trait = getDevTraitByPlayerId()[p.selected_player_id];
+    devBadge = renderPickCellDevTraitIcon(trait);
   } else {
     playerLine = `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
   }
@@ -599,12 +636,30 @@ function renderPickCell(p) {
     : '';
   return `
     <div class="${cls.join(' ')}" data-overall="${p.overall}"${simmable ? ' role="button" tabindex="0"' : ''}>
+      ${devBadge}
       <div class="pick-num">${roundPickLabel(p)} · #${p.overall}</div>
       <div class="pick-header">${logo}<div class="pick-team">${escapeHtml(p.current_team)}</div></div>
       ${playerLine}
       ${trade}
     </div>
   `;
+}
+
+function renderPickCellDevTraitIcon(trait) {
+  // Compact corner badge for the round-grid / full-board pick cells.
+  // Skips Normal so cells stay uncluttered; matches the symbol+color
+  // language of the Last Selection dev trait badge.
+  const t = String(trait || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (t.includes('xfactor')) {
+    return '<span class="pick-dev-badge dev-xfactor" title="X-Factor">✦</span>';
+  }
+  if (t.includes('superstar')) {
+    return '<span class="pick-dev-badge dev-superstar" title="Superstar">✦</span>';
+  }
+  if (t.includes('star')) {
+    return '<span class="pick-dev-badge dev-star" title="Star">★</span>';
+  }
+  return '';
 }
 
 function renderTeamBoard() {
@@ -1199,6 +1254,7 @@ async function submitTradeUp() {
   const res = await api.post('/api/trade/up', { target_overall: target, offered_overalls: offered, target_also_sends: theirExtra });
   if (!res.ok) { result.textContent = 'Error: ' + res.error; return; }
   if (res.decision.accepted) {
+    playTradeSound();
     result.innerHTML = '<span class="text-emerald-400">Offer accepted!</span> Refreshing…';
     await reloadSessionAndRender();
     setTimeout(closeModal, 800);
@@ -1409,6 +1465,7 @@ async function submitManualTrade() {
       + ' — tick Force override to ignore the check.';
     return;
   }
+  playTradeSound();
   const tag = res.decision.reason === 'forced'
     ? '<span class="text-amber-400">Forced.</span>'
     : '<span class="text-emerald-400">Accepted.</span>';
@@ -1685,8 +1742,16 @@ function renderRosterDraftPick(p) {
   const selected = p.selected_player_name
     ? `<div class="rosters-pick-player">${escapeHtml(p.selected_player_name)}</div>`
     : '<div class="rosters-pick-player is-open">Available</div>';
-  const cls = 'rosters-pick-row' + (p.selected_player_id ? ' is-made' : '');
-  return `<div class="${cls}">
+  // Rows for picks that have already been made are clickable — they
+  // open the drafted player's profile via the same `data-roster-pid`
+  // binding the position-grouped roster rows use.
+  const isMade = !!p.selected_player_id;
+  const clsParts = ['rosters-pick-row'];
+  if (isMade) clsParts.push('is-made', 'clickable');
+  const attrs = isMade
+    ? ` data-roster-pid="${escapeHtml(p.selected_player_id)}" role="button" tabindex="0" title="View ${escapeHtml(p.selected_player_name)}"`
+    : '';
+  return `<div class="${clsParts.join(' ')}"${attrs}>
     <div class="rosters-pick-main">
       <span class="rosters-pick-round">${roundPickLabel(p)}</span>
       <span class="rosters-pick-slot">#${slot}</span>
@@ -1822,6 +1887,7 @@ async function acceptTradeDownOffer(fromTeam) {
     toast('Trade failed: ' + (res.error || 'unknown error'));
     return;
   }
+  playTradeSound();
   closeModal();
   await reloadSessionAndRender();
   if (res.trade) {
@@ -2449,7 +2515,22 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
   const draftedBadge = p.drafted_info
     ? `<div class="pp-drafted">Drafted <strong>#${p.drafted_info.overall}</strong> by ${escapeHtml(p.drafted_info.team)} (R${p.drafted_info.round}, P${p.drafted_info.pick})</div>`
     : '';
+  // OVR + DevTrait only after the player has actually been drafted —
+  // mirrors the Last Selection card.
+  const showLive = !!p.drafted_info;
+  // Pick a color modifier from the dev trait — normal/star/superstar/
+  // x-factor each get their own treatment.
+  const devTraitClass = (() => {
+    const t = String(p.development_trait || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (t.includes('xfactor')) return 'pp-meta-dev-xfactor';
+    if (t.includes('superstar')) return 'pp-meta-dev-superstar';
+    if (t.includes('star')) return 'pp-meta-dev-star';
+    if (t.includes('normal')) return 'pp-meta-dev-normal';
+    return '';
+  })();
   const meta = [
+    showLive && p.ovr != null ? `<div class="pp-meta-item"><div class="pp-meta-label">OVR</div><div class="pp-meta-value pp-meta-ovr">${escapeHtml(String(p.ovr))}</div></div>` : '',
+    showLive && p.development_trait ? `<div class="pp-meta-item"><div class="pp-meta-label">Dev Trait</div><div class="pp-meta-value pp-meta-dev ${devTraitClass}">${escapeHtml(String(p.development_trait))}</div></div>` : '',
     p.consensus_rank != null ? `<div class="pp-meta-item"><div class="pp-meta-label">Consensus</div><div class="pp-meta-value">#${p.consensus_rank}</div></div>` : '',
     (p.projected_round != null && p.projected_pick != null) ? `<div class="pp-meta-item"><div class="pp-meta-label">Projected</div><div class="pp-meta-value">R${p.projected_round} · P${p.projected_pick}</div></div>` : '',
     p.grades && p.grades.star ? `<div class="pp-meta-item"><div class="pp-meta-label">Star</div><div class="pp-meta-value">${escapeHtml(p.grades.star)}</div></div>` : '',
@@ -2595,7 +2676,23 @@ function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${sections}</div>`;
   document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
-  bindSimToPickClicks(document.getElementById('modal-body'));
+  const modalBody = document.getElementById('modal-body');
+  bindSimToPickClicks(modalBody);
+  // Completed cells: clicking opens the drafted player's card. Future
+  // (.simmable) cells keep the sim-to-pick behavior via the call above.
+  modalBody.querySelectorAll('.pick-cell.completed').forEach(cell => {
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick?.selected_player_id) return;
+    const trigger = () => openPlayerProfile(pick.selected_player_id, { returnTo: openFullBoard });
+    cell.style.cursor = 'pointer';
+    cell.setAttribute('role', 'button');
+    cell.setAttribute('tabindex', '0');
+    cell.addEventListener('click', trigger);
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
 }
 
 // ---------- modal & toast ----------
