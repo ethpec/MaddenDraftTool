@@ -96,6 +96,8 @@ def _serialize_session(session: DraftSession) -> dict[str, Any]:
             last_d["position"] = match.get("position")
             last_d["portrait_url"] = _portrait_url(
                 match, session.data.get("portrait_files", []))
+            last_d["ovr"] = match.get("ovr")
+            last_d["development_trait"] = match.get("development_trait")
     return {
         "year": _session_year,
         "user_team": session.user_team,

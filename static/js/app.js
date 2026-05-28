@@ -89,7 +89,7 @@ async function populateYears() {
 async function populateTeamsForYear() {
   const year = document.getElementById('year-select').value;
   const grid = document.getElementById('team-grid');
-  grid.innerHTML = '<div class="col-span-4 text-xs text-slate-500 text-center py-2">Loading teams…</div>';
+  grid.innerHTML = '<div class="col-span-8 text-xs text-slate-500 text-center py-2">Loading teams…</div>';
   try {
     const res = await api.get('/api/teams?year=' + encodeURIComponent(year));
     const teams = (res.teams || []).slice().sort((a, b) => a.name.localeCompare(b.name));
@@ -101,7 +101,7 @@ async function populateTeamsForYear() {
     }
     renderTeamGrid(teams);
   } catch (e) {
-    grid.innerHTML = '<div class="col-span-4 text-xs text-rose-400 text-center py-2">Failed to load teams.</div>';
+    grid.innerHTML = '<div class="col-span-8 text-xs text-rose-400 text-center py-2">Failed to load teams.</div>';
   }
 }
 
@@ -334,6 +334,7 @@ function renderLastPick() {
       <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center mt-2">${teamLogo}<span>${roundPickLabel(p)} · ${escapeHtml(p.current_team)}</span></div>
       <div class="mt-1 text-base font-semibold text-center last-pick-name">${escapeHtml(p.selected_player_name || '')}</div>
       ${p.position ? `<div class="text-xs text-slate-400 text-center">${escapeHtml(p.position)}${p.college ? ' · ' + escapeHtml(p.college) : ''}</div>` : ''}
+      ${(p.ovr != null || p.development_trait != null) ? `<div class="text-xs text-slate-400 text-center mt-0.5">${p.ovr != null ? `<span class="text-accent-gold font-semibold">OVR: ${escapeHtml(String(p.ovr))}</span>` : ''}${p.ovr != null && p.development_trait != null ? ' · ' : ''}${p.development_trait != null ? `DevTrait: ${escapeHtml(String(p.development_trait))}` : ''}</div>` : ''}
     </div>
   `;
   const card = el.querySelector('.last-pick-card.clickable');

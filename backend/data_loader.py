@@ -28,7 +28,7 @@ NFL_LOGOS_DIR = REPO_ROOT / "static" / "nfl_logos"
 COLLEGE_LOGOS_DIR = REPO_ROOT / "static" / "college_logos"
 PORTRAITS_DIR = REPO_ROOT / "static" / "portraits"
 DATA_CACHE_DIRNAME = ".cache"
-PLAYER_CACHE_VERSION = 3
+PLAYER_CACHE_VERSION = 4
 LOAD_ALL_CACHE_VERSION = 6
 _LOAD_ALL_CACHE_LOCK = threading.Lock()
 _LOAD_ALL_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
@@ -52,6 +52,7 @@ PLAYER_COLUMNS_OF_INTEREST: tuple[str, ...] = (
     "PLYR_DRAFTROUND",
     "PLYR_DRAFTPICK",
     "PLYR_PORTRAIT",
+    "TraitDevelopment",
 )
 
 
@@ -676,6 +677,8 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             # Propagate the Madden portrait ID; the API layer turns this
             # (or a name-hash fallback) into a portraits-folder URL.
             p["PLYR_PORTRAIT"] = match.get("PLYR_PORTRAIT")
+            p["ovr"] = match.get("OverallRating")
+            p["development_trait"] = match.get("TraitDevelopment")
             ptr = match.get("player_table_row")
             if ptr is not None and ptr in combine_data:
                 p["combine_data"] = combine_data[ptr]
