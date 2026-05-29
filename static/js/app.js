@@ -1549,9 +1549,9 @@ function renderTradeHistoryCard(t) {
         ${tag}
       </div>
       <div class="th-card-body">
-        ${teamPanel(t.team_a, t.team_a_logo, aReceived, totalA, t.team_b)}
-        <div class="th-arrow">⇄</div>
         ${teamPanel(t.team_b, t.team_b_logo, bReceived, totalB, t.team_a)}
+        <div class="th-arrow">⇄</div>
+        ${teamPanel(t.team_a, t.team_a_logo, aReceived, totalA, t.team_b)}
       </div>
     </div>
   `;
