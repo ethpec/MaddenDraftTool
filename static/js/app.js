@@ -334,7 +334,7 @@ function renderLastPick() {
       <div class="text-xs text-slate-500 flex items-center gap-1.5 justify-center mt-2">${teamLogo}<span>${roundPickLabel(p)} · ${escapeHtml(p.current_team)}</span></div>
       <div class="mt-1 text-base font-semibold text-center last-pick-name">${escapeHtml(p.selected_player_name || '')}</div>
       ${p.position ? `<div class="text-xs text-slate-400 text-center">${escapeHtml(p.position)}${p.college ? ' · ' + escapeHtml(p.college) : ''}</div>` : ''}
-      ${(p.ovr != null || p.development_trait != null) ? `<div class="text-xs text-slate-400 text-center mt-0.5">${p.ovr != null ? `<span class="text-accent-gold font-semibold">OVR: ${escapeHtml(String(p.ovr))}</span>` : ''}${p.ovr != null && p.development_trait != null ? ' · ' : ''}${p.development_trait != null ? `DevTrait: ${escapeHtml(String(p.development_trait))}` : ''}</div>` : ''}
+      ${(p.ovr != null || p.development_trait != null) ? `<div class="text-xs text-slate-400 text-center mt-0.5">${p.ovr != null ? `<span class="text-accent-gold font-semibold">OVR: ${escapeHtml(String(p.ovr))}</span>` : ''}${p.ovr != null && p.development_trait != null ? ' · ' : ''}${p.development_trait != null ? renderDevTraitBadge(p.development_trait) : ''}</div>` : ''}
     </div>
   `;
   const card = el.querySelector('.last-pick-card.clickable');
@@ -345,6 +345,25 @@ function renderLastPick() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
     });
   }
+}
+
+function renderDevTraitBadge(trait) {
+  // Renders the dev trait with a per-tier icon. Star tier gets a gold
+  // five-point star; Superstar gets a cool blue four-point sparkle
+  // (visually distinct + reads as "more elite"); X-Factor gets a
+  // magenta sparkle. Normal stays plain text in slate.
+  const t = String(trait || '').toLowerCase().replace(/[^a-z]/g, '');
+  const label = escapeHtml(String(trait));
+  if (t.includes('xfactor')) {
+    return `<span class="dev-trait-badge dev-xfactor"><span class="dev-icon">✦</span>${label}</span>`;
+  }
+  if (t.includes('superstar')) {
+    return `<span class="dev-trait-badge dev-superstar"><span class="dev-icon">✦</span>${label}</span>`;
+  }
+  if (t.includes('star')) {
+    return `<span class="dev-trait-badge dev-star"><span class="dev-icon">★</span>${label}</span>`;
+  }
+  return `<span class="dev-trait-badge dev-normal">${label}</span>`;
 }
 
 function renderTeamNeeds() {
@@ -473,6 +492,7 @@ async function simUntilOverall(overall) {
 // public board changes (handled in reloadSessionAndRender). Avoids
 // O(n*m) scans when rendering many pick cells at once.
 let _positionByPlayerId = null;
+let _devTraitByPlayerId = null;
 function getPositionByPlayerId() {
   if (_positionByPlayerId === null) {
     _positionByPlayerId = {};
@@ -482,7 +502,19 @@ function getPositionByPlayerId() {
   }
   return _positionByPlayerId;
 }
-function invalidatePositionLookup() { _positionByPlayerId = null; }
+function getDevTraitByPlayerId() {
+  if (_devTraitByPlayerId === null) {
+    _devTraitByPlayerId = {};
+    for (const pl of state.publicBoard) {
+      if (pl.player_id) _devTraitByPlayerId[pl.player_id] = pl.development_trait;
+    }
+  }
+  return _devTraitByPlayerId;
+}
+function invalidatePositionLookup() {
+  _positionByPlayerId = null;
+  _devTraitByPlayerId = null;
+}
 
 function knownPicksForDisplay() {
   return [...(state.board || []), ...(state.futurePicks || [])];
@@ -584,10 +616,15 @@ function renderPickCell(p) {
   if (completed) cls.push('completed');
   if (simmable) cls.push('simmable');
   let playerLine;
+  let devBadge = '';
   if (completed) {
     const pos = getPositionByPlayerId()[p.selected_player_id];
     const posTag = pos ? `<span class="pick-pos">${escapeHtml(displayPosition(pos))}</span>` : '';
     playerLine = `<div class="pick-player">${posTag}${escapeHtml(p.selected_player_name)}</div>`;
+    // Small dev-trait badge top-right — only for Star / Superstar /
+    // X-Factor, so the cell stays clean for the 90%+ of Normal picks.
+    const trait = getDevTraitByPlayerId()[p.selected_player_id];
+    devBadge = renderPickCellDevTraitIcon(trait);
   } else {
     playerLine = `<div class="pick-player placeholder">${onClock ? 'On the clock…' : 'TBD'}</div>`;
   }
@@ -599,12 +636,30 @@ function renderPickCell(p) {
     : '';
   return `
     <div class="${cls.join(' ')}" data-overall="${p.overall}"${simmable ? ' role="button" tabindex="0"' : ''}>
+      ${devBadge}
       <div class="pick-num">${roundPickLabel(p)} · #${p.overall}</div>
       <div class="pick-header">${logo}<div class="pick-team">${escapeHtml(p.current_team)}</div></div>
       ${playerLine}
       ${trade}
     </div>
   `;
+}
+
+function renderPickCellDevTraitIcon(trait) {
+  // Compact corner badge for the round-grid / full-board pick cells.
+  // Skips Normal so cells stay uncluttered; matches the symbol+color
+  // language of the Last Selection dev trait badge.
+  const t = String(trait || '').toLowerCase().replace(/[^a-z]/g, '');
+  if (t.includes('xfactor')) {
+    return '<span class="pick-dev-badge dev-xfactor" title="X-Factor">✦</span>';
+  }
+  if (t.includes('superstar')) {
+    return '<span class="pick-dev-badge dev-superstar" title="Superstar">✦</span>';
+  }
+  if (t.includes('star')) {
+    return '<span class="pick-dev-badge dev-star" title="Star">★</span>';
+  }
+  return '';
 }
 
 function renderTeamBoard() {
@@ -870,6 +925,18 @@ async function submitPick(playerId) {
   // separate "force pick" mode anymore.
   const c = state.session.current_pick;
   if (!c) return toast('Draft complete.');
+
+  // Confirmation dialog — guards against accidental Draft clicks.
+  const player = (state.publicBoard || []).find(p => p.player_id === playerId);
+  const name = player ? `${player.first_name} ${player.last_name}` : 'this player';
+  const ok = await confirmAction({
+    title: 'Confirm Draft',
+    message: `Are you sure you want to draft ${name}?`,
+    confirmLabel: 'Yes',
+    cancelLabel: 'No',
+  });
+  if (!ok) return;
+
   const res = await api.post('/api/pick/force-make', { player_id: playerId });
   if (!res.ok) return toast('Pick failed: ' + res.error);
   playPickSelectionSound();
@@ -1187,6 +1254,7 @@ async function submitTradeUp() {
   const res = await api.post('/api/trade/up', { target_overall: target, offered_overalls: offered, target_also_sends: theirExtra });
   if (!res.ok) { result.textContent = 'Error: ' + res.error; return; }
   if (res.decision.accepted) {
+    playTradeSound();
     result.innerHTML = '<span class="text-emerald-400">Offer accepted!</span> Refreshing…';
     await reloadSessionAndRender();
     setTimeout(closeModal, 800);
@@ -1397,6 +1465,7 @@ async function submitManualTrade() {
       + ' — tick Force override to ignore the check.';
     return;
   }
+  playTradeSound();
   const tag = res.decision.reason === 'forced'
     ? '<span class="text-amber-400">Forced.</span>'
     : '<span class="text-emerald-400">Accepted.</span>';
@@ -1446,9 +1515,14 @@ function renderTradeHistoryCard(t) {
       ${playerLine}
     </div>`;
   };
-  const totalA = (t.team_a_sends || []).reduce((s, p) => s + (p.value || 0), 0);
-  const totalB = (t.team_b_sends || []).reduce((s, p) => s + (p.value || 0), 0);
-  const teamPanel = (name, logo, sends, total, sendsToLabel) => {
+  // Show each team's "haul" — what they RECEIVED — rather than what they
+  // sent. team_a's column → team_b_sends (everything A received); same
+  // pattern flipped for team_b.
+  const aReceived = t.team_b_sends || [];
+  const bReceived = t.team_a_sends || [];
+  const totalA = aReceived.reduce((s, p) => s + (p.value || 0), 0);
+  const totalB = bReceived.reduce((s, p) => s + (p.value || 0), 0);
+  const teamPanel = (name, logo, received, total, fromLabel) => {
     const logoEl = logo
       ? `<img src="${logo}" class="w-9 h-9 object-contain flex-shrink-0">`
       : `<div class="w-9 h-9 rounded-full bg-ink-700 flex-shrink-0"></div>`;
@@ -1458,10 +1532,10 @@ function renderTradeHistoryCard(t) {
           ${logoEl}
           <div>
             <div class="th-team-name">${escapeHtml(name)}</div>
-            <div class="th-team-sub">sends to ${escapeHtml(sendsToLabel)}</div>
+            <div class="th-team-sub">receives from ${escapeHtml(fromLabel)}</div>
           </div>
         </div>
-        <div class="th-picks">${(sends || []).map(fmtPick).join('') || '<div class="text-xs text-slate-500">—</div>'}</div>
+        <div class="th-picks">${received.map(fmtPick).join('') || '<div class="text-xs text-slate-500">—</div>'}</div>
         <div class="th-total">Total: <span class="font-mono text-accent-400">${total.toLocaleString()} pts</span></div>
       </div>`;
   };
@@ -1475,9 +1549,9 @@ function renderTradeHistoryCard(t) {
         ${tag}
       </div>
       <div class="th-card-body">
-        ${teamPanel(t.team_a, t.team_a_logo, t.team_a_sends, totalA, t.team_b)}
+        ${teamPanel(t.team_a, t.team_a_logo, aReceived, totalA, t.team_b)}
         <div class="th-arrow">⇄</div>
-        ${teamPanel(t.team_b, t.team_b_logo, t.team_b_sends, totalB, t.team_a)}
+        ${teamPanel(t.team_b, t.team_b_logo, bReceived, totalB, t.team_a)}
       </div>
     </div>
   `;
@@ -1668,8 +1742,16 @@ function renderRosterDraftPick(p) {
   const selected = p.selected_player_name
     ? `<div class="rosters-pick-player">${escapeHtml(p.selected_player_name)}</div>`
     : '<div class="rosters-pick-player is-open">Available</div>';
-  const cls = 'rosters-pick-row' + (p.selected_player_id ? ' is-made' : '');
-  return `<div class="${cls}">
+  // Rows for picks that have already been made are clickable — they
+  // open the drafted player's profile via the same `data-roster-pid`
+  // binding the position-grouped roster rows use.
+  const isMade = !!p.selected_player_id;
+  const clsParts = ['rosters-pick-row'];
+  if (isMade) clsParts.push('is-made', 'clickable');
+  const attrs = isMade
+    ? ` data-roster-pid="${escapeHtml(p.selected_player_id)}" role="button" tabindex="0" title="View ${escapeHtml(p.selected_player_name)}"`
+    : '';
+  return `<div class="${clsParts.join(' ')}"${attrs}>
     <div class="rosters-pick-main">
       <span class="rosters-pick-round">${roundPickLabel(p)}</span>
       <span class="rosters-pick-slot">#${slot}</span>
@@ -1805,6 +1887,7 @@ async function acceptTradeDownOffer(fromTeam) {
     toast('Trade failed: ' + (res.error || 'unknown error'));
     return;
   }
+  playTradeSound();
   closeModal();
   await reloadSessionAndRender();
   if (res.trade) {
@@ -2430,9 +2513,24 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
     p.college,
   ].filter(Boolean).map(escapeHtml).join(' · ');
   const draftedBadge = p.drafted_info
-    ? `<div class="pp-drafted">Drafted <strong>#${p.drafted_info.overall}</strong> by ${escapeHtml(p.drafted_info.team)} (R${p.drafted_info.round}, P${p.drafted_info.pick})</div>`
+    ? `<div class="pp-drafted">Drafted <strong>#${p.drafted_info.overall}</strong> by ${escapeHtml(p.drafted_info.team)} (R${p.drafted_info.round}, P${roundPickNumber({round: p.drafted_info.round, overall: p.drafted_info.overall, year_offset: 0})})</div>`
     : '';
+  // OVR + DevTrait only after the player has actually been drafted —
+  // mirrors the Last Selection card.
+  const showLive = !!p.drafted_info;
+  // Pick a color modifier from the dev trait — normal/star/superstar/
+  // x-factor each get their own treatment.
+  const devTraitClass = (() => {
+    const t = String(p.development_trait || '').toLowerCase().replace(/[^a-z]/g, '');
+    if (t.includes('xfactor')) return 'pp-meta-dev-xfactor';
+    if (t.includes('superstar')) return 'pp-meta-dev-superstar';
+    if (t.includes('star')) return 'pp-meta-dev-star';
+    if (t.includes('normal')) return 'pp-meta-dev-normal';
+    return '';
+  })();
   const meta = [
+    showLive && p.ovr != null ? `<div class="pp-meta-item"><div class="pp-meta-label">OVR</div><div class="pp-meta-value pp-meta-ovr">${escapeHtml(String(p.ovr))}</div></div>` : '',
+    showLive && p.development_trait ? `<div class="pp-meta-item"><div class="pp-meta-label">Dev Trait</div><div class="pp-meta-value pp-meta-dev ${devTraitClass}">${escapeHtml(String(p.development_trait))}</div></div>` : '',
     p.consensus_rank != null ? `<div class="pp-meta-item"><div class="pp-meta-label">Consensus</div><div class="pp-meta-value">#${p.consensus_rank}</div></div>` : '',
     (p.projected_round != null && p.projected_pick != null) ? `<div class="pp-meta-item"><div class="pp-meta-label">Projected</div><div class="pp-meta-value">R${p.projected_round} · P${p.projected_pick}</div></div>` : '',
     p.grades && p.grades.star ? `<div class="pp-meta-item"><div class="pp-meta-label">Star</div><div class="pp-meta-value">${escapeHtml(p.grades.star)}</div></div>` : '',
@@ -2578,7 +2676,23 @@ function openFullBoard() {
   const html = `<div class="full-board pretty-scroll">${sections}</div>`;
   document.getElementById('modal-root').classList.add('full-board-modal');
   openModal('Full Draft Order', `${state.session.picks_made} of ${state.session.total_picks} picks made`, html);
-  bindSimToPickClicks(document.getElementById('modal-body'));
+  const modalBody = document.getElementById('modal-body');
+  bindSimToPickClicks(modalBody);
+  // Completed cells: clicking opens the drafted player's card. Future
+  // (.simmable) cells keep the sim-to-pick behavior via the call above.
+  modalBody.querySelectorAll('.pick-cell.completed').forEach(cell => {
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick?.selected_player_id) return;
+    const trigger = () => openPlayerProfile(pick.selected_player_id, { returnTo: openFullBoard });
+    cell.style.cursor = 'pointer';
+    cell.setAttribute('role', 'button');
+    cell.setAttribute('tabindex', '0');
+    cell.addEventListener('click', trigger);
+    cell.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
 }
 
 // ---------- modal & toast ----------
@@ -2598,23 +2712,34 @@ function openModal(title, subtitle, bodyHtml) {
 }
 
 function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm }) {
-  // Lightweight confirm dialog reusing the modal root. Awaits a user
-  // click on Confirm before calling onConfirm; Cancel just closes.
-  const safeMessage = typeof message === 'string'
-    ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
-    : message;  // allow trusted HTML for richer body
-  const body = `
-    ${safeMessage}
-    <div class="mt-4 flex items-center justify-end gap-2">
-      <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
-      <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
-    </div>
-  `;
-  openModal(title, '', body);
-  document.getElementById('confirm-cancel').addEventListener('click', closeModal);
-  document.getElementById('confirm-go').addEventListener('click', async () => {
-    closeModal();
-    if (onConfirm) await onConfirm();
+  // Lightweight confirm dialog reusing the modal root.
+  //
+  // Two ways to use:
+  //   1. Pass `onConfirm` — fires when user confirms (legacy fire-and-forget).
+  //   2. `await confirmAction({...})` — returns a Promise<boolean> resolving
+  //      true on confirm / false on cancel.
+  // Both work simultaneously, so existing callers stay untouched.
+  return new Promise((resolve) => {
+    const safeMessage = typeof message === 'string'
+      ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
+      : message;  // allow trusted HTML for richer body
+    const body = `
+      ${safeMessage}
+      <div class="mt-4 flex items-center justify-end gap-2">
+        <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
+        <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
+      </div>
+    `;
+    openModal(title, '', body);
+    document.getElementById('confirm-cancel').addEventListener('click', () => {
+      closeModal();
+      resolve(false);
+    });
+    document.getElementById('confirm-go').addEventListener('click', async () => {
+      closeModal();
+      if (onConfirm) await onConfirm();
+      resolve(true);
+    });
   });
 }
 

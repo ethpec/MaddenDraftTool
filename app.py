@@ -171,6 +171,7 @@ def _public_big_board(session: DraftSession) -> list[dict[str, Any]]:
             "college": p.get("college"),
             "college_logo": p.get("college_logo"),
             "position": p.get("position"),
+            "development_trait": p.get("development_trait"),
             "has_grades": "grades" in p,
             "star": grades.get("star"),
             "height": grades.get("height"),
@@ -355,6 +356,12 @@ def api_player(player_id: str):
             "round": drafted_pick.round_1,
             "pick": drafted_pick.pick_in_round_1,
         }
+    # Real OVR — use the BigBoard player's original `ovr` set at load
+    # time, not the roster entry's value (which gets the rookie boost
+    # from _record_selection after a draft). Matches what the Last
+    # Selection card shows.
+    real_ovr = p.get("ovr")
+    dev_trait = p.get("development_trait")
     return jsonify({
         "player_id": p.get("Player_ID"),
         "first_name": p.get("FirstName"),
@@ -370,6 +377,8 @@ def api_player(player_id: str):
         "height": p.get("height"),
         "weight": p.get("weight"),
         "age": p.get("age"),
+        "ovr": real_ovr,
+        "development_trait": dev_trait,
         "drafted": bool(p.get("drafted")),
         "drafted_info": drafted_info,
         "grades": p.get("grades"),
