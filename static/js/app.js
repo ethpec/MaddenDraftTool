@@ -2513,7 +2513,7 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
     p.college,
   ].filter(Boolean).map(escapeHtml).join(' · ');
   const draftedBadge = p.drafted_info
-    ? `<div class="pp-drafted">Drafted <strong>#${p.drafted_info.overall}</strong> by ${escapeHtml(p.drafted_info.team)} (R${p.drafted_info.round}, P${p.drafted_info.pick})</div>`
+    ? `<div class="pp-drafted">Drafted <strong>#${p.drafted_info.overall}</strong> by ${escapeHtml(p.drafted_info.team)} (R${p.drafted_info.round}, P${roundPickNumber({round: p.drafted_info.round, overall: p.drafted_info.overall, year_offset: 0})})</div>`
     : '';
   // OVR + DevTrait only after the player has actually been drafted —
   // mirrors the Last Selection card.
