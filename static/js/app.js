@@ -420,10 +420,118 @@ function renderRoundTitle() {
 }
 
 function renderRoundGrid(target = 'round-grid') {
+  hideNeedsPopover();
   const el = document.getElementById(target);
   const picks = state.board.filter(p => p.round === state.selectedRound);
   el.innerHTML = picks.map(p => renderPickCell(p)).join('');
   bindOpenTeamRosterClicks(el);
+  bindNeedsHover(el);
+}
+
+// ---------- Pick cell hover → team needs popover ----------
+// One shared popover element appended to <body>. Needs are fetched on
+// first hover per team and cached for the session; the cache is cleared
+// in reloadSessionAndRender since picks shift the need list.
+let _teamNeedsCache = {};
+let _needsPopoverEl = null;
+let _needsHoverTimer = null;
+let _needsActiveTeam = null;
+
+function invalidateTeamNeedsCache() {
+  _teamNeedsCache = {};
+}
+
+function getNeedsPopoverEl() {
+  if (_needsPopoverEl) return _needsPopoverEl;
+  const el = document.createElement('div');
+  el.className = 'pick-needs-popover';
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  _needsPopoverEl = el;
+  return el;
+}
+
+async function fetchTeamNeedsCached(teamName) {
+  if (_teamNeedsCache[teamName]) return _teamNeedsCache[teamName];
+  try {
+    const res = await api.get('/api/needs/' + encodeURIComponent(teamName));
+    _teamNeedsCache[teamName] = res.needs || [];
+  } catch (e) {
+    _teamNeedsCache[teamName] = [];
+  }
+  return _teamNeedsCache[teamName];
+}
+
+function hideNeedsPopover() {
+  if (_needsHoverTimer) { clearTimeout(_needsHoverTimer); _needsHoverTimer = null; }
+  _needsActiveTeam = null;
+  if (_needsPopoverEl) _needsPopoverEl.style.display = 'none';
+}
+
+function positionNeedsPopover(cellEl) {
+  const pop = _needsPopoverEl;
+  if (!pop) return;
+  const cellRect = cellEl.getBoundingClientRect();
+  pop.style.left = '0px';
+  pop.style.top = '0px';
+  pop.style.display = 'block';
+  const popRect = pop.getBoundingClientRect();
+  const margin = 8;
+  let left = cellRect.right + margin;
+  if (left + popRect.width > window.innerWidth - 4) {
+    left = cellRect.left - popRect.width - margin;
+  }
+  if (left < 4) left = 4;
+  let top = cellRect.top;
+  if (top + popRect.height > window.innerHeight - 4) {
+    top = window.innerHeight - popRect.height - 4;
+  }
+  if (top < 4) top = 4;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+async function showNeedsPopover(cellEl, teamName) {
+  _needsActiveTeam = teamName;
+  const pop = getNeedsPopoverEl();
+  pop.innerHTML = `
+    <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+    <div class="pick-needs-pop-loading">Loading…</div>
+  `;
+  positionNeedsPopover(cellEl);
+  const needs = await fetchTeamNeedsCached(teamName);
+  // Bail if hover ended or moved to another team during the fetch.
+  if (_needsActiveTeam !== teamName) return;
+  if (!needs.length) {
+    pop.innerHTML = `
+      <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+      <div class="pick-needs-pop-empty">No needs computed.</div>
+    `;
+  } else {
+    const top = needs.slice(0, 8);
+    pop.innerHTML = `
+      <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+      <div class="pick-needs-pop-list">
+        ${top.map(n => `<div class="pick-needs-pop-row">${escapeHtml(n.label)}</div>`).join('')}
+      </div>
+    `;
+  }
+  positionNeedsPopover(cellEl);
+}
+
+function bindNeedsHover(rootEl) {
+  if (!rootEl) return;
+  rootEl.querySelectorAll('.pick-cell').forEach(cell => {
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick || !pick.current_team) return;
+    const teamName = pick.current_team;
+    cell.addEventListener('mouseenter', () => {
+      if (_needsHoverTimer) clearTimeout(_needsHoverTimer);
+      _needsHoverTimer = setTimeout(() => showNeedsPopover(cell, teamName), 250);
+    });
+    cell.addEventListener('mouseleave', () => hideNeedsPopover());
+  });
 }
 
 function bindSimToPickClicks(rootEl) {
@@ -956,6 +1064,7 @@ async function reloadSessionAndRender() {
   state.futurePicks = b.future_picks || [];
   state.publicBoard = pub.players;
   invalidatePositionLookup();
+  invalidateTeamNeedsCache();
   maybePlayUserOnClockChime(previousSession, state.session);
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;

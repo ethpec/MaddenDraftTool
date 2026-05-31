@@ -457,6 +457,54 @@
 .need-row .pos { font-weight: 600; color: #e2e8f0; }
 .need-row .meta { font-size: 11px; color: #64748b; font-family: 'JetBrains Mono', ui-monospace; }
 
+/* Hover popover anchored next to a round-grid pick cell.
+   Shows the owning team's current needs without leaving the board view. */
+.pick-needs-popover {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  max-width: 240px;
+  background: #0d1018;
+  border: 1px solid #252d42;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+  padding: 10px 12px;
+  pointer-events: none;
+  animation: pick-needs-pop-in 120ms ease-out;
+}
+@keyframes pick-needs-pop-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.pick-needs-pop-head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f8c043;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #1a2030;
+}
+.pick-needs-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pick-needs-pop-row {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  padding: 3px 4px;
+  border-radius: 3px;
+}
+.pick-needs-pop-empty,
+.pick-needs-pop-loading {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+}
+
 /* Previous Selections row (left rail) */
 .ps-row {
   display: grid;
