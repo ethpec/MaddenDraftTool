@@ -24,7 +24,17 @@ const state = {
   needs: [],
   selectedRound: 1,
   lastPick: null,
+  needsFilterPos: null,
 };
+
+// Position taxonomy used by `compute_team_needs` (PositionNeeds.xlsx). The
+// frontend's POSITION_ORDER groups things differently for the Big Board
+// modal (e.g. END collapses LE/RE) but needs match by the backend's
+// canonical group names — EDGE, LB, OT, OG — so this list mirrors those.
+const NEEDS_FILTER_POSITIONS = [
+  'QB','HB','FB','WR','TE','OG','OT','C',
+  'EDGE','DT','LB','CB','SS','FS','K','P',
+];
 
 const PICK_SELECTION_SOUND_SRC = '/static/sounds/selection.mp3';
 const TRADE_SOUND_SRC = '/static/sounds/trade.mp3';
@@ -232,9 +242,28 @@ function renderAll() {
   renderRoundTitle();
   renderRoundGrid();
   renderUserPicksSnapshot();
+  renderNeedsFilter();
   renderTeamBoard();
   renderSimRoundSelect();
   updateTradeHistoryCount();
+  // If the user had a needs filter active, the cache was cleared in
+  // reloadSessionAndRender; re-fetch in the background and update the
+  // highlight when the data lands.
+  if (state.needsFilterPos) refreshNeedsFilterAfterReload();
+}
+
+async function refreshNeedsFilterAfterReload() {
+  const pos = state.needsFilterPos;
+  if (!pos) return;
+  const teams = new Set();
+  for (const p of state.board) {
+    if (p.current_team && !_teamNeedsCache[p.current_team]) teams.add(p.current_team);
+  }
+  if (teams.size) {
+    setNeedsFilterStatus('Loading needs…');
+    await Promise.all([...teams].map(t => fetchTeamNeedsCached(t)));
+  }
+  if (state.needsFilterPos === pos) applyNeedsFilterHighlight();
 }
 
 async function updateTradeHistoryCount() {
@@ -426,6 +455,7 @@ function renderRoundGrid(target = 'round-grid') {
   el.innerHTML = picks.map(p => renderPickCell(p)).join('');
   bindOpenTeamRosterClicks(el);
   bindNeedsHover(el);
+  if (target === 'round-grid') applyNeedsFilterHighlight();
 }
 
 // ---------- Pick cell hover → team needs popover ----------
@@ -532,6 +562,82 @@ function bindNeedsHover(rootEl) {
     });
     cell.addEventListener('mouseleave', () => hideNeedsPopover());
   });
+}
+
+// ---------- "Find Teams by Need" filter ----------
+// Single-select pill grid in the right rail. Picking a position bulk-
+// fetches every team's current needs and highlights matching pick cells
+// in the round grid. Selection persists across round switches.
+function renderNeedsFilter() {
+  const el = document.getElementById('needs-filter-pills');
+  if (!el) return;
+  el.innerHTML = NEEDS_FILTER_POSITIONS.map(pos => {
+    const active = state.needsFilterPos === pos;
+    return `<button class="needs-filter-pill${active ? ' active' : ''}" data-pos="${pos}">${pos}</button>`;
+  }).join('');
+  el.querySelectorAll('.needs-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => onNeedsFilterClick(btn.dataset.pos));
+  });
+  setNeedsFilterStatus('');
+}
+
+function setNeedsFilterStatus(text) {
+  const el = document.getElementById('needs-filter-status');
+  if (el) el.textContent = text || '';
+}
+
+async function onNeedsFilterClick(pos) {
+  state.needsFilterPos = state.needsFilterPos === pos ? null : pos;
+  renderNeedsFilter();
+  if (!state.needsFilterPos) {
+    applyNeedsFilterHighlight();
+    return;
+  }
+  // Bulk-fetch any uncached team needs so the highlight reflects every
+  // team on the board, not just ones the user happened to hover.
+  const needsToFetch = new Set();
+  for (const p of state.board) {
+    if (p.current_team && !_teamNeedsCache[p.current_team]) {
+      needsToFetch.add(p.current_team);
+    }
+  }
+  if (needsToFetch.size) {
+    setNeedsFilterStatus('Loading needs…');
+    await Promise.all([...needsToFetch].map(t => fetchTeamNeedsCached(t)));
+  }
+  applyNeedsFilterHighlight();
+}
+
+function applyNeedsFilterHighlight() {
+  const grid = document.getElementById('round-grid');
+  if (!grid) return;
+  const pos = state.needsFilterPos;
+  let matchCount = 0;
+  grid.querySelectorAll('.pick-cell').forEach(cell => {
+    cell.classList.remove('needs-match');
+    if (!pos) return;
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick) return;
+    const teamNeeds = _teamNeedsCache[pick.current_team];
+    if (!teamNeeds) return;
+    if (teamNeeds.some(n => n.position === pos)) {
+      cell.classList.add('needs-match');
+      matchCount += 1;
+    }
+  });
+  if (!pos) {
+    setNeedsFilterStatus('');
+  } else {
+    const teamsWithNeed = new Set();
+    for (const p of state.board) {
+      const ns = _teamNeedsCache[p.current_team];
+      if (ns && ns.some(n => n.position === pos)) {
+        teamsWithNeed.add(p.current_team);
+      }
+    }
+    setNeedsFilterStatus(`${teamsWithNeed.size} team${teamsWithNeed.size === 1 ? '' : 's'} need ${pos} · ${matchCount} pick${matchCount === 1 ? '' : 's'} this round`);
+  }
 }
 
 function bindSimToPickClicks(rootEl) {
