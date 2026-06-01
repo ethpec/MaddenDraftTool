@@ -406,6 +406,10 @@ function renderTeamNeeds() {
     const j = Math.floor(Math.random() * (i + 1));
     [top[i], top[j]] = [top[j], top[i]];
   }
+  // Save the shuffled order so the hover popover can show the same sequence
+  // for the on-clock team instead of re-shuffling independently.
+  const onClockTeam = state.session?.current_pick?.current_team || state.userTeam;
+  state.needsDisplayed = { team: onClockTeam, needs: top };
   el.innerHTML = top.map(n => `
     <div class="need-row">
       <span class="pos">${n.label}</span>
@@ -469,6 +473,8 @@ let _needsActiveTeam = null;
 
 function invalidateTeamNeedsCache() {
   _teamNeedsCache = {};
+  rostersState.needsDisplayed = null;
+  state.needsDisplayed = null;
 }
 
 function getNeedsPopoverEl() {
@@ -524,6 +530,24 @@ function positionNeedsPopover(cellEl) {
 async function showNeedsPopover(cellEl, teamName) {
   _needsActiveTeam = teamName;
   const pop = getNeedsPopoverEl();
+
+  // Reuse an already-shuffled order if available — left-rail takes priority
+  // (on-clock team), then the Rosters modal (any team currently displayed).
+  const preShuffled = (state.needsDisplayed?.team === teamName && state.needsDisplayed.needs)
+    || (rostersState.needsDisplayed?.team === teamName && rostersState.needsDisplayed.needs)
+    || null;
+  if (preShuffled) {
+    const top = preShuffled;
+    pop.innerHTML = `
+      <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+      ${top.length
+        ? `<div class="pick-needs-pop-list">${top.map(n => `<div class="pick-needs-pop-row">${escapeHtml(n.label)}</div>`).join('')}</div>`
+        : `<div class="pick-needs-pop-empty">No needs computed.</div>`}
+    `;
+    positionNeedsPopover(cellEl);
+    return;
+  }
+
   pop.innerHTML = `
     <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
     <div class="pick-needs-pop-loading">Loading…</div>
@@ -539,6 +563,11 @@ async function showNeedsPopover(cellEl, teamName) {
     `;
   } else {
     const top = needs.slice(0, 8);
+    // Shuffle so the popover doesn't reveal weight-order for other teams.
+    for (let i = top.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [top[i], top[j]] = [top[j], top[i]];
+    }
     pop.innerHTML = `
       <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
       <div class="pick-needs-pop-list">
@@ -1890,11 +1919,21 @@ async function renderRostersBody() {
         }).join('')}
       </div>
     </div>` : '';
-  // Team Needs panel — identical data + shuffle as the left-rail card.
-  const needs = rostersState.needs.slice(0, 8);
-  for (let i = needs.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [needs[i], needs[j]] = [needs[j], needs[i]];
+  // Use the left-rail's already-shuffled order for the on-clock team so
+  // both panels always agree. For other teams, shuffle once and cache it
+  // so clicking in/out doesn't re-randomize.
+  let needs;
+  if (state.needsDisplayed?.team === team.team && state.needsDisplayed.needs) {
+    needs = state.needsDisplayed.needs;
+  } else if (rostersState.needsDisplayed?.team === team.team) {
+    needs = rostersState.needsDisplayed.needs;
+  } else {
+    needs = rostersState.needs.slice(0, 8);
+    for (let i = needs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [needs[i], needs[j]] = [needs[j], needs[i]];
+    }
+    rostersState.needsDisplayed = { team: team.team, needs };
   }
   const needsHtml = needs.length
     ? needs.map(n => `
