@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c 'import openpyxl; wb = openpyxl.load_workbook\\('\\\\''Files/TestFiles/PositionNeeds.xlsx'\\\\'', read_only=True\\); ws = wb.active; rows = list\\(ws.iter_rows\\(values_only=True\\)\\); print\\(rows[0]\\); seen = set\\(\\); *)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import openpyxl; wb = openpyxl.load_workbook\\('Files/TestFiles/PositionNeeds.xlsx', read_only=True\\); ws = wb.active; rows = list\\(ws.iter_rows\\(values_only=True\\)\\); print\\(rows[0]\\); print\\(\\); seen = sorted\\({\\(r[0], r[1]\\) for r in rows[1:] if r[0]}, key=lambda x: str\\(x[0]\\)\\); [print\\(s\\) for s in seen]\")",
+      "Bash(python -c \"import openpyxl; wb = openpyxl.load_workbook\\('Files/TestFiles/PositionNeeds.xlsx', read_only=True\\); ws = wb.active; rows = list\\(ws.iter_rows\\(values_only=True\\)\\); [print\\(r[0], r[1], '|', r[2]\\) for r in rows[1:21] if r[0]]\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('app.py', doraise=True\\); py_compile.compile\\('backend/draft_state.py', doraise=True\\); py_compile.compile\\('backend/logic.py', doraise=True\\); print\\('OK'\\)\")"
+    ]
+  }
+}

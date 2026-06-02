@@ -457,6 +457,114 @@
 .need-row .pos { font-weight: 600; color: #e2e8f0; }
 .need-row .meta { font-size: 11px; color: #64748b; font-family: 'JetBrains Mono', ui-monospace; }
 
+/* "Find Teams by Need" filter card — right rail, below user picks.
+   Single-select pill grid; selecting one highlights matching picks in
+   the main round grid (see .pick-cell.needs-match). */
+.needs-filter-pills {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+}
+.needs-filter-pill {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  padding: 6px 4px;
+  border-radius: 5px;
+  background: #11151f;
+  color: #cbd5e1;
+  border: 1px solid #1a2030;
+  cursor: pointer;
+  transition: all 100ms ease;
+  text-align: center;
+}
+.needs-filter-pill:hover {
+  background: #1a2030;
+  border-color: #38456a;
+  color: #f1f5f9;
+}
+.needs-filter-pill.active {
+  background: linear-gradient(135deg, #f8c043 0%, #f0b020 100%);
+  color: #06080d;
+  border-color: #f8c043;
+  box-shadow: 0 2px 8px rgba(240,176,32,0.35), 0 0 0 1px rgba(255,255,255,0.15) inset;
+}
+.needs-filter-status {
+  margin-top: 8px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: #64748b;
+  min-height: 1em;
+}
+
+/* Highlight applied to round-grid pick cells whose owning team has the
+   currently-selected needs-filter position. Blue ring so it reads
+   distinctly from the gold user-pick ring and the green on-clock pulse. */
+.pick-cell.needs-match {
+  border-color: #60a5fa;
+  box-shadow:
+    0 0 0 1px #60a5fa inset,
+    0 0 18px rgba(96,165,250,0.28);
+}
+.pick-cell.needs-match.user-pick {
+  /* User-team pick that also matches — keep the gold ring as primary
+     but tint with a subtle blue glow so the match is still visible. */
+  border-color: #f8c043;
+  box-shadow:
+    0 0 0 1px #f8c043 inset,
+    0 0 18px rgba(96,165,250,0.35);
+}
+
+/* Hover popover anchored next to a round-grid pick cell.
+   Shows the owning team's current needs without leaving the board view. */
+.pick-needs-popover {
+  position: fixed;
+  z-index: 60;
+  min-width: 180px;
+  max-width: 240px;
+  background: #0d1018;
+  border: 1px solid #252d42;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.6);
+  padding: 10px 12px;
+  pointer-events: none;
+  animation: pick-needs-pop-in 120ms ease-out;
+}
+@keyframes pick-needs-pop-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.pick-needs-pop-head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #f8c043;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #1a2030;
+}
+.pick-needs-pop-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.pick-needs-pop-row {
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2e8f0;
+  padding: 3px 4px;
+  border-radius: 3px;
+}
+.pick-needs-pop-empty,
+.pick-needs-pop-loading {
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+}
+
 /* Previous Selections row (left rail) */
 .ps-row {
   display: grid;

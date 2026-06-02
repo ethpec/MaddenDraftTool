@@ -24,7 +24,17 @@ const state = {
   needs: [],
   selectedRound: 1,
   lastPick: null,
+  needsFilterPos: null,
 };
+
+// Position taxonomy used by `compute_team_needs` (PositionNeeds.xlsx). The
+// frontend's POSITION_ORDER groups things differently for the Big Board
+// modal (e.g. END collapses LE/RE) but needs match by the backend's
+// canonical group names — EDGE, LB, OT, OG — so this list mirrors those.
+const NEEDS_FILTER_POSITIONS = [
+  'QB','HB','FB','WR','TE','OG','OT','C',
+  'EDGE','DT','LB','CB','SS','FS','K','P',
+];
 
 const PICK_SELECTION_SOUND_SRC = '/static/sounds/selection.mp3';
 const TRADE_SOUND_SRC = '/static/sounds/trade.mp3';
@@ -232,9 +242,28 @@ function renderAll() {
   renderRoundTitle();
   renderRoundGrid();
   renderUserPicksSnapshot();
+  renderNeedsFilter();
   renderTeamBoard();
   renderSimRoundSelect();
   updateTradeHistoryCount();
+  // If the user had a needs filter active, the cache was cleared in
+  // reloadSessionAndRender; re-fetch in the background and update the
+  // highlight when the data lands.
+  if (state.needsFilterPos) refreshNeedsFilterAfterReload();
+}
+
+async function refreshNeedsFilterAfterReload() {
+  const pos = state.needsFilterPos;
+  if (!pos) return;
+  const teams = new Set();
+  for (const p of state.board) {
+    if (p.current_team && !_teamNeedsCache[p.current_team]) teams.add(p.current_team);
+  }
+  if (teams.size) {
+    setNeedsFilterStatus('Loading needs…');
+    await Promise.all([...teams].map(t => fetchTeamNeedsCached(t)));
+  }
+  if (state.needsFilterPos === pos) applyNeedsFilterHighlight();
 }
 
 async function updateTradeHistoryCount() {
@@ -377,6 +406,10 @@ function renderTeamNeeds() {
     const j = Math.floor(Math.random() * (i + 1));
     [top[i], top[j]] = [top[j], top[i]];
   }
+  // Save the shuffled order so the hover popover can show the same sequence
+  // for the on-clock team instead of re-shuffling independently.
+  const onClockTeam = state.session?.current_pick?.current_team || state.userTeam;
+  state.needsDisplayed = { team: onClockTeam, needs: top };
   el.innerHTML = top.map(n => `
     <div class="need-row">
       <span class="pos">${n.label}</span>
@@ -420,10 +453,220 @@ function renderRoundTitle() {
 }
 
 function renderRoundGrid(target = 'round-grid') {
+  hideNeedsPopover();
   const el = document.getElementById(target);
   const picks = state.board.filter(p => p.round === state.selectedRound);
   el.innerHTML = picks.map(p => renderPickCell(p)).join('');
   bindOpenTeamRosterClicks(el);
+  bindNeedsHover(el);
+  if (target === 'round-grid') applyNeedsFilterHighlight();
+}
+
+// ---------- Pick cell hover → team needs popover ----------
+// One shared popover element appended to <body>. Needs are fetched on
+// first hover per team and cached for the session; the cache is cleared
+// in reloadSessionAndRender since picks shift the need list.
+let _teamNeedsCache = {};
+let _needsPopoverEl = null;
+let _needsHoverTimer = null;
+let _needsActiveTeam = null;
+
+function invalidateTeamNeedsCache() {
+  _teamNeedsCache = {};
+  rostersState.needsDisplayed = null;
+  state.needsDisplayed = null;
+}
+
+function getNeedsPopoverEl() {
+  if (_needsPopoverEl) return _needsPopoverEl;
+  const el = document.createElement('div');
+  el.className = 'pick-needs-popover';
+  el.style.display = 'none';
+  document.body.appendChild(el);
+  _needsPopoverEl = el;
+  return el;
+}
+
+async function fetchTeamNeedsCached(teamName) {
+  if (_teamNeedsCache[teamName]) return _teamNeedsCache[teamName];
+  try {
+    const res = await api.get('/api/needs/' + encodeURIComponent(teamName));
+    _teamNeedsCache[teamName] = res.needs || [];
+  } catch (e) {
+    _teamNeedsCache[teamName] = [];
+  }
+  return _teamNeedsCache[teamName];
+}
+
+function hideNeedsPopover() {
+  if (_needsHoverTimer) { clearTimeout(_needsHoverTimer); _needsHoverTimer = null; }
+  _needsActiveTeam = null;
+  if (_needsPopoverEl) _needsPopoverEl.style.display = 'none';
+}
+
+function positionNeedsPopover(cellEl) {
+  const pop = _needsPopoverEl;
+  if (!pop) return;
+  const cellRect = cellEl.getBoundingClientRect();
+  pop.style.left = '0px';
+  pop.style.top = '0px';
+  pop.style.display = 'block';
+  const popRect = pop.getBoundingClientRect();
+  const margin = 8;
+  let left = cellRect.right + margin;
+  if (left + popRect.width > window.innerWidth - 4) {
+    left = cellRect.left - popRect.width - margin;
+  }
+  if (left < 4) left = 4;
+  let top = cellRect.top;
+  if (top + popRect.height > window.innerHeight - 4) {
+    top = window.innerHeight - popRect.height - 4;
+  }
+  if (top < 4) top = 4;
+  pop.style.left = left + 'px';
+  pop.style.top = top + 'px';
+}
+
+async function showNeedsPopover(cellEl, teamName) {
+  _needsActiveTeam = teamName;
+  const pop = getNeedsPopoverEl();
+
+  // Reuse an already-shuffled order if available — left-rail takes priority
+  // (on-clock team), then the Rosters modal (any team currently displayed).
+  const preShuffled = (state.needsDisplayed?.team === teamName && state.needsDisplayed.needs)
+    || (rostersState.needsDisplayed?.team === teamName && rostersState.needsDisplayed.needs)
+    || null;
+  if (preShuffled) {
+    const top = preShuffled;
+    pop.innerHTML = `
+      <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+      ${top.length
+        ? `<div class="pick-needs-pop-list">${top.map(n => `<div class="pick-needs-pop-row">${escapeHtml(n.label)}</div>`).join('')}</div>`
+        : `<div class="pick-needs-pop-empty">No needs computed.</div>`}
+    `;
+    positionNeedsPopover(cellEl);
+    return;
+  }
+
+  pop.innerHTML = `
+    <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+    <div class="pick-needs-pop-loading">Loading…</div>
+  `;
+  positionNeedsPopover(cellEl);
+  const needs = await fetchTeamNeedsCached(teamName);
+  // Bail if hover ended or moved to another team during the fetch.
+  if (_needsActiveTeam !== teamName) return;
+  if (!needs.length) {
+    pop.innerHTML = `
+      <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+      <div class="pick-needs-pop-empty">No needs computed.</div>
+    `;
+  } else {
+    const top = needs.slice(0, 8);
+    // Shuffle so the popover doesn't reveal weight-order for other teams.
+    for (let i = top.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [top[i], top[j]] = [top[j], top[i]];
+    }
+    pop.innerHTML = `
+      <div class="pick-needs-pop-head">${escapeHtml(teamName)} Needs</div>
+      <div class="pick-needs-pop-list">
+        ${top.map(n => `<div class="pick-needs-pop-row">${escapeHtml(n.label)}</div>`).join('')}
+      </div>
+    `;
+  }
+  positionNeedsPopover(cellEl);
+}
+
+function bindNeedsHover(rootEl) {
+  if (!rootEl) return;
+  rootEl.querySelectorAll('.pick-cell').forEach(cell => {
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick || !pick.current_team) return;
+    const teamName = pick.current_team;
+    cell.addEventListener('mouseenter', () => {
+      if (_needsHoverTimer) clearTimeout(_needsHoverTimer);
+      _needsHoverTimer = setTimeout(() => showNeedsPopover(cell, teamName), 250);
+    });
+    cell.addEventListener('mouseleave', () => hideNeedsPopover());
+  });
+}
+
+// ---------- "Find Teams by Need" filter ----------
+// Single-select pill grid in the right rail. Picking a position bulk-
+// fetches every team's current needs and highlights matching pick cells
+// in the round grid. Selection persists across round switches.
+function renderNeedsFilter() {
+  const el = document.getElementById('needs-filter-pills');
+  if (!el) return;
+  el.innerHTML = NEEDS_FILTER_POSITIONS.map(pos => {
+    const active = state.needsFilterPos === pos;
+    return `<button class="needs-filter-pill${active ? ' active' : ''}" data-pos="${pos}">${pos}</button>`;
+  }).join('');
+  el.querySelectorAll('.needs-filter-pill').forEach(btn => {
+    btn.addEventListener('click', () => onNeedsFilterClick(btn.dataset.pos));
+  });
+  setNeedsFilterStatus('');
+}
+
+function setNeedsFilterStatus(text) {
+  const el = document.getElementById('needs-filter-status');
+  if (el) el.textContent = text || '';
+}
+
+async function onNeedsFilterClick(pos) {
+  state.needsFilterPos = state.needsFilterPos === pos ? null : pos;
+  renderNeedsFilter();
+  if (!state.needsFilterPos) {
+    applyNeedsFilterHighlight();
+    return;
+  }
+  // Bulk-fetch any uncached team needs so the highlight reflects every
+  // team on the board, not just ones the user happened to hover.
+  const needsToFetch = new Set();
+  for (const p of state.board) {
+    if (p.current_team && !_teamNeedsCache[p.current_team]) {
+      needsToFetch.add(p.current_team);
+    }
+  }
+  if (needsToFetch.size) {
+    setNeedsFilterStatus('Loading needs…');
+    await Promise.all([...needsToFetch].map(t => fetchTeamNeedsCached(t)));
+  }
+  applyNeedsFilterHighlight();
+}
+
+function applyNeedsFilterHighlight() {
+  const grid = document.getElementById('round-grid');
+  if (!grid) return;
+  const pos = state.needsFilterPos;
+  let matchCount = 0;
+  grid.querySelectorAll('.pick-cell').forEach(cell => {
+    cell.classList.remove('needs-match');
+    if (!pos) return;
+    const overall = parseInt(cell.dataset.overall, 10);
+    const pick = state.board.find(p => p.overall === overall);
+    if (!pick) return;
+    const teamNeeds = _teamNeedsCache[pick.current_team];
+    if (!teamNeeds) return;
+    if (teamNeeds.some(n => n.position === pos)) {
+      cell.classList.add('needs-match');
+      matchCount += 1;
+    }
+  });
+  if (!pos) {
+    setNeedsFilterStatus('');
+  } else {
+    const teamsWithNeed = new Set();
+    for (const p of state.board) {
+      const ns = _teamNeedsCache[p.current_team];
+      if (ns && ns.some(n => n.position === pos)) {
+        teamsWithNeed.add(p.current_team);
+      }
+    }
+    setNeedsFilterStatus(`${teamsWithNeed.size} team${teamsWithNeed.size === 1 ? '' : 's'} need ${pos} · ${matchCount} pick${matchCount === 1 ? '' : 's'} this round`);
+  }
 }
 
 function bindSimToPickClicks(rootEl) {
@@ -956,6 +1199,7 @@ async function reloadSessionAndRender() {
   state.futurePicks = b.future_picks || [];
   state.publicBoard = pub.players;
   invalidatePositionLookup();
+  invalidateTeamNeedsCache();
   maybePlayUserOnClockChime(previousSession, state.session);
   if (state.session.current_pick) {
     state.selectedRound = state.session.current_pick.round;
@@ -1675,11 +1919,21 @@ async function renderRostersBody() {
         }).join('')}
       </div>
     </div>` : '';
-  // Team Needs panel — identical data + shuffle as the left-rail card.
-  const needs = rostersState.needs.slice(0, 8);
-  for (let i = needs.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [needs[i], needs[j]] = [needs[j], needs[i]];
+  // Use the left-rail's already-shuffled order for the on-clock team so
+  // both panels always agree. For other teams, shuffle once and cache it
+  // so clicking in/out doesn't re-randomize.
+  let needs;
+  if (state.needsDisplayed?.team === team.team && state.needsDisplayed.needs) {
+    needs = state.needsDisplayed.needs;
+  } else if (rostersState.needsDisplayed?.team === team.team) {
+    needs = rostersState.needsDisplayed.needs;
+  } else {
+    needs = rostersState.needs.slice(0, 8);
+    for (let i = needs.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [needs[i], needs[j]] = [needs[j], needs[i]];
+    }
+    rostersState.needsDisplayed = { team: team.team, needs };
   }
   const needsHtml = needs.length
     ? needs.map(n => `
