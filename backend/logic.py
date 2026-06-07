@@ -58,9 +58,13 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
         if p.get("drafted"):
             continue
         rank = p.get("BigBoardRank") or 9999
-        swing = max(10.0, rank / 2.5) * gm_skill_factor
+        swing = max(7.5, rank / 2.5) * gm_skill_factor
         prospect_factor = PROSPECT_FACTOR.get(p.get("ProspectType") or "Standard", 1.0)
-        noisy_rank = max(1.0, rank + random.uniform(-swing , swing * prospect_factor))
+        # 1% chance of a "darling" spike — boosts only the upward swing so
+        # the team can value this player significantly higher than consensus
+        # without making them any easier to fall.
+        up_swing = swing * 1.25 if random.random() < 0.01 else swing
+        noisy_rank = max(1.0, rank + random.uniform(-up_swing, swing * prospect_factor))
         noisy.append((noisy_rank, rank, p))
 
     noisy.sort(key=lambda x: (x[0], x[1]))
@@ -154,15 +158,15 @@ def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float,
         if pick_in_round <= 10:
             return 0.10, (2.50, 100), 3
         if pick_in_round <= 16:
-            return 0.15, (2.50, 100), 4
-        return 0.20, (2.50, 100), 4
+            return 0.15, (2.50, 100), 3
+        return 0.20, (2.50, 100), 3
     return {
-        2: (0.30, (2.00, 100), 5),
-        3: (0.40, (1.75, 100), 6),
-        4: (0.50, (1.25, 1.75), 8),
-        5: (0.66, (1.00, 1.50), 10),
-        6: (0.75, (0.75, 1.50), 12),
-        7: (0.85, (0.50, 1.50), 15),
+        2: (0.30, (2.00, 100), 4),
+        3: (0.40, (1.75, 100), 5),
+        4: (0.50, (1.25, 1.75), 6),
+        5: (0.66, (1.00, 1.50), 8),
+        6: (0.75, (0.75, 1.50), 10),
+        7: (0.85, (0.50, 1.50), 12),
     }.get(round_1, (0.50, (1.50, 100), 10))
 
 
@@ -272,14 +276,16 @@ def _make_select(player: dict[str, Any], rationale: str) -> dict[str, Any]:
 # rolls the same table and adds _TRADE_UP_OFFSET to get their ceiling (M_up).
 # The offset guarantees a non-zero acceptance window when both rolls land on
 # the same bucket (e.g. M_down=1.05, M_up=1.075 → 2.5% spread).
+# Key 0 = R1 picks 1-10 (top-10); key 1 = R1 picks 11-32; keys 2-7 = rounds 2-7.
 _TRADE_THRESHOLD_TABLE: dict[int, list[tuple[float, float]]] = {
-    1: [(1.00, 0.20), (1.05, 0.60), (1.10, 0.175), (1.15, 0.025)],
+    0: [(1.00, 0.20), (1.05, 0.60), (1.10, 0.175), (1.15, 0.025)],  # R1 picks 1-10
+    1: [(0.95, 0.025), (1.00, 0.60), (1.05, 0.325), (1.10, 0.05)],  # R1 picks 11-32
     2: [(0.95, 0.05), (1.00, 0.60), (1.05, 0.30), (1.10, 0.05)],
     3: [(0.95, 0.05), (1.00, 0.65), (1.05, 0.25), (1.10, 0.05)],
-    4: [(0.95, 0.10), (1.00, 0.65), (1.05, 0.20), (1.10, 0.05)],
-    5: [(0.95, 0.10), (1.00, 0.70), (1.05, 0.15), (1.10, 0.05)],
-    6: [(0.95, 0.15), (1.00, 0.70), (1.05, 0.10), (1.10, 0.05)],
-    7: [(0.95, 0.15), (1.00, 0.75), (1.05, 0.10), (1.10, 0.05)],
+    4: [(0.95, 0.10), (1.00, 0.65), (1.05, 0.225), (1.10, 0.025)],
+    5: [(0.95, 0.10), (1.00, 0.70), (1.05, 0.175), (1.10, 0.025)],
+    6: [(0.95, 0.15), (1.00, 0.725), (1.05, 0.10), (1.10, 0.025)],
+    7: [(0.95, 0.15), (1.00, 0.775), (1.05, 0.10), (1.10, 0.025)],
 }
 
 # Random offset applied to the trade-up team's rolled ratio. Drawn fresh
@@ -313,14 +319,20 @@ _FUTURE_PICK_GATE_DOWN: float = 0.25          # future R3+ in trade-down return;
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
 
 
-def _roll_trade_threshold(round_1: int, is_trade_up: bool) -> float:
+def _roll_trade_threshold(round_1: int, is_trade_up: bool, pick_in_round: int = 1) -> float:
     """Roll an acceptance/offer ratio from the round-keyed table.
 
     Trade-up rolls receive a fresh random offset drawn from uniform
     [-``_TRADE_UP_OFFSET``, +``_TRADE_UP_OFFSET``]. Each offering team gets
     a different effective M_up even when they roll the same base bucket.
+
+    Round 1 is split by pick position: key 0 (picks 1-10) vs key 1 (picks 11-32).
     """
-    table = _TRADE_THRESHOLD_TABLE.get(round_1, _TRADE_THRESHOLD_TABLE[2])
+    if round_1 == 1:
+        key = 0 if pick_in_round <= 10 else 1
+    else:
+        key = round_1
+    table = _TRADE_THRESHOLD_TABLE.get(key, _TRADE_THRESHOLD_TABLE[2])
     r = random.random()
     cumulative = 0.0
     base = table[-1][0]
@@ -331,6 +343,88 @@ def _roll_trade_threshold(round_1: int, is_trade_up: bool) -> float:
             break
     if is_trade_up:
         return base + random.uniform(-_TRADE_UP_OFFSET, _TRADE_UP_OFFSET)
+    return base
+
+
+def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str, Any]) -> float:
+    """Scale M_up by how urgently the offering team wants their motivating player.
+
+    The GM's NeedvsBPA trait weights whether the signal comes from BPA or the
+    top eligible need player. The motivating player's *initial* board rank
+    (session-start order, before any picks) is compared to the target pick's
+    overall slot (e.g. 35 for the 35th overall pick).
+
+    NeedvsBPA → need_prob: 5→90%, 4→72.5%, 3→55%, 2→37.5%, 1→20%
+    Formula: 0.20 + (NeedvsBPA - 1) × 0.175
+
+    slide_ratio = (target_slot - player_board_rank) / target_slot
+    Base multiplier buckets:
+      ≥ 0.40  → 1.05×
+      ≥ 0.25  → 1.025×
+      ≥ 0.125 → 1.0125×
+      < 0.125 → 1.00×  (no boost)
+    R1 premium-position boost (applied when base > 1.0):
+      QB          → base³  (e.g. 1.05³ ≈ 1.158)
+      OT/WR/EDGE  → base²  (e.g. 1.05² ≈ 1.103)
+    """
+    offering_team = gm.get("TeamName")
+    target_slot = pick.get("overall", 1)
+    round_1 = pick.get("round", 1)
+    pick_in_round = pick.get("pick_in_round", 1)
+
+    player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
+    team_board = state.get("team_boards", {}).get(offering_team, [])
+    # Initial rank: 1-indexed position in session-start board. Includes drafted
+    # players so the rank reflects pre-draft valuation, not current availability.
+    team_rank = {pid: i + 1 for i, pid in enumerate(team_board)}
+    available = [player_map[pid] for pid in team_board
+                 if pid in player_map and not player_map[pid].get("drafted")]
+
+    if not available or target_slot <= 0:
+        return 1.0
+
+    need_prob = 0.20 + (int(gm.get("NeedvsBPA", 3)) - 1) * 0.175
+    motivating_player: dict[str, Any] | None = None
+
+    if random.random() < need_prob:
+        _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
+        gm_index = gm.get("TeamIndex")
+        needs = (_get_needs(state, offering_team, int(gm_index))
+                 if gm_index is not None else [])
+        eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
+        motivating_player = next(
+            (p for p in available
+             if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
+            None,
+        )
+
+    if motivating_player is None:
+        motivating_player = available[0]
+
+    pid = motivating_player.get("Player_ID")
+    player_board_rank = team_rank.get(pid)
+    if not player_board_rank:
+        return 1.0
+
+    slide_ratio = (target_slot - player_board_rank) / target_slot
+    if slide_ratio >= 0.4:
+        base = 1.05
+    elif slide_ratio >= 0.25:
+        base = 1.025
+    elif slide_ratio >= 0.125:
+        base = 1.0125
+    else:
+        base = 1.00
+
+    # R1 premium-position boost: square base for EDGE/OT/WR, cube for QB.
+    if round_1 == 1 and base > 1.0:
+        pos_group = POSITION_GROUPS.get(motivating_player.get("position", ""),
+                                        motivating_player.get("position", ""))
+        if pos_group == "QB":
+            base = base ** 3
+        elif pos_group in ("OT", "WR", "EDGE"):
+            base = base ** 2
+
     return base
 
 
@@ -372,11 +466,11 @@ def _slide_prob_up(current_slot: int, rank: int | None) -> float:
     if ratio >= 0.33:
         return 0.33
     if ratio >= 0.25:
-        return 0.2
+        return 0.175
     if ratio >= 0.125:
         return 0.05
     if ratio >= 0.0:
-        return 0.01
+        return 0.005
     return 0.00
 
 
@@ -469,7 +563,7 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     cooldown_mult = _cooldown_for_events_since(events_since_trade)
 
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
-    gm_multiplier = {1: 0.9, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
+    gm_multiplier = {1: 0.85, 2: 0.925, 3: 1.0, 4: 1.075, 5: 1.15}[trait]
     round_mod = _round_modifier_down(round_1)
     return max(0.10, min(0.95,
         (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult * round_mod))
@@ -488,7 +582,7 @@ def _distance_multiplier(value_ratio: float) -> float:
     if value_ratio >= 0.75:
         return 0.85
     if value_ratio >= 0.65:
-        return 0.75
+        return 0.66
     if value_ratio >= 0.50:
         return 0.5
     if value_ratio >= 0.25:
@@ -523,18 +617,18 @@ def _round_modifier_up(round_1: int) -> float:
     bigger boost since late-round picks change hands more freely.
     """
     if round_1 == 1:
-        return 1.25
+        return 1.20
     if round_1 == 2:
-        return 0.85
+        return 0.70
     if round_1 == 3:
-        return 0.85
-    if round_1 == 4:
-        return 0.65
-    if round_1 == 5:
         return 0.60
+    if round_1 == 4:
+        return 0.40
+    if round_1 == 5:
+        return 0.30
     if round_1 == 6:
-        return 0.65
-    return 0.50  # round 7+
+        return 0.30
+    return 0.25  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -542,18 +636,18 @@ def _round_modifier_down(round_1: int) -> float:
     (teams hold their R1 picks tightly) and boosts late rounds significantly.
     """
     if round_1 == 1:
-        return 0.95
+        return 0.85
     if round_1 == 2:
-        return 1.20
+        return 1.35
     if round_1 == 3:
-        return 1.40
+        return 1.60
     if round_1 == 4:
-        return 1.40
+        return 1.50
     if round_1 == 5:
-        return 1.75
+        return 2.25
     if round_1 == 6:
-        return 2.50
-    return 5.00  # round 7
+        return 2.75
+    return 7.50  # round 7
 
 
 def _cooldown_for_events_since(n: int | None) -> float:
@@ -642,6 +736,13 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     else:  # rounds 4-7
         bpa_impact, need_impact = 0.50, 0.50
 
+    # NeedvsBPA trait shifts the weights: trait 5 adds 0.20 to need_impact
+    # (and subtracts from bpa_impact); trait 1 does the reverse. 0.10 per
+    # step from the midpoint (trait 3 = no shift).
+    trait_shift = (int(gm.get("NeedvsBPA", 3)) - 3) * 0.10
+    need_impact += trait_shift
+    bpa_impact -= trait_shift
+
     # Component 1: BPA slide using team's private rank vs target slot.
     bpa = available[0] if available else None
     bpa_prob = _slide_prob_up(target_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None) * bpa_impact
@@ -728,7 +829,7 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     portfolio_mult = _portfolio_multiplier(share)
 
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
-    gm_multiplier = {1: 0.90, 2: 0.95, 3: 1.0, 4: 1.05, 5: 1.1}[trait]
+    gm_multiplier = {1: 0.85, 2: 0.925, 3: 1.0, 4: 1.075, 5: 1.15}[trait]
     round_mod = _round_modifier_up(round_1)
     return max(0.001, min(0.50,
         (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod * non_prem_mult))
@@ -789,11 +890,11 @@ def _roll_complexity_tier() -> int:
 # behaviors so different teams produce visibly different offers.
 _SELECTION_MODE_WEIGHTS: list[tuple[str, float]] = [
     ("min_cost",    0.20),   # smallest offered_val − return_val
-    ("min_ratio",   0.25),   # smallest offered_val / (target_val + return_val)
+    ("min_ratio",   0.20),   # smallest offered_val / (target_val + return_val)
     ("max_cost",    0.075),  # largest offered_val − return_val (most generous outlay)
     ("max_ratio",   0.125),  # largest ratio (most generous per-unit)
     ("min_value",   0.30),   # smallest offered_val + return_val (small package)
-    ("random_deal", 0.05),   # uniform random among valid combos
+    ("random_deal", 0.10),   # uniform random among valid combos
 ]
 
 
@@ -1076,7 +1177,8 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
         if random.random() > _trade_up_probability(state, gm, pick):
             continue
 
-        m_up = _roll_trade_threshold(round_1, is_trade_up=True)
+        m_up = _roll_trade_threshold(round_1, is_trade_up=True, pick_in_round=pick.get("pick_in_round", 1))
+        m_up *= _covet_multiplier(state, gm, pick)
         # When the user is on clock, derive a per-team floor from this AI's
         # m_up so the window stays at least _USER_TRADE_DOWN_FLOOR_OFFSET wide,
         # AND clamp the floor up to _USER_TRADE_DOWN_HARD_FLOOR to block

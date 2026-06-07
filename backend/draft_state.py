@@ -539,6 +539,7 @@ class DraftSession:
                 willing = logic.willing_to_trade_down(snap, target_dict)
                 m_down = logic._roll_trade_threshold(
                     target_dict.get("round", 1), is_trade_up=False,
+                    pick_in_round=target_dict.get("pick_in_round", 1),
                 )
             if not willing:
                 return {
@@ -720,7 +721,8 @@ class DraftSession:
                                or logic.willing_to_trade_down(snap, headline))
                     m_down = (0.0 if down_team == self.user_team
                               else logic._roll_trade_threshold(
-                                  headline.get("round", 1), is_trade_up=False))
+                                  headline.get("round", 1), is_trade_up=False,
+                                  pick_in_round=headline.get("pick_in_round", 1)))
                 if not willing:
                     return {
                         "ok": True,
@@ -801,6 +803,7 @@ class DraftSession:
             self._trade_down_willing = logic.willing_to_trade_down(snap, pick_dict)
             self._trade_down_m_down = logic._roll_trade_threshold(
                 pick_dict.get("round", 1), is_trade_up=False,
+                pick_in_round=pick_dict.get("pick_in_round", 1),
             )
         self._pending_trade_offers = (
             logic.generate_trade_offers_for_pick(snap, pick_dict, self._trade_down_m_down)
