@@ -94,13 +94,19 @@ the function signatures** — `draft_state.py` and `app.py` already call
 them with the documented arguments.
 
 Implemented:
-- `compute_team_big_board` — applies rank-scaled noise (±max(10, rank/2.5)
-  spots, scaled by `BigBoardSkill`) starting from consensus `BigBoardRank`.
-  `Can'tMiss` and `BlueChip` prospects (from `ProspectType` column in
-  BigBoard.xlsx) have their downward swing capped. Called once per team at
-  session start; boards stored on `DraftSession._team_boards` as
-  `{team_name: [Player_ID, ...]}` and never re-randomized mid-draft.
-  Per-team BigBoard columns are not used — team uniqueness comes from noise.
+- `compute_team_big_board` — applies rank-scaled noise starting from consensus
+  `BigBoardRank`. `swing = max(7.5, rank/2.5) × gm_skill_factor` where
+  `gm_skill_factor = 1.0 + (5 - BigBoardSkill) × 0.125` (skill 1 → 1.5×,
+  skill 5 → 1.0×). Upward swing is `−swing`; downward swing is
+  `+swing × prospect_factor`. `Can'tMiss` and `BlueChip` prospects (from
+  `ProspectType` column in BigBoard.xlsx) have their downward swing capped
+  (0.00× and 0.10× respectively). Each player has a **1% chance of a
+  "darling" spike** that boosts only the upward swing to `swing × 1.25`,
+  letting a team value that player significantly higher than consensus without
+  making them easier to fall. Called once per team at session start; boards
+  stored on `DraftSession._team_boards` as `{team_name: [Player_ID, ...]}` and
+  never re-randomized mid-draft. Per-team BigBoard columns are not used —
+  team uniqueness comes from noise.
 - `compute_team_needs` — for each PositionNeeds row, finds the Rank-th
   highest OVR player at that position on the team's roster (default 0 if
   fewer players than Rank). If that OVR falls in `[Roster OVR Min, Roster
@@ -165,6 +171,17 @@ Implemented:
   so each offering team gets a different M_up even on the same base bucket.
   Trade-down team rolls M_down once per pick (cached on session as
   `_trade_down_m_down`); trade-up teams roll M_up per offer.
+- `_covet_multiplier(state, gm, pick)` — multiplies M_up upward when the
+  offering team's motivating player is ranked significantly above the target
+  pick slot on their initial board. GM's `NeedvsBPA` trait sets `need_prob =
+  0.20 + (NeedvsBPA - 1) × 0.175` (trait 5 → 90% need, trait 1 → 20% need);
+  rolls to use top eligible need player vs BPA. `slide_ratio = (target_slot -
+  player_board_rank) / target_slot` where `target_slot = pick["overall"]` and
+  `player_board_rank` is the 1-indexed rank in the team's session-start board
+  (includes drafted players — reflects pre-draft valuation). Base buckets:
+  ≥ 0.40 → 1.05×, ≥ 0.25 → 1.025×, ≥ 0.125 → 1.0125×, else 1.00×.
+  R1 premium-position boost when base > 1.0: QB → base³, OT/WR/EDGE →
+  base². Applied as `m_up *= _covet_multiplier(...)` right after rolling M_up.
 - `_trade_up_probability(state, gm, target_pick)` — willingness probability
   for an offering team to trade up to `target_pick`. Components combined
   multiplicatively: `(bpa_prob + need_prob)` (each scored by `_slide_prob_up`
