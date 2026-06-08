@@ -160,17 +160,17 @@ def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float,
     """
     if round_1 == 1:
         if pick_in_round <= 5:
-            return 0.05, (2.50, 100), 3
-        if pick_in_round <= 10:
             return 0.10, (2.50, 100), 3
-        if pick_in_round <= 16:
+        if pick_in_round <= 10:
             return 0.15, (2.50, 100), 3
-        return 0.20, (2.50, 100), 3
+        if pick_in_round <= 16:
+            return 0.20, (2.50, 100), 3
+        return 0.30, (2.50, 100), 3
     return {
-        2: (0.30, (2.00, 100), 4),
-        3: (0.40, (1.75, 100), 5),
-        4: (0.50, (1.25, 1.75), 6),
-        5: (0.66, (1.00, 1.50), 8),
+        2: (0.35, (2.00, 100), 4),
+        3: (0.45, (1.75, 100), 5),
+        4: (0.55, (1.25, 1.75), 6),
+        5: (0.65, (1.00, 1.50), 8),
         6: (0.75, (0.75, 1.50), 10),
         7: (0.85, (0.50, 1.50), 12),
     }.get(round_1, (0.50, (1.50, 100), 10))
@@ -636,14 +636,14 @@ def _round_modifier_up(round_1: int) -> float:
     if round_1 == 2:
         return 0.55
     if round_1 == 3:
-        return 0.50
+        return 0.40
     if round_1 == 4:
         return 0.30
     if round_1 == 5:
         return 0.25
     if round_1 == 6:
         return 0.25
-    return 0.20  # round 7+
+    return 0.175  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -651,17 +651,17 @@ def _round_modifier_down(round_1: int) -> float:
     (teams hold their R1 picks tightly) and boosts late rounds significantly.
     """
     if round_1 == 1:
-        return 0.85
+        return 0.80
     if round_1 == 2:
-        return 1.50
+        return 1.40
     if round_1 == 3:
         return 1.80
     if round_1 == 4:
-        return 1.50
+        return 1.65
     if round_1 == 5:
-        return 2.15
+        return 2.05
     if round_1 == 6:
-        return 3.00
+        return 3.05
     return 9.50  # round 7
 
 
