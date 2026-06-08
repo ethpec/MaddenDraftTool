@@ -127,8 +127,14 @@ Implemented:
   skips QB via BPA if QB is not a current need. Before any BPA/need
   logic runs, the available player list is filtered to remove players
   whose **position group cap** has been reached for that team (see
-  section 3b). Returns a dict with `outcome`, `player_id`, and
-  `rationale` describing the path taken.
+  section 3b). In round 1, the `Non-Premium Positions 1st Rnd` trait
+  applies a single roll per pick: if triggered, all non-premium
+  positions (`HB, TE, C, LOLB, ROLB, MLB, FS, SS`) are filtered out
+  of the available pool before BPA/need logic runs. Skip probabilities:
+  trait 1 → 75%, 2 → 50%, 3 → 25%, 4 → 10%, 5 → 0%. Fallback: if
+  filtering would leave an empty pool, reverts to the unfiltered list.
+  Returns a dict with `outcome`, `player_id`, and `rationale`
+  describing the path taken.
 
 - `_round_bucket(round_1, pick_in_round)` — returns `(bpa_prob, (need_window_min,
   need_window_max), reach_limit)` for a pick. Shared by `sim_pick` and the
@@ -673,6 +679,12 @@ is fully dynamic.
 
 ## Open work / known gaps
 
+- `Non-Premium Positions 1st Rnd` trait not yet wired into trade-up
+  willingness — a team could trade up motivated by a non-premium player
+  (e.g. HB) then roll to skip that position in `sim_pick` and take a
+  premium player instead. Fix: suppress/discount `_covet_multiplier`
+  boost when the motivating player is non-premium and the trait would
+  likely skip them.
 - BPA/need probability tuning in `sim_pick` — the round/pick-bucket
   values (`bpa_prob`, `need_window`, `reach_limit`) are initial guesses
   and will be refined based on play-testing.

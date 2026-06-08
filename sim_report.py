@@ -91,6 +91,7 @@ def run_sim(seed: int) -> dict:
         player_id = result.get("decision", {}).get("player_id")
         pos_grp = player_pos.get(player_id, "UNK")
 
+        trade_info = result.get("trade") or {}
         records.append({
             "round": pick.round_1,
             "team": on_clock,
@@ -99,8 +100,11 @@ def run_sim(seed: int) -> dict:
             "considered": willing,
             "offers": offer_count,
             "traded": trade_happened,
+            "trading_up": trade_info.get("trading_up"),
             "td_prob": td_prob,
             "tu_prob_avg": tu_prob_avg,
+            "rationale": result.get("decision", {}).get("rationale"),
+            "is_user": is_user,
         })
 
     # Per-team position group pick counts (keyed by drafting team).
@@ -240,3 +244,75 @@ print(f"  {'Position':<8} | {'Avg teams 2+':>13}")
 print("  " + "-" * 26)
 for pg, avg in sorted(pos_avgs, key=lambda x: -x[1]):
     print(f"  {pg:<8} | {avg:>13.1f}")
+
+# BPA vs Need breakdown per round, averaged across seeds
+print()
+print(f"BPA vs Need breakdown (CPU picks only, averaged across {len(results)} seeds):")
+print(f"  {'Round':<6} | {'CPU Picks':>9} | {'BPA':>5} | {'BPA %':>7} | {'Need':>5} | {'Need %':>7}")
+print("  " + "-" * 55)
+
+def _classify(rat: str | None) -> str:
+    if not rat:
+        return "other"
+    if rat.startswith("need"):
+        return "need"
+    if rat.startswith("BPA"):
+        return "bpa"
+    return "other"
+
+for rd in rounds:
+    cpu_per_seed = []
+    bpa_per_seed = []
+    need_per_seed = []
+    for r in results:
+        cpu_recs = [rec for rec in r["records"] if rec["round"] == rd and not rec["is_user"]]
+        cpu_per_seed.append(len(cpu_recs))
+        bpa_per_seed.append(sum(1 for rec in cpu_recs if _classify(rec["rationale"]) == "bpa"))
+        need_per_seed.append(sum(1 for rec in cpu_recs if _classify(rec["rationale"]) == "need"))
+    avg_cpu = mean(cpu_per_seed)
+    avg_bpa = mean(bpa_per_seed)
+    avg_need = mean(need_per_seed)
+    bpa_pct = avg_bpa / avg_cpu * 100 if avg_cpu else 0.0
+    need_pct = avg_need / avg_cpu * 100 if avg_cpu else 0.0
+    print(f"  R{rd:<5} | {avg_cpu:>9.1f} | {avg_bpa:>5.1f} | {bpa_pct:>6.1f}% | {avg_need:>5.1f} | {need_pct:>6.1f}%")
+
+# Overall totals
+all_cpu = [[rec for rec in r["records"] if not rec["is_user"]] for r in results]
+tot_cpu = mean([len(c) for c in all_cpu])
+tot_bpa = mean([sum(1 for rec in c if _classify(rec["rationale"]) == "bpa") for c in all_cpu])
+tot_need = mean([sum(1 for rec in c if _classify(rec["rationale"]) == "need") for c in all_cpu])
+bpa_tot_pct = tot_bpa / tot_cpu * 100 if tot_cpu else 0.0
+need_tot_pct = tot_need / tot_cpu * 100 if tot_cpu else 0.0
+print("  " + "-" * 55)
+print(f"  {'All':<6} | {tot_cpu:>9.1f} | {tot_bpa:>5.1f} | {bpa_tot_pct:>6.1f}% | {tot_need:>5.1f} | {need_tot_pct:>6.1f}%")
+
+# BPA vs Need for teams that traded up, broken down by round
+print()
+print(f"BPA vs Need for trade-up picks (averaged across {len(results)} seeds):")
+print(f"  {'Round':<6} | {'Trade-ups':>9} | {'BPA':>5} | {'BPA %':>7} | {'Need':>5} | {'Need %':>7}")
+print("  " + "-" * 55)
+
+for rd in rounds:
+    tu_per_seed = []
+    tu_bpa_per_seed = []
+    tu_need_per_seed = []
+    for r in results:
+        tu_recs = [rec for rec in r["records"] if rec["round"] == rd and rec["traded"]]
+        tu_per_seed.append(len(tu_recs))
+        tu_bpa_per_seed.append(sum(1 for rec in tu_recs if _classify(rec["rationale"]) == "bpa"))
+        tu_need_per_seed.append(sum(1 for rec in tu_recs if _classify(rec["rationale"]) == "need"))
+    avg_tu = mean(tu_per_seed)
+    avg_bpa = mean(tu_bpa_per_seed)
+    avg_need = mean(tu_need_per_seed)
+    bpa_pct = avg_bpa / avg_tu * 100 if avg_tu else 0.0
+    need_pct = avg_need / avg_tu * 100 if avg_tu else 0.0
+    print(f"  R{rd:<5} | {avg_tu:>9.1f} | {avg_bpa:>5.1f} | {bpa_pct:>6.1f}% | {avg_need:>5.1f} | {need_pct:>6.1f}%")
+
+all_tu = [[rec for rec in r["records"] if rec["traded"]] for r in results]
+tot_tu = mean([len(c) for c in all_tu])
+tot_tu_bpa = mean([sum(1 for rec in c if _classify(rec["rationale"]) == "bpa") for c in all_tu])
+tot_tu_need = mean([sum(1 for rec in c if _classify(rec["rationale"]) == "need") for c in all_tu])
+tu_bpa_pct = tot_tu_bpa / tot_tu * 100 if tot_tu else 0.0
+tu_need_pct = tot_tu_need / tot_tu * 100 if tot_tu else 0.0
+print("  " + "-" * 55)
+print(f"  {'All':<6} | {tot_tu:>9.1f} | {tot_tu_bpa:>5.1f} | {tu_bpa_pct:>6.1f}% | {tot_tu_need:>5.1f} | {tu_need_pct:>6.1f}%")

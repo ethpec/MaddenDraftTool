@@ -48,6 +48,7 @@ class PickRecord:
     draft_slot: int = 0     # slot within the pick's own draft year for value lookup
     selected_player_id: str | None = None
     selected_player_name: str | None = None
+    pick_rationale: str | None = None  # "BPA", "need (OT)", "user", etc.
 
 
 @dataclass
@@ -290,7 +291,7 @@ class DraftSession:
                 return {"ok": False, "error": "unknown_player"}
             if player.get("drafted"):
                 return {"ok": False, "error": "already_drafted"}
-            self._record_selection(pick, player)
+            self._record_selection(pick, player, rationale="user")
             self._advance()
             return {"ok": True, "pick": _pick_to_dict(pick)}
 
@@ -312,7 +313,7 @@ class DraftSession:
                 return {"ok": False, "error": "unknown_player"}
             if player.get("drafted"):
                 return {"ok": False, "error": "already_drafted"}
-            self._record_selection(pick, player)
+            self._record_selection(pick, player, rationale="user")
             self._advance()
             return {"ok": True, "pick": _pick_to_dict(pick),
                     "drafted_for": pick.current_team}
@@ -882,17 +883,19 @@ class DraftSession:
             player = self._find_player(decision["player_id"])
             if player is None:
                 return {"ok": False, "error": "logic_returned_unknown_player"}
-            self._record_selection(pick, player)
+            self._record_selection(pick, player, rationale=decision.get("rationale"))
             self._advance()
             return {"ok": True, "type": "select", "pick": _pick_to_dict(pick),
                     "decision": decision, "trade": trade_event}
         return {"ok": False, "error": "unknown_decision", "decision": decision}
 
-    def _record_selection(self, pick: PickRecord, player: dict[str, Any]) -> None:
+    def _record_selection(self, pick: PickRecord, player: dict[str, Any],
+                          rationale: str | None = None) -> None:
         player["drafted"] = True
         player["Drafted"] = True
         pick.selected_player_id = player.get("Player_ID")
         pick.selected_player_name = f"{player.get('FirstName','')} {player.get('LastName','')}".strip()
+        pick.pick_rationale = rationale
         key = (player.get("FirstName"), player.get("LastName"),
                player.get("PLYR_DRAFTROUND"), player.get("PLYR_DRAFTPICK"))
         roster_entry = self._roster_lookup.get(key)

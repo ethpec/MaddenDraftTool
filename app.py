@@ -452,6 +452,84 @@ def api_trades():
     return jsonify({"trades": trades})
 
 
+@app.get("/api/sim-report")
+def api_sim_report():
+    """Return BPA vs need pick counts and percentages broken down by round.
+
+    Only counts picks that have been made. User picks (rationale='user')
+    are counted separately. BPA = rationale starts with 'BPA'; need =
+    rationale starts with 'need'.
+    """
+    sess, err = _require_session()
+    if err:
+        return err
+
+    gm_trait_map = {
+        g["TeamName"]: max(1, min(5, int(g.get("NeedvsBPA") or 3)))
+        for g in sess.data["gm_info"] if g.get("TeamName")
+    }
+
+    by_round: dict[int, dict[str, int]] = {}
+    by_trait: dict[int, dict[str, int]] = {}
+    for pick in sess.board():
+        if pick.selected_player_id is None:
+            continue
+        r = pick.round_1
+        rat = pick.pick_rationale or ""
+        if r not in by_round:
+            by_round[r] = {"bpa": 0, "need": 0, "user": 0, "other": 0}
+        if rat == "user":
+            by_round[r]["user"] += 1
+        elif rat.startswith("need"):
+            by_round[r]["need"] += 1
+        elif rat.startswith("BPA"):
+            by_round[r]["bpa"] += 1
+        else:
+            by_round[r]["other"] += 1
+
+        if rat != "user":
+            trait = gm_trait_map.get(pick.current_team, 3)
+            if trait not in by_trait:
+                by_trait[trait] = {"bpa": 0, "need": 0, "other": 0}
+            if rat.startswith("need"):
+                by_trait[trait]["need"] += 1
+            elif rat.startswith("BPA"):
+                by_trait[trait]["bpa"] += 1
+            else:
+                by_trait[trait]["other"] += 1
+
+    rounds = []
+    for r in sorted(by_round):
+        counts = by_round[r]
+        total = sum(counts.values())
+        cpu_total = total - counts["user"]
+        rounds.append({
+            "round": r,
+            "total": total,
+            "bpa": counts["bpa"],
+            "need": counts["need"],
+            "user": counts["user"],
+            "other": counts["other"],
+            "bpa_pct": round(counts["bpa"] / cpu_total * 100, 1) if cpu_total else 0,
+            "need_pct": round(counts["need"] / cpu_total * 100, 1) if cpu_total else 0,
+        })
+
+    traits = []
+    for t in sorted(by_trait):
+        counts = by_trait[t]
+        cpu_total = sum(counts.values())
+        traits.append({
+            "trait": t,
+            "bpa": counts["bpa"],
+            "need": counts["need"],
+            "total": cpu_total,
+            "bpa_pct": round(counts["bpa"] / cpu_total * 100, 1) if cpu_total else 0,
+            "need_pct": round(counts["need"] / cpu_total * 100, 1) if cpu_total else 0,
+        })
+
+    return jsonify({"rounds": rounds, "traits": traits})
+
+
 @app.get("/api/rosters")
 def api_rosters():
     """Return every team's current roster grouped by position.
