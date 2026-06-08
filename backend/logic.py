@@ -48,7 +48,13 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     """
     # Can'tMiss / BlueChip prospects are protected from falling too far.
     # PROSPECT_FACTOR caps the downward (worse rank) portion of the swing.
-    PROSPECT_FACTOR: dict[str, float] = {"Can'tMiss": 0.00, "BlueChip": 0.1}
+    PROSPECT_FACTOR: dict[str, float] = {
+        "Can'tMiss":      0.00,
+        "BlueChipPrem":   0.25,
+        "BlueChipNonPrem": 0.50,
+        "TopPrem":      0.50,
+        "TopNonPrem":   0.85,
+    }
 
     skill = max(1, min(5, int(gm_info.get("BigBoardSkill") or 3)))
     gm_skill_factor = 1.0 + (5 - skill) * 0.125
@@ -58,7 +64,7 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
         if p.get("drafted"):
             continue
         rank = p.get("BigBoardRank") or 9999
-        swing = max(7.5, rank / 2.5) * gm_skill_factor
+        swing = max(5.0, rank / 2.5) * gm_skill_factor
         prospect_factor = PROSPECT_FACTOR.get(p.get("ProspectType") or "Standard", 1.0)
         # 1% chance of a "darling" spike — boosts only the upward swing so
         # the team can value this player significantly higher than consensus
@@ -217,7 +223,16 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     # the midpoint (3) shifts the base probability by 10 percentage points.
     gm = next((g for g in state["gm_info"] if g.get("TeamName") == team_name), {})
     need_vs_bpa = max(1, min(5, int(gm.get("NeedvsBPA") or 3)))
-    bpa_prob = max(0.05, min(0.95, base_bpa + (3 - need_vs_bpa) * 0.10))
+    bpa_prob = max(0.05, min(0.95, base_bpa + (3 - need_vs_bpa) * 0.15))
+
+    # R1 premium-position BPA bonus: if the top available player is a premium
+    # position (QB/WR/OT/EDGE/CB), add 0.20 to bpa_prob. Need-heavy GMs still
+    # lean need, but everyone is a little more likely to take a premium BPA.
+    if round_1 == 1 and available:
+        _bpa_pos_grp = POSITION_GROUPS.get(available[0].get("position", ""),
+                                            available[0].get("position", ""))
+        if _bpa_pos_grp in ("QB", "WR", "OT", "EDGE", "CB"):
+            bpa_prob = min(0.95, bpa_prob + 0.20)
 
     # Need path — compute needs and filter to this round's weight window.
     gm_index = gm.get("TeamIndex")
@@ -619,16 +634,16 @@ def _round_modifier_up(round_1: int) -> float:
     if round_1 == 1:
         return 1.20
     if round_1 == 2:
-        return 0.70
+        return 0.55
     if round_1 == 3:
-        return 0.60
+        return 0.50
     if round_1 == 4:
-        return 0.40
+        return 0.30
     if round_1 == 5:
-        return 0.30
+        return 0.25
     if round_1 == 6:
-        return 0.30
-    return 0.25  # round 7+
+        return 0.25
+    return 0.20  # round 7+
 
 
 def _round_modifier_down(round_1: int) -> float:
@@ -638,16 +653,16 @@ def _round_modifier_down(round_1: int) -> float:
     if round_1 == 1:
         return 0.85
     if round_1 == 2:
-        return 1.35
+        return 1.50
     if round_1 == 3:
-        return 1.60
+        return 1.80
     if round_1 == 4:
         return 1.50
     if round_1 == 5:
-        return 2.25
+        return 2.15
     if round_1 == 6:
-        return 2.75
-    return 7.50  # round 7
+        return 3.00
+    return 9.50  # round 7
 
 
 def _cooldown_for_events_since(n: int | None) -> float:
