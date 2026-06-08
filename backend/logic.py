@@ -29,6 +29,20 @@ POSITION_GROUPS: dict[str, str] = {
     "MLB": "LB",
 }
 
+# Non-premium positions for the "Non-Premium Positions 1st Rnd" GM trait.
+# In round 1 only, a single roll determines whether the team filters all of
+# these out of their available pool for that pick.
+_NON_PREMIUM_POSITIONS: frozenset[str] = frozenset({
+    "HB", "TE", "C",
+    "LOLB", "ROLB", "MLB",
+    "FS", "SS",
+})
+
+# trait 1–5 -> probability of skipping all non-premium positions in R1.
+_NON_PREMIUM_R1_SKIP: dict[int, float] = {
+    1: 0.90, 2: 0.75, 3: 0.33, 4: 0.10, 5: 0.0,
+}
+
 
 # -----------------------------------------------------------------------------
 # Big board / player ranking
@@ -160,20 +174,20 @@ def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float,
     """
     if round_1 == 1:
         if pick_in_round <= 5:
-            return 0.10, (2.50, 100), 3
+            return 0.10, (2.50, 100), 2
         if pick_in_round <= 10:
-            return 0.15, (2.50, 100), 3
+            return 0.15, (2.50, 100), 2
         if pick_in_round <= 16:
             return 0.20, (2.50, 100), 3
         return 0.30, (2.50, 100), 3
     return {
         2: (0.35, (2.00, 100), 4),
-        3: (0.45, (1.75, 100), 5),
-        4: (0.55, (1.25, 1.75), 6),
-        5: (0.65, (1.00, 1.50), 8),
-        6: (0.75, (0.75, 1.50), 10),
-        7: (0.85, (0.50, 1.50), 12),
-    }.get(round_1, (0.50, (1.50, 100), 10))
+        3: (0.45, (1.75, 100), 4),
+        4: (0.55, (1.25, 1.75), 5),
+        5: (0.65, (1.00, 1.50), 6),
+        6: (0.75, (0.75, 1.50), 7),
+        7: (0.85, (0.50, 1.50), 8),
+    }.get(round_1, (0.50, (1.50, 100), 5))
 
 
 def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
@@ -224,6 +238,19 @@ def sim_pick(state: dict[str, Any], team_name: str) -> dict[str, Any]:
     gm = next((g for g in state["gm_info"] if g.get("TeamName") == team_name), {})
     need_vs_bpa = max(1, min(5, int(gm.get("NeedvsBPA") or 3)))
     bpa_prob = max(0.05, min(0.95, base_bpa + (3 - need_vs_bpa) * 0.15))
+
+    # Non-Premium Positions 1st Rnd trait: one roll per pick in round 1.
+    # If triggered, filter all non-premium positions from the available pool
+    # (applies to both BPA and need paths). Fallback to unfiltered if it
+    # would leave no players.
+    if round_1 == 1:
+        non_prem_trait = max(1, min(5, int(gm.get("Non-Premium Positions 1st Rnd") or 3)))
+        skip_prob = _NON_PREMIUM_R1_SKIP[non_prem_trait]
+        if skip_prob > 0 and random.random() < skip_prob:
+            premium_only = [p for p in available
+                            if p.get("position", "") not in _NON_PREMIUM_POSITIONS]
+            if premium_only:
+                available = premium_only
 
     # R1 premium-position BPA bonus: if the top available player is a premium
     # position (QB/WR/OT/EDGE/CB), add 0.20 to bpa_prob. Need-heavy GMs still

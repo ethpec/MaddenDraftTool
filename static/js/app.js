@@ -991,6 +991,7 @@ async function onAction(action) {
     case 'trade-history': return openTradeHistory();
     case 'rosters': return openRosters();
     case 'gm-info': return openGMInfo();
+    case 'sim-report': return openSimReport();
     case 'open-big-board': return openBigBoardModal();
   }
 }
@@ -2094,6 +2095,137 @@ async function openGMInfo() {
   `;
 }
 
+async function openSimReport() {
+  document.getElementById('modal-root').classList.add('sim-report-modal');
+  openModal('Sim Report', 'BPA vs need pick breakdown by round (CPU picks only)', '<div class="text-sm text-slate-400">Loading…</div>');
+  let res;
+  try {
+    res = await api.get('/api/sim-report');
+  } catch (e) {
+    document.getElementById('modal-body').innerHTML = '<div class="text-sm text-rose-400">Failed to load sim report.</div>';
+    return;
+  }
+  const rounds = res.rounds || [];
+  if (!rounds.length) {
+    document.getElementById('modal-body').innerHTML = '<div class="text-sm text-slate-400">No picks made yet.</div>';
+    return;
+  }
+
+  const totalCpu = rounds.reduce((s, r) => s + r.bpa + r.need + r.other, 0);
+  const totalBpa = rounds.reduce((s, r) => s + r.bpa, 0);
+  const totalNeed = rounds.reduce((s, r) => s + r.need, 0);
+  const totalUser = rounds.reduce((s, r) => s + r.user, 0);
+  const totalAll = rounds.reduce((s, r) => s + r.total, 0);
+
+  const pct = (n, d) => d ? (n / d * 100).toFixed(1) + '%' : '—';
+  const bar = (p, cls) => {
+    const w = Math.round(Math.min(100, parseFloat(p) || 0));
+    return `<div class="sim-report-bar-bg"><div class="sim-report-bar ${cls}" style="width:${w}%"></div></div>`;
+  };
+
+  const rows = rounds.map(r => {
+    const cpu = r.bpa + r.need + r.other;
+    const bpaPct = pct(r.bpa, cpu);
+    const needPct = pct(r.need, cpu);
+    return `<tr class="sim-report-row">
+      <td class="sim-report-td font-semibold text-slate-300">R${r.round}</td>
+      <td class="sim-report-td text-slate-500 text-xs">${r.total} picks / ${cpu} CPU</td>
+      <td class="sim-report-td">
+        <div class="flex items-center gap-2">
+          <span class="sim-report-pct text-sky-400">${bpaPct}</span>
+          ${bar(bpaPct, 'bpa')}
+          <span class="sim-report-count text-slate-500">${r.bpa}</span>
+        </div>
+      </td>
+      <td class="sim-report-td">
+        <div class="flex items-center gap-2">
+          <span class="sim-report-pct text-accent-400">${needPct}</span>
+          ${bar(needPct, 'need')}
+          <span class="sim-report-count text-slate-500">${r.need}</span>
+        </div>
+      </td>
+      <td class="sim-report-td text-slate-500 text-xs">${r.user} user</td>
+    </tr>`;
+  }).join('');
+
+  const totBpaPct = pct(totalBpa, totalCpu);
+  const totNeedPct = pct(totalNeed, totalCpu);
+  const totalsRow = `<tr class="sim-report-totals">
+    <td class="sim-report-td font-semibold text-slate-200">All</td>
+    <td class="sim-report-td text-slate-400 text-xs">${totalAll} picks / ${totalCpu} CPU</td>
+    <td class="sim-report-td">
+      <div class="flex items-center gap-2">
+        <span class="sim-report-pct text-sky-400 font-semibold">${totBpaPct}</span>
+        ${bar(totBpaPct, 'bpa')}
+        <span class="sim-report-count text-slate-500">${totalBpa}</span>
+      </div>
+    </td>
+    <td class="sim-report-td">
+      <div class="flex items-center gap-2">
+        <span class="sim-report-pct text-accent-400 font-semibold">${totNeedPct}</span>
+        ${bar(totNeedPct, 'need')}
+        <span class="sim-report-count text-slate-500">${totalNeed}</span>
+      </div>
+    </td>
+    <td class="sim-report-td text-slate-500 text-xs">${totalUser} user</td>
+  </tr>`;
+
+  const traitRows = (res.traits || []).map(t => {
+    const bpaPct = t.bpa_pct + '%';
+    const needPct = t.need_pct + '%';
+    return `<tr class="sim-report-row">
+      <td class="sim-report-td font-semibold text-slate-300">${t.trait}</td>
+      <td class="sim-report-td text-slate-500 text-xs">${t.total} CPU</td>
+      <td class="sim-report-td">
+        <div class="flex items-center gap-2">
+          <span class="sim-report-pct text-sky-400">${bpaPct}</span>
+          ${bar(bpaPct, 'bpa')}
+          <span class="sim-report-count text-slate-500">${t.bpa}</span>
+        </div>
+      </td>
+      <td class="sim-report-td">
+        <div class="flex items-center gap-2">
+          <span class="sim-report-pct text-accent-400">${needPct}</span>
+          ${bar(needPct, 'need')}
+          <span class="sim-report-count text-slate-500">${t.need}</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('modal-body').innerHTML = `
+    <div class="pretty-scroll overflow-x-auto space-y-6">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="sim-report-header">
+            <th class="sim-report-th">Round</th>
+            <th class="sim-report-th">Picks</th>
+            <th class="sim-report-th">BPA</th>
+            <th class="sim-report-th">Need</th>
+            <th class="sim-report-th">User</th>
+          </tr>
+        </thead>
+        <tbody>${rows}${totalsRow}</tbody>
+      </table>
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2 px-2">Need vs BPA Trait (all rounds, CPU picks)</div>
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="sim-report-header">
+              <th class="sim-report-th">Trait</th>
+              <th class="sim-report-th">Picks</th>
+              <th class="sim-report-th">BPA</th>
+              <th class="sim-report-th">Need</th>
+            </tr>
+          </thead>
+          <tbody>${traitRows}</tbody>
+        </table>
+        <div class="text-[11px] text-slate-600 mt-1 px-2">1 = extreme BPA · 5 = extreme need</div>
+      </div>
+    </div>
+  `;
+}
+
 function renderOffersTable(offers) {
   const fmtPick = p => `${roundPickLabel(p)}${p.year_offset ? ' <span class="text-[9px] text-amber-400">NY</span>' : ''}`;
   const fmtList = picks => picks && picks.length
@@ -3005,7 +3137,8 @@ function closeModal() {
   const root = document.getElementById('modal-root');
   root.classList.add('hidden');
   root.classList.remove('full-board-modal', 'picker-modal', 'big-board-modal-open',
-    'player-modal', 'trade-hub-modal', 'trade-history-modal', 'rosters-modal', 'gm-info-modal');
+    'player-modal', 'trade-hub-modal', 'trade-history-modal', 'rosters-modal', 'gm-info-modal',
+    'sim-report-modal');
   const returnTo = _modalReturnTo;
   _modalReturnTo = null;
   if (returnTo) returnTo();

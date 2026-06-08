@@ -2921,3 +2921,58 @@ input:focus-visible,
 .round-tab.active:hover {
   background: linear-gradient(180deg, #fbd166 0%, #f8c043 55%, #d99a14 100%);
 }
+
+/* ============================================================
+   Sim Report modal
+   ============================================================ */
+#modal-root.sim-report-modal > div {
+  max-width: 44rem;
+  width: 100%;
+}
+.sim-report-header th {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #64748b;
+  padding: 6px 10px;
+  text-align: left;
+  border-bottom: 1px solid #1d2435;
+}
+.sim-report-row td,
+.sim-report-totals td {
+  padding: 7px 10px;
+  border-bottom: 1px solid #111827;
+  vertical-align: middle;
+}
+.sim-report-totals td {
+  border-top: 1px solid #2d3748;
+  border-bottom: none;
+}
+.sim-report-pct {
+  font-family: 'JetBrains Mono', ui-monospace;
+  font-size: 12px;
+  min-width: 42px;
+  display: inline-block;
+}
+.sim-report-count {
+  font-family: 'JetBrains Mono', ui-monospace;
+  font-size: 11px;
+  min-width: 24px;
+  text-align: right;
+}
+.sim-report-bar-bg {
+  flex: 1;
+  height: 6px;
+  background: #1d2435;
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 60px;
+}
+.sim-report-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 300ms ease;
+}
+.sim-report-bar.bpa  { background: #38bdf8; }
+.sim-report-bar.need { background: #f0b020; }
