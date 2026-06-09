@@ -241,6 +241,19 @@
       <div id="modal-body" class="mt-4"></div>
     </div>
   </div>
+  <!-- Player profile overlay — sits above modal-root so the parent modal stays visible behind it -->
+  <div id="player-overlay-root" class="hidden fixed inset-0 flex items-center justify-center bg-black/50 p-6" style="z-index:60">
+    <div class="modal-panel w-full rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl">
+      <div class="flex items-start justify-between">
+        <div>
+          <div id="player-overlay-title" class="text-lg font-semibold"></div>
+          <div id="player-overlay-subtitle" class="text-xs text-slate-400 mt-0.5"></div>
+        </div>
+        <button id="player-overlay-close" class="text-slate-400 hover:text-white">&#x2715;</button>
+      </div>
+      <div id="player-overlay-body" class="mt-4"></div>
+    </div>
+  </div>
 
   <div id="toast" class="fixed bottom-6 right-6 z-50 hidden rounded-lg border border-ink-600 bg-ink-800 px-4 py-2 text-sm shadow-xl"></div>
 

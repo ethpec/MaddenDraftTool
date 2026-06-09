@@ -1240,6 +1240,13 @@
   max-width: 56rem;
   width: 100%;
 }
+#player-overlay-root > div {
+  max-width: 56rem;
+  width: 100%;
+}
+#player-overlay-root:not(.hidden) .modal-panel {
+  animation: modal-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
 .player-profile { padding: 4px; }
 .pp-header {
   display: flex;
