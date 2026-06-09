@@ -858,7 +858,7 @@
   margin-top: 12px;
 }
 /* Big Board table: header row + scrollable body. Columns are:
-   rank | name | star | <N attrs> | action
+   rank | name | HT | WT | OffField | <N attrs> | action
    The N is set via --bbm-attr-cols on the table element. */
 .bbm-table {
   flex: 1;
@@ -867,7 +867,7 @@
   border-radius: 8px;
   background: #0b0e15;
 }
-/* rank | name | HT | WT | <N attr cols> | action.
+/* rank | name | HT | WT | OffField | <N attr cols> | action.
    Modal is 96vw, so on a 1080p screen we have ~1843px to fill. Name
    column flexes to soak up leftover space when attr count is low (e.g.
    ALL view); attr cells are wide enough to read at a glance. */
@@ -878,10 +878,13 @@
     minmax(220px, 1fr)
     52px
     44px
+    52px
     repeat(var(--bbm-attr-cols, 0), 50px)
     80px;
   align-items: stretch;
 }
+.bbm-char-minor { color: #fb923c; }
+.bbm-char-major { color: #f87171; }
 .bbm-thead {
   position: sticky;
   top: 0;
@@ -1236,6 +1239,13 @@
 #modal-root.player-modal > div {
   max-width: 56rem;
   width: 100%;
+}
+#player-overlay-root > div {
+  max-width: 56rem;
+  width: 100%;
+}
+#player-overlay-root:not(.hidden) .modal-panel {
+  animation: modal-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .player-profile { padding: 4px; }
 .pp-header {

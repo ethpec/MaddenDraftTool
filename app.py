@@ -177,6 +177,7 @@ def _public_big_board(session: DraftSession) -> list[dict[str, Any]]:
             "height": grades.get("height"),
             "weight": grades.get("weight"),
             "attributes": grades.get("attributes") or {},
+            "personality_rating": p.get("PersonalityRating"),
         })
     out.sort(key=lambda r: r["rank"] or 9999)
     return out
@@ -208,6 +209,7 @@ def _team_big_board(session: DraftSession, team_name: str) -> list[dict[str, Any
             "height": grades.get("height"),
             "weight": grades.get("weight"),
             "attributes": grades.get("attributes") or {},
+            "personality_rating": p.get("PersonalityRating"),
         })
         rank += 1
     return result

@@ -43,6 +43,16 @@ _NON_PREMIUM_R1_SKIP: dict[int, float] = {
     1: 0.90, 2: 0.75, 3: 0.33, 4: 0.10, 5: 0.0,
 }
 
+# Character penalty applied to noisy_rank in compute_team_big_board.
+# Keyed by PersonalityRating (60=clean, 75=some concerns, 90=major concerns).
+# Inner list is indexed by (AvoidPoorCharacter trait - 1), so [0]=trait1 ... [4]=trait5.
+# 9999 = effectively off-board.
+_CHAR_PENALTY: dict[int, list[int]] = {
+    60: [0,  0,  0,  0,    0],
+    75: [0,  5, 10, 16,   32],
+    90: [0,  8, 16, 32, 9999],
+}
+
 
 # -----------------------------------------------------------------------------
 # Big board / player ranking
@@ -72,6 +82,7 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
 
     skill = max(1, min(5, int(gm_info.get("BigBoardSkill") or 3)))
     gm_skill_factor = 1.0 + (5 - skill) * 0.125
+    char_trait = max(1, min(5, int(gm_info.get("AvoidPoorCharacter") or 1)))
 
     noisy: list[tuple[float, int | float, dict[str, Any]]] = []
     for p in draftable_players:
@@ -85,6 +96,8 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
         # without making them any easier to fall.
         up_swing = swing * 1.25 if random.random() < 0.01 else swing
         noisy_rank = max(1.0, rank + random.uniform(-up_swing, swing * prospect_factor))
+        personality = int(p.get("PersonalityRating") or 60)
+        noisy_rank += _CHAR_PENALTY.get(personality, [0, 0, 0, 0, 0])[char_trait - 1]
         noisy.append((noisy_rank, rank, p))
 
     noisy.sort(key=lambda x: (x[0], x[1]))
@@ -181,7 +194,7 @@ def _round_bucket(round_1: int, pick_in_round: int) -> tuple[float, tuple[float,
             return 0.20, (2.50, 100), 3
         return 0.30, (2.50, 100), 3
     return {
-        2: (0.35, (2.00, 100), 4),
+        2: (0.35, (2.00, 100), 3),
         3: (0.45, (1.75, 100), 4),
         4: (0.55, (1.25, 1.75), 5),
         5: (0.65, (1.00, 1.50), 6),
@@ -604,11 +617,15 @@ def _trade_down_probability(state: dict[str, Any], pick: dict[str, Any]) -> floa
     events_since_trade = state.get("events_since_trade_per_team", {}).get(on_clock_team)
     cooldown_mult = _cooldown_for_events_since(events_since_trade)
 
+    qb_need_penalty = 0.0
+    if round_1 == 1 and best_need and best_need.get("position") == "QB":
+        qb_need_penalty = -0.10
+
     trait = max(1, min(5, int(gm.get("TradeDown") or 3)))
     gm_multiplier = {1: 0.85, 2: 0.925, 3: 1.0, 4: 1.075, 5: 1.15}[trait]
     round_mod = _round_modifier_down(round_1)
     return max(0.10, min(0.95,
-        (bpa_prob + need_prob + hot_zone) * gm_multiplier * portfolio_mult * cooldown_mult * round_mod))
+        (bpa_prob + need_prob + hot_zone + qb_need_penalty) * gm_multiplier * portfolio_mult * cooldown_mult * round_mod))
 
 
 def _distance_multiplier(value_ratio: float) -> float:
@@ -870,11 +887,15 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     share = (team_remaining_count / total_remaining) if total_remaining > 0 else 0.0
     portfolio_mult = _portfolio_multiplier(share)
 
+    qb_need_boost = 0.0
+    if round_1 == 1 and best_need and best_need.get("position") == "QB":
+        qb_need_boost = 0.10
+
     trait = max(1, min(5, int(gm.get("TradeUp") or 3)))
     gm_multiplier = {1: 0.85, 2: 0.925, 3: 1.0, 4: 1.075, 5: 1.15}[trait]
     round_mod = _round_modifier_up(round_1)
     return max(0.001, min(0.50,
-        (bpa_prob + need_prob) * gm_multiplier * distance_mult * portfolio_mult * round_mod * non_prem_mult))
+        (bpa_prob + need_prob + qb_need_boost) * gm_multiplier * distance_mult * portfolio_mult * round_mod * non_prem_mult))
 
 
 def willing_to_trade_down(state: dict[str, Any], pick: dict[str, Any]) -> bool:

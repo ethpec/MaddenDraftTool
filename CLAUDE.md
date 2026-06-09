@@ -103,7 +103,13 @@ Implemented:
   (0.00× and 0.10× respectively). Each player has a **1% chance of a
   "darling" spike** that boosts only the upward swing to `swing × 1.25`,
   letting a team value that player significantly higher than consensus without
-  making them easier to fall. Called once per team at session start; boards
+  making them easier to fall. After noise, a **character penalty** is added
+  to `noisy_rank` based on the player's `PersonalityRating` (from Player.xlsx,
+  joined at session load) and the GM's `AvoidPoorCharacter` trait. Penalty
+  table (`_CHAR_PENALTY` in `logic.py`): rating 60 → always 0; rating 75
+  (some concerns) → trait 1–5: 0/5/10/16/32; rating 90 (major concerns) →
+  0/8/16/32/9999. 9999 pushes the player to last, making them effectively
+  off-board for trait-5 GMs. Called once per team at session start; boards
   stored on `DraftSession._team_boards` as `{team_name: [Player_ID, ...]}` and
   never re-randomized mid-draft. Per-team BigBoard columns are not used —
   team uniqueness comes from noise.
@@ -154,7 +160,9 @@ Implemented:
   Both components use `_slide_prob`. The rationale: round 1 picks are
   need-driven so a need-slide signal dominates; late rounds are BPA-driven.
   Sum + hot-zone bonus (pick 33 +15 pp; picks 30–32 / 34–35 +7.5 pp;
-  picks 20–29 / 36–42 +5 pp), then × GM `TradeDown` trait multiplier ×
+  picks 20–29 / 36–42 +5 pp) − QB need penalty (R1 only: −5 pp when
+  QB is the team's top eligible need, making them less willing to move
+  back), then × GM `TradeDown` trait multiplier ×
   `_portfolio_multiplier_down` (pick-rich teams less willing, pick-poor
   more — see helper below) × `_cooldown_for_events_since` (decaying
   cooldown based on drafts since last trade) × `_round_modifier_down`
@@ -190,11 +198,13 @@ Implemented:
   base². Applied as `m_up *= _covet_multiplier(...)` right after rolling M_up.
 - `_trade_up_probability(state, gm, target_pick)` — willingness probability
   for an offering team to trade up to `target_pick`. Components combined
-  multiplicatively: `(bpa_prob + need_prob)` (each scored by `_slide_prob_up`
-  × the same round-based impact weights used by `_trade_down_probability`:
-  Round 1 bpa 0.25 / need 0.75; Rounds 2-3 balanced; Rounds 4-7 bpa 0.75 /
-  need 0.25) × GM `TradeUp` trait multiplier (0.75–1.25×) × `_distance_multiplier`
-  × `_portfolio_multiplier` × `_round_modifier_up`. Clamped to [0.1%, 50%].
+  multiplicatively: `(bpa_prob + need_prob + qb_need_boost)` (each scored
+  by `_slide_prob_up` × the same round-based impact weights used by
+  `_trade_down_probability`: Round 1 bpa 0.25 / need 0.75; Rounds 2-3
+  balanced; Rounds 4-7 bpa 0.75 / need 0.25; QB need boost: R1 only +5 pp
+  when QB is the team's top eligible need) × GM `TradeUp` trait multiplier
+  (0.75–1.25×) × `_distance_multiplier` × `_portfolio_multiplier` ×
+  `_round_modifier_up`. Clamped to [0.1%, 50%].
 - `_round_modifier_up(round_1)` — trade-UP round multiplier: R1-2 1.00×,
   R3-5 1.10×, R6-7 1.15×. Boosts late-round trade-ups since those picks
   change hands more freely.

@@ -53,6 +53,7 @@ PLAYER_COLUMNS_OF_INTEREST: tuple[str, ...] = (
     "PLYR_DRAFTPICK",
     "PLYR_PORTRAIT",
     "TraitDevelopment",
+    "PersonalityRating",
 )
 
 
@@ -679,6 +680,7 @@ def load_all(year: str | int | None) -> dict[str, Any]:
             p["PLYR_PORTRAIT"] = match.get("PLYR_PORTRAIT")
             p["ovr"] = match.get("OverallRating")
             p["development_trait"] = match.get("TraitDevelopment")
+            p["PersonalityRating"] = match.get("PersonalityRating")
             ptr = match.get("player_table_row")
             if ptr is not None and ptr in combine_data:
                 p["combine_data"] = combine_data[ptr]

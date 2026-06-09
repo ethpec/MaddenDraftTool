@@ -2598,6 +2598,13 @@ function renderBigBoardList() {
       if (br !== ar) return br - ar;
       return (a.rank ?? 9999) - (b.rank ?? 9999);
     });
+  } else if (sortBy === 'offfield') {
+    players.sort((a, b) => {
+      const ar = a.personality_rating ?? 0;
+      const br = b.personality_rating ?? 0;
+      if (br !== ar) return br - ar;
+      return (a.rank ?? 9999) - (b.rank ?? 9999);
+    });
   } else if (sortBy === 'name') {
     players.sort((a, b) =>
       (a.last_name || '').localeCompare(b.last_name || '') ||
@@ -2640,6 +2647,7 @@ function renderBigBoardList() {
       ${headerCol('name', 'Player', 'bbm-th-name', null)}
       ${headerCol('height', 'HT', 'bbm-th-attr', 'height')}
       ${headerCol('weight', 'WT', 'bbm-th-attr', 'weight')}
+      ${headerCol('offfield', 'OffField', 'bbm-th-attr', null)}
       ${attrCols.map(a => headerCol('attr:' + a, a, 'bbm-th-attr', 'attr:' + a)).join('')}
       <div class="bbm-th-action"></div>
     </div>
@@ -2671,6 +2679,16 @@ function renderBigBoardList() {
     };
     const heightCell = plainCell(p.height, sortBy === 'height');
     const weightCell = plainCell(p.weight, sortBy === 'weight');
+    const offFieldCell = (() => {
+      const pr = p.personality_rating;
+      const isActive = sortBy === 'offfield';
+      const cellCls = ['bbm-td', 'bbm-td-attr', 'bbm-td-plain'];
+      if (isActive) cellCls.push('active-col');
+      if (pr === 75) cellCls.push('bbm-char-minor');
+      else if (pr === 90) cellCls.push('bbm-char-major');
+      const label = pr === 75 ? 'Minor' : pr === 90 ? 'Major' : '—';
+      return `<div class="${cellCls.join(' ')}">${label}</div>`;
+    })();
     const attrCells = attrCols.map(a => cell(p.attributes?.[a], sortBy === 'attr:' + a)).join('');
     return `
       <div class="${cls.join(' ')}" data-bb-player="${escapeHtml(p.player_id)}">
@@ -2684,6 +2702,7 @@ function renderBigBoardList() {
         </div>
         ${heightCell}
         ${weightCell}
+        ${offFieldCell}
         ${attrCells}
         <div class="bbm-td bbm-td-action">${action}</div>
       </div>
@@ -2694,7 +2713,7 @@ function renderBigBoardList() {
   document.getElementById('bb-filters').innerHTML = filterPillsHtml;
 
   // Set column count on the table so header + rows share the same grid
-  // template via CSS custom property (1 rank + 1 name + 1 HT + 1 WT + N attrs + 1 action).
+  // template via CSS custom property (1 rank + 1 name + 1 HT + 1 WT + 1 OffField + N attrs + 1 action).
   const tableEl = document.getElementById('bb-table');
   tableEl.style.setProperty('--bbm-attr-cols', attrCols.length);
   tableEl.innerHTML = headerHtml + (bodyHtml || '<div class="text-sm text-slate-500 p-6 text-center">No players match.</div>');
@@ -2868,14 +2887,25 @@ function gradeClass(value) {
 }
 
 async function openPlayerProfile(playerId, { returnTo = null } = {}) {
-  _modalReturnTo = returnTo;
-  document.getElementById('modal-root').classList.add('player-modal');
-  openModal('Player Profile', '', '<div class="text-sm text-slate-400">Loading…</div>');
+  const useOverlay = returnTo !== null;
+  const bodyId = useOverlay ? 'player-overlay-body' : 'modal-body';
+
+  if (useOverlay) {
+    document.getElementById('player-overlay-title').textContent = 'Player Profile';
+    document.getElementById('player-overlay-subtitle').textContent = '';
+    document.getElementById('player-overlay-body').innerHTML = '<div class="text-sm text-slate-400">Loading…</div>';
+    document.getElementById('player-overlay-root').classList.remove('hidden');
+  } else {
+    _modalReturnTo = null;
+    document.getElementById('modal-root').classList.add('player-modal');
+    openModal('Player Profile', '', '<div class="text-sm text-slate-400">Loading…</div>');
+  }
+
   let p;
   try {
     p = await api.get('/api/player/' + encodeURIComponent(playerId));
   } catch (err) {
-    document.getElementById('modal-body').innerHTML =
+    document.getElementById(bodyId).innerHTML =
       `<div class="text-sm text-rose-400">Failed to load player.</div>`;
     return;
   }
@@ -3031,7 +3061,7 @@ async function openPlayerProfile(playerId, { returnTo = null } = {}) {
       ${combineHtml}
     </div>
   `;
-  document.getElementById('modal-body').innerHTML = body;
+  document.getElementById(bodyId).innerHTML = body;
 }
 
 function openFullBoard() {
@@ -3088,6 +3118,10 @@ function bindModal() {
   document.getElementById('modal-root').addEventListener('click', (e) => {
     if (e.target.id === 'modal-root') closeModal();
   });
+  document.getElementById('player-overlay-close').addEventListener('click', closePlayerOverlay);
+  document.getElementById('player-overlay-root').addEventListener('click', (e) => {
+    if (e.target.id === 'player-overlay-root') closePlayerOverlay();
+  });
 }
 
 function openModal(title, subtitle, bodyHtml) {
@@ -3142,6 +3176,10 @@ function closeModal() {
   const returnTo = _modalReturnTo;
   _modalReturnTo = null;
   if (returnTo) returnTo();
+}
+
+function closePlayerOverlay() {
+  document.getElementById('player-overlay-root').classList.add('hidden');
 }
 
 let toastTimer = null;
