@@ -580,13 +580,24 @@ Madden code in their subtitle (e.g. `LE · Alabama`).
   Each modal sets a class on it which CSS uses to size/style the dialog.
   Current classes: `big-board-modal-open`, `full-board-modal`,
   `picker-modal`, `player-modal`, `trade-hub-modal`,
-  `trade-history-modal`, `rosters-modal`, `gm-info-modal`. Always
-  remove **all** of these in `closeModal`.
+  `trade-history-modal`, `rosters-modal`, `gm-info-modal`,
+  `sim-report-modal`. Always remove **all** of these in `closeModal`.
 - **Confirm dialogs**: use `confirmAction({ title, message,
   confirmLabel, onConfirm })` for any destructive or "you sure?"
-  action. Used by Sim to Round, Sim to End of Draft, and Sim to Pick
-  (click on a future pick cell). **Don't** use the browser's native
-  `confirm()`.
+  action. Used by Sim to Round, Sim to End of Draft, Sim to Pick
+  (click on a future pick cell), and Draft buttons. **Don't** use the
+  browser's native `confirm()`. Confirm dialogs render into their own
+  `#confirm-overlay-root` element (z-index 70, above `#modal-root` and
+  the player overlay), so confirming/cancelling never destroys an open
+  parent modal — cancelling a Draft from the Big Board keeps the board
+  open.
+- **Escape key** closes the topmost layer only (filter popover →
+  confirm overlay → player overlay → main modal); the listener lives in
+  `bindModal`. New overlays should slot into that ordering.
+- **Busy guard**: sim / pick / export actions run through `withBusy()`,
+  which drops re-entrant calls and disables the header command bar
+  while a request is in flight. Wrap any new long-running action in it
+  so double-clicks can't fire overlapping requests.
 - **Universal Draft buttons**: every Draft button in the UI (public
   board, team big board, Big Board modal) routes through `submitPick`,
   which hits `/api/pick/force-make`. Don't add separate "user pick" vs

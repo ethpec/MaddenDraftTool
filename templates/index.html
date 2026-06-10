@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Madden Draft Tool</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 80'%3E%3Cpath d='M32 1 L60 9 V36 C60 56 47 70 32 78 C17 70 4 56 4 36 V9 Z' fill='%230b0e15' stroke='%23f0b020' stroke-width='4'/%3E%3Ctext x='32' y='53' text-anchor='middle' font-family='Arial, sans-serif' font-weight='900' font-size='30' fill='%23f0b020'%3ED%3C/text%3E%3C/svg%3E">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -252,6 +253,14 @@
         <button id="player-overlay-close" class="text-slate-400 hover:text-white">&#x2715;</button>
       </div>
       <div id="player-overlay-body" class="mt-4"></div>
+    </div>
+  </div>
+
+  <!-- Confirm overlay — sits above everything so confirm dialogs never clobber an open modal -->
+  <div id="confirm-overlay-root" class="hidden fixed inset-0 flex items-center justify-center bg-black/50 p-6" style="z-index:70">
+    <div class="modal-panel w-full max-w-md rounded-xl border border-ink-700 bg-ink-900 p-6 shadow-2xl">
+      <div id="confirm-overlay-title" class="text-lg font-semibold"></div>
+      <div id="confirm-overlay-body" class="mt-4"></div>
     </div>
   </div>
 

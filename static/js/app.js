@@ -211,10 +211,15 @@ async function refreshAll() {
 
 function updateRoundTabsActive() {
   const tabs = document.querySelectorAll('#round-picker .round-tab');
+  const liveRound = state.session?.current_pick?.round ?? null;
   tabs.forEach(b => {
     const r = parseInt(b.dataset.round, 10);
     b.classList.toggle('active', r === state.selectedRound);
+    // Gold dot marks the round where the live action is, so the user can
+    // find their way back after browsing other rounds.
+    b.classList.toggle('live', r === liveRound);
     b.setAttribute('aria-selected', r === state.selectedRound ? 'true' : 'false');
+    b.title = r === liveRound ? `Round ${r} — on the clock` : `Round ${r}`;
   });
 }
 
@@ -299,8 +304,10 @@ function renderOnTheClock() {
     teamEl.textContent = 'Draft Complete';
     metaEl.textContent = `${state.session.picks_made} of ${state.session.total_picks} picks`;
     if (logoEl) logoEl.innerHTML = '';
+    document.title = 'Draft Complete — Madden Draft Tool';
     return;
   }
+  document.title = `${roundPickLabel(c)} · ${c.current_team} OTC — Madden Draft Tool`;
   teamEl.textContent = c.current_team;
   metaEl.textContent = `${roundPickText(c)} (Overall ${c.overall})` +
     (c.original_team !== c.current_team ? ` · via ${c.original_team}` : '');
@@ -726,9 +733,16 @@ function promptSimUntilOverall(overall) {
 }
 
 async function simUntilOverall(overall) {
-  await api.post('/api/pick/sim-until-overall', { overall });
-  await reloadSessionAndRender();
-  toast(`Sim'd to overall #${overall}.`);
+  await withBusy(async () => {
+    await api.post('/api/pick/sim-until-overall', { overall });
+    await reloadSessionAndRender();
+    toast(`Sim'd to overall #${overall}.`);
+  });
+  // The Full Draft Order modal now survives the confirm dialog (it lives
+  // in its own overlay), so refresh it if it's still open.
+  if (document.getElementById('modal-root').classList.contains('full-board-modal')) {
+    openFullBoard();
+  }
 }
 
 // Built lazily by getPositionByPlayerId() and invalidated when the
@@ -973,6 +987,33 @@ function populateTeamPickers(teamNames) {
 
 // ---------- actions ----------
 
+// Guards sim/pick/export actions so a double-click (or a click during a
+// long multi-pick sim) can't fire overlapping requests. While busy, the
+// header command bar is disabled for visible feedback.
+let _actionBusy = false;
+async function withBusy(fn) {
+  if (_actionBusy) return;
+  _actionBusy = true;
+  setCommandBarBusy(true);
+  try {
+    return await fn();
+  } finally {
+    _actionBusy = false;
+    setCommandBarBusy(false);
+  }
+}
+
+function setCommandBarBusy(busy) {
+  document.querySelectorAll('.command-bar button, .command-bar select').forEach(el => {
+    el.disabled = busy;
+  });
+  if (!busy) {
+    // Restore the round-select's own disabled rule (no rounds left to sim).
+    const sel = document.getElementById('sim-round-select');
+    if (sel) sel.disabled = sel.options.length <= 1;
+  }
+}
+
 function bindHeaderActions() {
   document.querySelectorAll('[data-action]').forEach(btn => {
     btn.addEventListener('click', () => onAction(btn.dataset.action));
@@ -985,8 +1026,6 @@ async function onAction(action) {
     case 'sim-until-user': return simUntilUser();
     case 'open-board-zoom': return openFullBoard();
     case 'export': return doExport();
-    case 'trade-down': return showTradeDownOffers();
-    case 'trade-up': return openTradeUpModal();
     case 'trade-hub': return openTradeHub();
     case 'trade-history': return openTradeHistory();
     case 'rosters': return openRosters();
@@ -1002,19 +1041,21 @@ async function simPick() {
   if (c.current_team === state.userTeam) {
     return toast("You are on the clock — pick or trade.");
   }
-  const res = await api.post('/api/pick/sim');
-  if (!res.ok) return toast('Sim failed: ' + (res.error || 'unknown'));
-  if (res.trade) {
-    playTradeSound();
-  } else if (res.pick) {
-    playPickSelectionSound();
-  }
-  await reloadSessionAndRender();
-  if (res.trade) {
-    showTradeModal(res.trade, res.pick);
-  } else if (res.pick) {
-    toast(`${roundPickLabel(res.pick)}: ${res.pick.current_team} → ${res.pick.selected_player_name}`);
-  }
+  await withBusy(async () => {
+    const res = await api.post('/api/pick/sim');
+    if (!res.ok) return toast('Sim failed: ' + (res.error || 'unknown'));
+    if (res.trade) {
+      playTradeSound();
+    } else if (res.pick) {
+      playPickSelectionSound();
+    }
+    await reloadSessionAndRender();
+    if (res.trade) {
+      showTradeModal(res.trade, res.pick);
+    } else if (res.pick) {
+      toast(`${roundPickLabel(res.pick)}: ${res.pick.current_team} → ${res.pick.selected_player_name}`);
+    }
+  });
 }
 
 function buildTeamLogoMap() {
@@ -1099,10 +1140,12 @@ function showTradeModal(trade, pick) {
 }
 
 async function simUntilUser() {
-  const res = await api.post('/api/pick/sim-until-user');
-  await reloadSessionAndRender();
-  const tradeCount = (res.events || []).filter(e => e.trade).length;
-  toast('Sim complete.' + (tradeCount ? ` ${tradeCount} trade${tradeCount > 1 ? 's' : ''} occurred.` : ''));
+  await withBusy(async () => {
+    const res = await api.post('/api/pick/sim-until-user');
+    await reloadSessionAndRender();
+    const tradeCount = (res.events || []).filter(e => e.trade).length;
+    toast('Sim complete.' + (tradeCount ? ` ${tradeCount} trade${tradeCount > 1 ? 's' : ''} occurred.` : ''));
+  });
 }
 
 function renderSimRoundSelect() {
@@ -1142,11 +1185,11 @@ function simUntilRoundFromSelect() {
       title: 'Sim to End of Draft?',
       message: 'AI will fill every remaining pick — including your team. This cannot be undone in this session.',
       confirmLabel: 'Sim to End',
-      onConfirm: async () => {
+      onConfirm: () => withBusy(async () => {
         await api.post('/api/pick/sim-until-end');
         await reloadSessionAndRender();
         toast('Draft complete.');
-      },
+      }),
     });
     return;
   }
@@ -1156,19 +1199,22 @@ function simUntilRoundFromSelect() {
     title: `Sim to Round ${r}?`,
     message: `Sim every pick until the first pick of Round ${r} is on the clock.`,
     confirmLabel: `Sim to R${r}`,
-    onConfirm: async () => {
+    onConfirm: () => withBusy(async () => {
       await api.post('/api/pick/sim-until-round', { round: r });
       await reloadSessionAndRender();
-    },
+    }),
   });
 }
 
 async function submitPick(playerId) {
   // Universal pick handler: drafts the player for whichever team is on
   // the clock. The user controls every team's pick button — there's no
-  // separate "force pick" mode anymore.
+  // separate "force pick" mode anymore. Returns true only when the pick
+  // actually went through (callers use this to decide whether to close
+  // a parent modal).
+  if (_actionBusy) return false;
   const c = state.session.current_pick;
-  if (!c) return toast('Draft complete.');
+  if (!c) { toast('Draft complete.'); return false; }
 
   // Confirmation dialog — guards against accidental Draft clicks.
   const player = (state.publicBoard || []).find(p => p.player_id === playerId);
@@ -1179,13 +1225,18 @@ async function submitPick(playerId) {
     confirmLabel: 'Yes',
     cancelLabel: 'No',
   });
-  if (!ok) return;
+  if (!ok) return false;
 
-  const res = await api.post('/api/pick/force-make', { player_id: playerId });
-  if (!res.ok) return toast('Pick failed: ' + res.error);
-  playPickSelectionSound();
-  await reloadSessionAndRender();
-  toast(`${res.drafted_for || c.current_team} drafted.`);
+  let success = false;
+  await withBusy(async () => {
+    const res = await api.post('/api/pick/force-make', { player_id: playerId });
+    if (!res.ok) { toast('Pick failed: ' + res.error); return; }
+    success = true;
+    playPickSelectionSound();
+    await reloadSessionAndRender();
+    toast(`${res.drafted_for || c.current_team} drafted.`);
+  });
+  return success;
 }
 
 async function reloadSessionAndRender() {
@@ -1211,6 +1262,10 @@ async function reloadSessionAndRender() {
 }
 
 async function doExport() {
+  await withBusy(doExportInner);
+}
+
+async function doExportInner() {
   try {
     const res = await fetch('/api/export/download/zip');
     if (!res.ok) {
@@ -1230,53 +1285,6 @@ async function doExport() {
   } catch (e) {
     toast('Export failed: ' + e.message);
   }
-}
-
-async function showTradeDownOffers() {
-  const res = await api.get('/api/trade/down-offers');
-  openModal('Trade-Down Offers', 'Teams that would trade up to this pick',
-    !res.ok ? '<div class="text-xs text-rose-400">' + (res.error || 'error') + '</div>'
-    : (res.offers && res.offers.length
-        ? renderOffersTable(res.offers)
-        : '<div class="text-sm text-slate-400">No teams are interested in trading up right now.</div>'));
-  wireAcceptOfferButtons();
-}
-
-function openTradeUpModal(opts = {}) {
-  const myUnpickedPicks = state.board.filter(p => p.current_team === state.userTeam && !p.selected_player_id);
-  const targets = state.board.filter(p => p.current_team !== state.userTeam && !p.selected_player_id)
-    .slice(0, 64);
-  const preselect = opts.targetCurrent && state.session.current_pick
-    ? state.session.current_pick.overall : null;
-  const targetOpts = targets.map(p => {
-    const sel = preselect === p.overall ? ' selected' : '';
-    return `<option value="${p.overall}"${sel}>${roundPickLabel(p)} · ${escapeHtml(p.current_team)} (overall ${p.overall})</option>`;
-  }).join('');
-  const offerCheckboxes = myUnpickedPicks.map(p => `
-    <label class="flex items-center gap-2 text-sm py-1">
-      <input type="checkbox" class="trade-up-offer" value="${p.overall}">
-      <span>${roundPickLabel(p)} (overall ${p.overall})</span>
-    </label>
-  `).join('');
-  const subtitle = opts.targetCurrent && state.session.current_pick
-    ? `Trade up to the ${state.session.current_pick.current_team}'s current pick`
-    : 'Send picks to move up the board';
-  const body = `
-    <div class="space-y-3">
-      <div>
-        <label class="text-xs uppercase text-slate-400">Target Pick</label>
-        <select id="trade-up-target" class="mt-1 w-full rounded border border-ink-600 bg-ink-800 px-2 py-1 text-sm">${targetOpts}</select>
-      </div>
-      <div>
-        <label class="text-xs uppercase text-slate-400">Picks You Offer</label>
-        <div class="mt-1 max-h-48 overflow-y-auto pretty-scroll border border-ink-700 rounded p-2">${offerCheckboxes || '<div class="text-xs text-slate-500">No picks left to offer.</div>'}</div>
-      </div>
-      <button id="submit-trade-up" class="primary-btn w-full">Submit Offer</button>
-      <div id="trade-up-result" class="text-sm text-slate-400"></div>
-    </div>
-  `;
-  openModal('Offer Trade Up', subtitle, body);
-  document.getElementById('submit-trade-up').addEventListener('click', submitTradeUp);
 }
 
 // Persists which tab was last open between Trade Hub re-renders.
@@ -2518,7 +2526,14 @@ async function openBigBoardModal() {
     renderBigBoardList();
   });
   const searchEl = document.getElementById('bb-search');
-  searchEl.addEventListener('input', renderBigBoardList);
+  // Debounced — the list rebuild renders up to 600 rows, so don't do it
+  // on every keystroke of a fast typist.
+  let searchTimer = null;
+  searchEl.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(renderBigBoardList, 120);
+  });
+  searchEl.focus();
   renderBigBoardList();
 }
 
@@ -2737,8 +2752,9 @@ function renderBigBoardList() {
   tableEl.querySelectorAll('[data-bb-draft]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      await submitPick(btn.dataset.bbDraft);
-      closeModal();
+      const drafted = await submitPick(btn.dataset.bbDraft);
+      // Cancelling the confirm keeps the Big Board open.
+      if (drafted) closeModal();
     });
   });
   tableEl.querySelectorAll('[data-bb-player]').forEach(row => {
@@ -3122,6 +3138,18 @@ function bindModal() {
   document.getElementById('player-overlay-root').addEventListener('click', (e) => {
     if (e.target.id === 'player-overlay-root') closePlayerOverlay();
   });
+  // Escape closes the topmost layer only: filter popover (handles its own
+  // Escape) -> confirm overlay -> player overlay -> main modal.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (document.getElementById('bb-filter-popover')) return;
+    if (_confirmCancel) { _confirmCancel(); return; }
+    if (!document.getElementById('player-overlay-root').classList.contains('hidden')) {
+      closePlayerOverlay();
+      return;
+    }
+    if (!document.getElementById('modal-root').classList.contains('hidden')) closeModal();
+  });
 }
 
 function openModal(title, subtitle, bodyHtml) {
@@ -3131,8 +3159,13 @@ function openModal(title, subtitle, bodyHtml) {
   document.getElementById('modal-root').classList.remove('hidden');
 }
 
+// Resolver for the currently open confirm overlay; lets Escape cancel it.
+let _confirmCancel = null;
+
 function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel = 'Cancel', onConfirm }) {
-  // Lightweight confirm dialog reusing the modal root.
+  // Lightweight confirm dialog in its own overlay (above modal-root and
+  // the player overlay), so confirming/cancelling never destroys an open
+  // parent modal like the Big Board or Full Draft Order.
   //
   // Two ways to use:
   //   1. Pass `onConfirm` — fires when user confirms (legacy fire-and-forget).
@@ -3143,23 +3176,35 @@ function confirmAction({ title, message, confirmLabel = 'Confirm', cancelLabel =
     const safeMessage = typeof message === 'string'
       ? `<div class="text-sm text-slate-300">${escapeHtml(message)}</div>`
       : message;  // allow trusted HTML for richer body
-    const body = `
+    const root = document.getElementById('confirm-overlay-root');
+    document.getElementById('confirm-overlay-title').textContent = title;
+    document.getElementById('confirm-overlay-body').innerHTML = `
       ${safeMessage}
       <div class="mt-4 flex items-center justify-end gap-2">
         <button id="confirm-go" class="primary-btn">${escapeHtml(confirmLabel)}</button>
         <button id="confirm-cancel" class="sim-btn">${escapeHtml(cancelLabel)}</button>
       </div>
     `;
-    openModal(title, '', body);
-    document.getElementById('confirm-cancel').addEventListener('click', () => {
-      closeModal();
+    root.classList.remove('hidden');
+    const backdrop = (e) => { if (e.target === root) cancel(); };
+    const close = () => {
+      root.classList.add('hidden');
+      root.removeEventListener('click', backdrop);
+      _confirmCancel = null;
+    };
+    const cancel = () => {
+      close();
       resolve(false);
-    });
+    };
+    _confirmCancel = cancel;
+    document.getElementById('confirm-cancel').addEventListener('click', cancel);
+    root.addEventListener('click', backdrop);
     document.getElementById('confirm-go').addEventListener('click', async () => {
-      closeModal();
+      close();
       if (onConfirm) await onConfirm();
       resolve(true);
     });
+    document.getElementById('confirm-go').focus();
   });
 }
 
