@@ -884,6 +884,7 @@
   grid-template-columns:
     56px
     minmax(220px, 1fr)
+    38px
     52px
     44px
     52px
@@ -891,6 +892,25 @@
     80px;
   align-items: stretch;
 }
+.bbm-td-fav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid #11151f;
+}
+.bbm-td-fav.active-col { background: rgba(240,176,32,0.06); }
+.bbm-star-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #334155;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color 120ms;
+}
+.bbm-star-btn:hover { color: #f0b020; }
+.bbm-star-btn.starred { color: #f0b020; }
 .bbm-char-minor { color: #fb923c; }
 .bbm-char-major { color: #f87171; }
 .bbm-thead {

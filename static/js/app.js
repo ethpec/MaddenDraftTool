@@ -2419,6 +2419,8 @@ const bigBoardState = {
   sortBy: 'consensus',      // 'consensus' | 'team' | 'name' | 'height' | 'weight' | 'attr:<KEY>'
   showDrafted: false,
   userTeamBoard: [],        // cached big board for the user's team
+  favorites: new Set(),     // player_ids the user has starred
+  showFavsOnly: false,      // when true, only starred players are shown
   // Active min-value filters. Keys: 'attr:<KEY>', 'height', 'weight'.
   // Value shape: { min: <numeric rank>, label: <display label> }.
   // Numeric rank is comparable across grades via gradeRank() for attr
@@ -2565,6 +2567,7 @@ function renderBigBoardList() {
   players = players.filter(p => {
     if (!bigBoardState.showDrafted && (drafted.has(p.player_id) || p.drafted)) return false;
     if (allowedRaws && !allowedRaws.has(p.position)) return false;
+    if (bigBoardState.showFavsOnly && !bigBoardState.favorites.has(p.player_id)) return false;
     if (q) {
       const hay = (p.first_name + ' ' + p.last_name + ' ' + (p.college || '') + ' ' + (p.position || '')).toLowerCase();
       if (!hay.includes(q)) return false;
@@ -2613,6 +2616,13 @@ function renderBigBoardList() {
       if (br !== ar) return br - ar;
       return (a.rank ?? 9999) - (b.rank ?? 9999);
     });
+  } else if (sortBy === 'fav') {
+    players.sort((a, b) => {
+      const af = bigBoardState.favorites.has(a.player_id) ? 0 : 1;
+      const bf = bigBoardState.favorites.has(b.player_id) ? 0 : 1;
+      if (af !== bf) return af - bf;
+      return (a.rank ?? 9999) - (b.rank ?? 9999);
+    });
   } else if (sortBy === 'offfield') {
     players.sort((a, b) => {
       const ar = a.personality_rating ?? 0;
@@ -2656,10 +2666,16 @@ function renderBigBoardList() {
       ${filterBtn}
     </div>`;
   };
+  const favFilterActive = bigBoardState.showFavsOnly;
+  const favHeader = `<div class="bbm-th-cell bbm-th-attr">
+    <button class="bbm-th${sortBy === 'fav' ? ' active' : ''}" data-bb-sort="fav">FAV</button>
+    <button class="bbm-th-filter${favFilterActive ? ' active' : ''}" data-bb-toggle-favs title="Show only favorites">▾</button>
+  </div>`;
   const headerHtml = `
     <div class="bbm-thead">
       ${headerCol('consensus', '#', 'bbm-th-rank', null)}
       ${headerCol('name', 'Player', 'bbm-th-name', null)}
+      ${favHeader}
       ${headerCol('height', 'HT', 'bbm-th-attr', 'height')}
       ${headerCol('weight', 'WT', 'bbm-th-attr', 'weight')}
       ${headerCol('offfield', 'OffField', 'bbm-th-attr', null)}
@@ -2692,6 +2708,10 @@ function renderBigBoardList() {
       if (isActive) cellCls.push('active-col');
       return `<div class="${cellCls.join(' ')}">${escapeHtml(text ?? '—')}</div>`;
     };
+    const isFav = bigBoardState.favorites.has(p.player_id);
+    const favCell = `<div class="bbm-td bbm-td-fav${sortBy === 'fav' ? ' active-col' : ''}">
+      <button class="bbm-star-btn${isFav ? ' starred' : ''}" data-bb-fav="${escapeHtml(p.player_id)}" title="${isFav ? 'Remove from favorites' : 'Add to favorites'}">★</button>
+    </div>`;
     const heightCell = plainCell(p.height, sortBy === 'height');
     const weightCell = plainCell(p.weight, sortBy === 'weight');
     const offFieldCell = (() => {
@@ -2715,6 +2735,7 @@ function renderBigBoardList() {
             <div class="bbm-sub">${escapeHtml(p.position || '—')} · ${escapeHtml(p.college || '—')}</div>
           </div>
         </div>
+        ${favCell}
         ${heightCell}
         ${weightCell}
         ${offFieldCell}
@@ -2760,7 +2781,24 @@ function renderBigBoardList() {
   tableEl.querySelectorAll('[data-bb-player]').forEach(row => {
     row.addEventListener('click', (e) => {
       if (e.target.closest('[data-bb-draft]')) return;
+      if (e.target.closest('[data-bb-fav]')) return;
       openPlayerProfile(row.dataset.bbPlayer, { returnTo: openBigBoardModal });
+    });
+  });
+  tableEl.querySelectorAll('[data-bb-fav]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const pid = btn.dataset.bbFav;
+      if (bigBoardState.favorites.has(pid)) bigBoardState.favorites.delete(pid);
+      else bigBoardState.favorites.add(pid);
+      renderBigBoardList();
+    });
+  });
+  document.querySelectorAll('[data-bb-toggle-favs]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      bigBoardState.showFavsOnly = !bigBoardState.showFavsOnly;
+      renderBigBoardList();
     });
   });
   // Filter pill removal + clear all.
@@ -2773,6 +2811,7 @@ function renderBigBoardList() {
   const clearAll = document.getElementById('bb-clear-all-filters');
   if (clearAll) clearAll.addEventListener('click', () => {
     bigBoardState.filters = {};
+    bigBoardState.showFavsOnly = false;
     renderBigBoardList();
   });
 }
@@ -2780,7 +2819,7 @@ function renderBigBoardList() {
 function renderFilterPills() {
   const fs = bigBoardState.filters || {};
   const entries = Object.entries(fs);
-  if (!entries.length) return '';
+  if (!entries.length && !bigBoardState.showFavsOnly) return '';
   const pills = entries.map(([key, f]) => {
     const label = key === 'height' ? 'HT'
       : key === 'weight' ? 'WT'
@@ -2793,7 +2832,13 @@ function renderFilterPills() {
       <span class="bbm-filter-pill-x">×</span>
     </button>`;
   }).join('');
-  return `${pills}<button id="bb-clear-all-filters" class="bbm-filter-clear-all">Clear all</button>`;
+  const favPill = bigBoardState.showFavsOnly
+    ? `<button class="bbm-filter-pill" data-bb-toggle-favs title="Remove filter">
+        <span class="bbm-filter-pill-name">★ Favs</span>
+        <span class="bbm-filter-pill-x">×</span>
+      </button>`
+    : '';
+  return `${favPill}${pills}<button id="bb-clear-all-filters" class="bbm-filter-clear-all">Clear all</button>`;
 }
 
 // Open a popover beneath the clicked filter button. Buckets depend on the
