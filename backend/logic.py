@@ -401,7 +401,8 @@ def _roll_trade_threshold(round_1: int, is_trade_up: bool, pick_in_round: int = 
     return base
 
 
-def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str, Any]) -> float:
+def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str, Any],
+                      motivation_player_id: str | None = None) -> float:
     """Scale M_up by how urgently the offering team wants their motivating player.
 
     The GM's NeedvsBPA trait weights whether the signal comes from BPA or the
@@ -421,6 +422,10 @@ def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str,
     R1 premium-position boost (applied when base > 1.0):
       QB          → base³  (e.g. 1.05³ ≈ 1.158)
       OT/WR/EDGE  → base²  (e.g. 1.05² ≈ 1.103)
+
+    motivation_player_id: when set (Force QB Trade path), bypasses the
+    BPA/need lookup and uses this player directly. Existing callers pass
+    nothing and hit the default None path unchanged.
     """
     offering_team = gm.get("TeamName")
     target_slot = pick.get("overall", 1)
@@ -438,23 +443,26 @@ def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str,
     if not available or target_slot <= 0:
         return 1.0
 
-    need_prob = 0.20 + (int(gm.get("NeedvsBPA", 3)) - 1) * 0.175
-    motivating_player: dict[str, Any] | None = None
+    if motivation_player_id is not None:
+        motivating_player: dict[str, Any] | None = player_map.get(motivation_player_id)
+    else:
+        need_prob = 0.20 + (int(gm.get("NeedvsBPA", 3)) - 1) * 0.175
+        motivating_player = None
 
-    if random.random() < need_prob:
-        _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
-        gm_index = gm.get("TeamIndex")
-        needs = (_get_needs(state, offering_team, int(gm_index))
-                 if gm_index is not None else [])
-        eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
-        motivating_player = next(
-            (p for p in available
-             if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
-            None,
-        )
+        if random.random() < need_prob:
+            _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
+            gm_index = gm.get("TeamIndex")
+            needs = (_get_needs(state, offering_team, int(gm_index))
+                     if gm_index is not None else [])
+            eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
+            motivating_player = next(
+                (p for p in available
+                 if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
+                None,
+            )
 
-    if motivating_player is None:
-        motivating_player = available[0]
+        if motivating_player is None:
+            motivating_player = available[0]
 
     pid = motivating_player.get("Player_ID")
     player_board_rank = team_rank.get(pid)
@@ -756,7 +764,8 @@ def _portfolio_multiplier_down(share: float) -> float:
     return 1.5
 
 
-def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick: dict[str, Any]) -> float:
+def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick: dict[str, Any],
+                          motivation_player_id: str | None = None) -> float:
     """Return the probability (0–1) that a team is willing to trade up to target_pick.
 
     Five components combined multiplicatively:
@@ -777,6 +786,11 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
          block; picks 6-10 → 0.10×; picks 11-20 → 0.50×; picks 21-32 → 0.75×.
          Premium positions (QB/WR/OT/EDGE/CB) are exempt (1.0×).
     Final result clamped to [0.1%, 50%] — trade-up willingness is the rarer event.
+
+    motivation_player_id: when set (Force QB Trade path), bypasses BPA/need
+    lookups and uses this specific player for both slide components. The non-
+    premium dampener still runs but QB is a premium position so it never fires.
+    Existing callers pass nothing and hit the default None path unchanged.
     """
     offering_team = gm.get("TeamName")
     target_slot = target_pick.get("draft_slot") or target_pick.get("overall") or 1
@@ -807,7 +821,11 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     bpa_impact -= trait_shift
 
     # Component 1: BPA slide using team's private rank vs target slot.
-    bpa = available[0] if available else None
+    # When motivation_player_id is set (Force QB path), use that player directly.
+    if motivation_player_id is not None:
+        bpa = player_map.get(motivation_player_id)
+    else:
+        bpa = available[0] if available else None
     bpa_prob = _slide_prob_up(target_slot, team_rank.get(bpa.get("Player_ID")) if bpa else None) * bpa_impact
 
     # R1 non-premium dampener: two independent multipliers, one for BPA and
@@ -830,16 +848,20 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
             if factor == 0.0:
                 return 0.0
             non_prem_mult *= factor
-        # Check top eligible need independently.
-        _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
-        gm_idx = gm.get("TeamIndex")
-        _needs = _get_needs(state, offering_team, int(gm_idx)) if gm_idx is not None else []
-        _eligible = {n["position"] for n in _needs if win_min < n["weight"] <= win_max}
-        top_need = next(
-            (p for p in available
-             if POSITION_GROUPS.get(p.get("position"), p.get("position")) in _eligible),
-            None,
-        )
+        # Check top eligible need independently. Force QB path uses the
+        # motivation player directly (QB → premium → dampener never fires).
+        if motivation_player_id is not None:
+            top_need = player_map.get(motivation_player_id)
+        else:
+            _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
+            gm_idx = gm.get("TeamIndex")
+            _needs = _get_needs(state, offering_team, int(gm_idx)) if gm_idx is not None else []
+            _eligible = {n["position"] for n in _needs if win_min < n["weight"] <= win_max}
+            top_need = next(
+                (p for p in available
+                 if POSITION_GROUPS.get(p.get("position"), p.get("position")) in _eligible),
+                None,
+            )
         if top_need:
             need_grp = POSITION_GROUPS.get(top_need.get("position", ""), top_need.get("position", ""))
             if need_grp not in _FUTURE_PICK_GATE_BONUS:
@@ -849,16 +871,20 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
                 non_prem_mult *= factor
 
     # Component 2: Best eligible need player slide using target pick's round window.
-    _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
-    gm_index = gm.get("TeamIndex")
-    needs = (_get_needs(state, offering_team, int(gm_index))
-             if gm_index is not None else [])
-    eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
-    best_need = next(
-        (p for p in available
-         if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
-        None,
-    )
+    # Force QB path: use the motivation player directly for the need component too.
+    if motivation_player_id is not None:
+        best_need = player_map.get(motivation_player_id)
+    else:
+        _, (win_min, win_max), _ = _round_bucket(round_1, pick_in_round)
+        gm_index = gm.get("TeamIndex")
+        needs = (_get_needs(state, offering_team, int(gm_index))
+                 if gm_index is not None else [])
+        eligible = {n["position"] for n in needs if win_min < n["weight"] <= win_max}
+        best_need = next(
+            (p for p in available
+             if POSITION_GROUPS.get(p.get("position"), p.get("position")) in eligible),
+            None,
+        )
     need_prob = _slide_prob_up(target_slot, team_rank.get(best_need.get("Player_ID")) if best_need else None) * need_impact
 
     # Distance multiplier: value ratio of team's highest remaining current-year
@@ -1184,7 +1210,8 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
 
 
 def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
-                                   m_down: float) -> list[dict[str, Any]]:
+                                   m_down: float,
+                                   motivation_overrides: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """Return CPU trade-up offers for the given pick, ranked by ratio.
 
     Caller is responsible for the willingness roll AND for rolling ``m_down``
@@ -1241,11 +1268,16 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
         team = gm.get("TeamName")
         if not team or team == on_clock_team or team == user_team:
             continue
-        if random.random() > _trade_up_probability(state, gm, pick):
+        # When motivation_overrides is set (Force QB path), only teams in the
+        # dict are eligible; teams outside it had no qualifying QB need.
+        if motivation_overrides is not None and team not in motivation_overrides:
+            continue
+        mo_id = motivation_overrides.get(team) if motivation_overrides else None
+        if random.random() > _trade_up_probability(state, gm, pick, motivation_player_id=mo_id):
             continue
 
         m_up = _roll_trade_threshold(round_1, is_trade_up=True, pick_in_round=pick.get("pick_in_round", 1))
-        m_up *= _covet_multiplier(state, gm, pick)
+        m_up *= _covet_multiplier(state, gm, pick, motivation_player_id=mo_id)
         # When the user is on clock, derive a per-team floor from this AI's
         # m_up so the window stays at least _USER_TRADE_DOWN_FLOOR_OFFSET wide,
         # AND clamp the floor up to _USER_TRADE_DOWN_HARD_FLOOR to block
@@ -1382,6 +1414,88 @@ def attempt_user_trade_down(state: dict[str, Any], m_down: float) -> list[dict[s
     if not current:
         return []
     return generate_trade_offers_for_pick(state, current, m_down)
+
+
+def generate_force_qb_offers(
+    state: dict[str, Any],
+    pick: dict[str, Any],
+    max_attempts: int = 15,
+) -> dict[str, Any]:
+    """Find a trade-up offer from a QB-needy CPU team for the given pick.
+
+    Filters eligible teams to those whose QB need TrueWeight exceeds the
+    current round's need_window_min. Each eligible team's top undrafted QB
+    (by their private team board) is used as the motivation player for both
+    the BPA and need slide components — overriding the normal BPA/need lookup.
+
+    m_down is rolled once and held fixed across all retry attempts; trade-up
+    willingness is re-rolled each attempt so teams that declined earlier may
+    accept later.
+
+    Returns one of:
+      {"result": "no_eligible_teams"}
+      {"result": "no_deal", "attempts": N}
+      {"result": "offer", "offer": {...}, "player": {...}, "attempts": N,
+       "eligible_teams": [...]}
+    """
+    if not pick:
+        return {"result": "no_eligible_teams"}
+
+    round_1 = pick.get("round", 1)
+    pick_in_round = pick.get("pick_in_round", 1)
+    on_clock_team = pick.get("current_team")
+    user_team = state.get("user_team")
+
+    _, (need_window_min, _), _ = _round_bucket(round_1, pick_in_round)
+
+    player_map = {p.get("Player_ID"): p for p in state["big_board"]["players"]}
+
+    motivation_overrides: dict[str, str] = {}
+    for gm in state["gm_info"]:
+        team = gm.get("TeamName")
+        if not team or team == on_clock_team or team == user_team:
+            continue
+        gm_idx = gm.get("TeamIndex")
+        if gm_idx is None:
+            continue
+        needs = _get_needs(state, team, int(gm_idx))
+        if not any(n["position"] == "QB" and n["weight"] > need_window_min for n in needs):
+            continue
+        team_board = state.get("team_boards", {}).get(team, [])
+        top_qb = next(
+            (player_map[pid] for pid in team_board
+             if pid in player_map
+             and not player_map[pid].get("drafted")
+             and player_map[pid].get("position") == "QB"),
+            None,
+        )
+        if top_qb is None:
+            continue
+        motivation_overrides[team] = top_qb["Player_ID"]
+
+    if not motivation_overrides:
+        return {"result": "no_eligible_teams"}
+
+    m_down = _roll_trade_threshold(round_1, is_trade_up=False, pick_in_round=pick_in_round)
+
+    for attempt in range(1, max_attempts + 1):
+        offers = generate_trade_offers_for_pick(
+            state, pick, m_down, motivation_overrides=motivation_overrides
+        )
+        if offers:
+            chosen = select_trade_down_offer(offers)
+            if chosen:
+                winning_team = chosen["from_team"]
+                qb_player = player_map.get(motivation_overrides[winning_team])
+                return {
+                    "result": "offer",
+                    "offer": chosen,
+                    "player": qb_player,
+                    "attempts": attempt,
+                    "eligible_teams": list(motivation_overrides.keys()),
+                }
+
+    return {"result": "no_deal", "attempts": max_attempts}
 
 
 # -----------------------------------------------------------------------------

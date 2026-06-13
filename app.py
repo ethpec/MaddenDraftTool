@@ -772,6 +772,17 @@ def api_trade_accept_offer():
     return jsonify(sess.accept_trade_down_offer(str(from_team)))
 
 
+@app.post("/api/trade/force-qb")
+def api_force_qb_trade():
+    sess, err = _require_session()
+    if err:
+        return err
+    result = sess.force_qb_trade()
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
 @app.post("/api/export")
 def api_export():
     sess, err = _require_session()

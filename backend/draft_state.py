@@ -468,6 +468,84 @@ class DraftSession:
                 },
             }
 
+    def force_qb_trade(self) -> dict[str, Any]:
+        """Force the current on-clock pick to trade to a QB-needy CPU team.
+
+        Eligible teams must have a QB need whose TrueWeight exceeds the current
+        round's need_window_min. Trade-up willingness is re-rolled each attempt
+        (up to 15); m_down is fixed for the full run. On success the winning
+        team's top-board QB is automatically drafted.
+
+        Returns:
+          {"ok": True, "result": "user_on_clock"}  — user's pick, can't force
+          {"ok": True, "result": "no_eligible_teams"}
+          {"ok": True, "result": "no_deal", "attempts": N}
+          {"ok": True, "result": "trade_completed", "trade": {...}, "player": {...}}
+        """
+        with self.lock:
+            pick = self.current_pick()
+            if pick is None:
+                return {"ok": False, "error": "draft_complete"}
+            if pick.current_team == self.user_team:
+                return {"ok": True, "result": "user_on_clock",
+                        "message": "Your team is on the clock — use the Trade Hub to manage your pick."}
+
+            snap = self._snapshot_for_logic()
+            pick_dict = _pick_to_dict(pick)
+            result = logic.generate_force_qb_offers(snap, pick_dict)
+
+            if result["result"] != "offer":
+                return {"ok": True, "result": result["result"],
+                        "attempts": result.get("attempts", 0)}
+
+            offer = result["offer"]
+            trading_down = pick.current_team
+            trading_up = offer["from_team"]
+
+            offered_records = [self._pick_by_overall[p["overall"]]
+                               for p in offer["offered_picks"]
+                               if p["overall"] in self._pick_by_overall]
+            return_records = [self._pick_by_overall[p["overall"]]
+                              for p in offer.get("return_picks", [])
+                              if p["overall"] in self._pick_by_overall]
+
+            self._apply_trade(pick, offered_records, trading_down, trading_up, "AI",
+                              return_picks=return_records)
+            self._events_since_trade_per_team[trading_down] = 0
+            self._clear_pending_offers()
+
+            qb = result["player"]
+            if qb is None:
+                return {"ok": False, "error": "qb_not_found"}
+
+            current = self.current_pick()  # still the same overall, now owned by trading_up
+            self._record_selection(current, qb, rationale="force_qb_trade")
+            self._advance()
+
+            return {
+                "ok": True,
+                "result": "trade_completed",
+                "trade": {
+                    "trading_up": trading_up,
+                    "trading_down": trading_down,
+                    "offered_picks": offer["offered_picks"],
+                    "return_picks": offer.get("return_picks", []),
+                    "target_pick": offer["target_pick"],
+                    "offer_value": offer["offer_value"],
+                    "return_value": offer.get("return_value", 0),
+                    "target_value": offer["target_value"],
+                },
+                "player": {
+                    "player_id": qb.get("Player_ID"),
+                    "name": f"{qb.get('FirstName', '')} {qb.get('LastName', '')}".strip(),
+                    "position": qb.get("position"),
+                    "college": qb.get("college"),
+                    "college_logo": qb.get("college_logo"),
+                },
+                "attempts": result["attempts"],
+                "eligible_teams": result.get("eligible_teams", []),
+            }
+
     def submit_user_trade_up(self, target_overall: int,
                              offered_pick_overalls: list[int],
                              target_also_sends_overalls: list[int] | None = None

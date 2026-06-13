@@ -288,6 +288,22 @@ Implemented:
 - `attempt_user_trade_down(state, m_down)` — delegates to
   `generate_trade_offers_for_pick` for the user's on-clock pick. Trade Hub
   "Incoming Offers" is fully wired (see section 5a for the flow).
+- `generate_force_qb_offers(state, pick, max_attempts=15)` — Force QB Trade
+  path. Filters teams to those with QB `TrueWeight > need_window_min` for
+  the current round, then builds `motivation_overrides = {team: top_qb_id}`
+  and calls `generate_trade_offers_for_pick` with that dict. `m_down` is
+  rolled once and held fixed; trade-up willingness is re-rolled each attempt.
+  Returns `{"result": "no_eligible_teams"}`, `{"result": "no_deal", "attempts": N}`,
+  or `{"result": "offer", "offer": {...}, "player": {...}, "attempts": N}`.
+- `generate_trade_offers_for_pick` now accepts an optional
+  `motivation_overrides: dict[str, str] | None = None` parameter. When set,
+  only teams in the dict are considered and their mapped player ID is passed
+  as `motivation_player_id` to `_trade_up_probability` and `_covet_multiplier`.
+  Existing callers pass nothing — zero behavior change.
+- `_trade_up_probability` and `_covet_multiplier` each accept an optional
+  `motivation_player_id: str | None = None`. When set, bypasses BPA/need
+  lookups and uses that player for both slide components. QB is a premium
+  position so the non-premium R1 dampener never fires on this path.
 
 ### 3a. Roster mutation during the draft
 When a player is drafted (`DraftSession._record_selection`), their entry in
@@ -420,7 +436,7 @@ they later come on the clock.
 all cleared in `_advance()` alongside pending offers.
 
 ### 5b. Trade Hub — tabs and incoming offers table
-Trade Hub now has two tabs (persisted in `tradeHubState.tab`):
+Trade Hub now has three tabs (persisted in `tradeHubState.tab`):
 
 - **Your Trade** (original flow) — when user is on the clock: "Incoming
   Offers" table + propose-a-trade form. When an AI is on the clock:
@@ -431,6 +447,12 @@ Trade Hub now has two tabs (persisted in `tradeHubState.tab`):
   each side, see running Jimmy-Johnson point totals. Optional **Force
   override** checkbox bypasses willingness and value checks. Calls
   `POST /api/trade/manual` → `DraftSession.submit_manual_trade`.
+- **Force QB Trade** — forces the current on-clock CPU pick to be traded
+  to a QB-needy team. Eligible teams must have QB `TrueWeight >
+  need_window_min` for the current round. Retries up to 15 times; on
+  success the winning team auto-drafts their top-board QB. Disabled
+  when the user's team is on the clock (shows a message instead). Calls
+  `POST /api/trade/force-qb` → `DraftSession.force_qb_trade`.
 
 The "Incoming Offers" table shows one row per CPU offer with: Team, You
 Receive, You Send, **Net Value** (offered − sent, gold/red), and **Net
@@ -651,6 +673,7 @@ POST /api/pick/sim-until-end             Drives the draft to completion (ignores
 GET  /api/trade/down-offers              AI offers for user's pick (only valid when user on clock)
 POST /api/trade/up                       { target_overall, offered_overalls }
 POST /api/trade/accept-offer             { from_team } — user accepts a cached AI trade-up offer
+POST /api/trade/force-qb                 Force the on-clock CPU pick to trade to a QB-needy team; winning team auto-drafts their top QB
 POST /api/trade/manual                   { team_a, team_b, team_a_overalls, team_b_overalls, force_override }
 POST /api/export                         Write all 3 xlsx files + zip
 GET  /api/export/download/<kind>         kind = outcome | picks | trades | zip

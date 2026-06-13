@@ -1314,6 +1314,9 @@ async function openTradeHub() {
       <button class="trade-hub-tab${tradeHubState.tab === 'manual' ? ' active' : ''}" data-th-tab="manual">
         Two-Team Trade
       </button>
+      <button class="trade-hub-tab${tradeHubState.tab === 'force-qb' ? ' active' : ''}" data-th-tab="force-qb">
+        Force QB Trade
+      </button>
     </div>
     <div id="trade-hub-body" class="mt-3"></div>
   `;
@@ -1336,6 +1339,10 @@ async function renderTradeHubTab() {
   if (tradeHubState.tab === 'manual') {
     body.innerHTML = renderManualTradeForm();
     wireManualTradeForm();
+    return;
+  }
+  if (tradeHubState.tab === 'force-qb') {
+    renderForceQbTab(body);
     return;
   }
   // 'user' tab — original behavior.
@@ -1520,6 +1527,86 @@ async function submitTradeUp() {
         : 'Offer Refused: ' + (reason || 'no reason given');
     result.textContent = msg;
   }
+}
+
+// ---------- Force QB Trade tab ----------
+
+function renderForceQbTab(body) {
+  const c = state.session?.current_pick;
+  if (!c) {
+    body.innerHTML = '<div class="text-sm text-slate-400">Draft is complete — no live picks.</div>';
+    return;
+  }
+  const isUserPick = c.current_team === state.userTeam;
+  const pickLabel = `${escapeHtml(c.current_team)} · ${roundPickLabel(c)} · pick #${c.draft_slot ?? c.overall}`;
+  body.innerHTML = `
+    <div class="space-y-4">
+      <div>
+        <div class="card-eyebrow mb-1">On the Clock</div>
+        <div class="text-sm text-slate-300">${pickLabel}</div>
+      </div>
+      <div class="text-xs text-slate-400 leading-relaxed">
+        Forces the on-clock team to trade this pick to a QB-needy CPU team.
+        Eligible teams must have a QB need that qualifies for the current
+        round. The acquiring team will draft their highest-ranked QB.
+        The engine retries up to 15 times if no deal is reached immediately.
+      </div>
+      ${isUserPick
+        ? '<div class="text-sm text-amber-400">Your team is on the clock — use the Incoming Offers or manual trade to manage your pick.</div>'
+        : `<button id="force-qb-btn" class="btn-primary mt-1">Force QB Trade</button>`
+      }
+      <div id="force-qb-result"></div>
+    </div>
+  `;
+  if (!isUserPick) {
+    document.getElementById('force-qb-btn')?.addEventListener('click', executeForceQbTrade);
+  }
+}
+
+async function executeForceQbTrade() {
+  const btn = document.getElementById('force-qb-btn');
+  const resultDiv = document.getElementById('force-qb-result');
+  if (!btn || !resultDiv) return;
+  btn.disabled = true;
+  btn.textContent = 'Working…';
+  resultDiv.innerHTML = '';
+
+  const res = await api.post('/api/trade/force-qb', {}).catch(() => ({ ok: false }));
+
+  btn.disabled = false;
+  btn.textContent = 'Force QB Trade';
+
+  if (!res.ok) {
+    resultDiv.innerHTML = `<div class="text-sm text-red-400 mt-2">Error — could not execute force trade.</div>`;
+    return;
+  }
+
+  if (res.result === 'user_on_clock') {
+    resultDiv.innerHTML = `<div class="text-sm text-amber-400 mt-2">${escapeHtml(res.message || 'Your team is on the clock.')}</div>`;
+    return;
+  }
+
+  if (res.result === 'no_eligible_teams') {
+    resultDiv.innerHTML = `<div class="text-sm text-slate-400 mt-2">No teams have a qualifying QB need at this stage of the draft.</div>`;
+    return;
+  }
+
+  if (res.result === 'no_deal') {
+    resultDiv.innerHTML = `<div class="text-sm text-slate-400 mt-2">No deal found after ${res.attempts} attempts — no teams were willing to trade up at the required value.</div>`;
+    return;
+  }
+
+  // trade_completed — close the Trade Hub and show the standard trade modal
+  await reloadSessionAndRender();
+  document.getElementById('modal-root').classList.remove(
+    'trade-hub-modal', 'big-board-modal-open', 'full-board-modal',
+    'picker-modal', 'player-modal', 'trade-history-modal', 'rosters-modal',
+    'gm-info-modal', 'sim-report-modal'
+  );
+  showTradeModal(res.trade, {
+    selected_player_id: res.player.player_id,
+    selected_player_name: res.player.name,
+  });
 }
 
 // ---------- Two-Team (manual) trade form ----------
