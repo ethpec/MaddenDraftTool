@@ -50,6 +50,14 @@
   border-color: #3b4d75;
   color: #fff;
 }
+/* Busy state — command bar is disabled while a sim/pick/export request
+   is in flight (see withBusy in app.js). */
+.sim-btn:disabled,
+.primary-btn:disabled {
+  opacity: 0.45;
+  cursor: wait;
+  pointer-events: none;
+}
 .sim-btn:hover::before {
   color: #8ab4f8;
   transform: translate(2px, -1px);
@@ -141,7 +149,7 @@
   font-size: 12.5px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  padding: 8px 16px;
+  padding: 8px 13px;
   border-radius: 999px;
   background: linear-gradient(135deg, #f8c043 0%, #f0b020 50%, #c98c0a 100%);
   color: #06080d;
@@ -876,6 +884,7 @@
   grid-template-columns:
     56px
     minmax(220px, 1fr)
+    38px
     52px
     44px
     52px
@@ -883,6 +892,25 @@
     80px;
   align-items: stretch;
 }
+.bbm-td-fav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-left: 1px solid #11151f;
+}
+.bbm-td-fav.active-col { background: rgba(240,176,32,0.06); }
+.bbm-star-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #334155;
+  padding: 2px 4px;
+  line-height: 1;
+  transition: color 120ms;
+}
+.bbm-star-btn:hover { color: #f0b020; }
+.bbm-star-btn.starred { color: #f0b020; }
 .bbm-char-minor { color: #fb923c; }
 .bbm-char-major { color: #f87171; }
 .bbm-thead {
@@ -1176,7 +1204,7 @@
   gap: 6px;
   font-size: 12.5px;
   font-weight: 600;
-  padding: 7px 14px;
+  padding: 7px 11px;
   border-radius: 999px;
   border: 1px solid #252d42;
   background: linear-gradient(180deg, #11151f 0%, #0b0e15 100%);
@@ -1216,7 +1244,7 @@
   gap: 6px;
   font-size: 12.5px;
   font-weight: 600;
-  padding: 7px 14px;
+  padding: 7px 11px;
   border-radius: 999px;
   border: 1px solid #38456a;
   background: linear-gradient(180deg, #1a2030 0%, #11151f 100%);
@@ -1245,6 +1273,9 @@
   width: 100%;
 }
 #player-overlay-root:not(.hidden) .modal-panel {
+  animation: modal-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+#confirm-overlay-root:not(.hidden) .modal-panel {
   animation: modal-card-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .player-profile { padding: 4px; }
@@ -2930,6 +2961,22 @@ input:focus-visible,
 }
 .round-tab.active:hover {
   background: linear-gradient(180deg, #fbd166 0%, #f8c043 55%, #d99a14 100%);
+}
+/* Gold dot marking the round with the live on-clock pick — visible when
+   the user has browsed away to a different round tab. */
+.round-tab {
+  position: relative;
+}
+.round-tab.live:not(.active)::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #f0b020;
+  box-shadow: 0 0 4px rgba(240, 176, 32, 0.7);
 }
 
 /* ============================================================
