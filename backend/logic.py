@@ -656,6 +656,8 @@ def _portfolio_multiplier(share: float) -> float:
     picks across the league. League average is ~3.1% (1/32). Above average →
     pick-rich, more willing; below average → pick-poor, less willing.
     """
+    if share >= 0.060:
+        return 1.5
     if share >= 0.050:
         return 1.25
     if share >= 0.045:
@@ -699,14 +701,14 @@ def _round_modifier_down(round_1: int) -> float:
     if round_1 == 2:
         return 1.40
     if round_1 == 3:
-        return 1.80
+        return 1.85
     if round_1 == 4:
         return 1.65
     if round_1 == 5:
-        return 2.05
+        return 2.15
     if round_1 == 6:
         return 3.05
-    return 9.50  # round 7
+    return 10.0  # round 7
 
 
 def _cooldown_for_events_since(n: int | None) -> float:
@@ -733,6 +735,8 @@ def _portfolio_multiplier_down(share: float) -> float:
     already have plenty of capital. Pick-poor teams (low share) are MORE
     willing — they want to acquire more picks.
     """
+    if share >= 0.06:
+        return 0.10
     if share >= 0.05:
         return 0.25
     if share >= 0.045:

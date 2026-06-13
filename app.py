@@ -122,7 +122,10 @@ def _pick_point_value(overall: int, year_offset: int, pick_values: dict[str, Any
         v = pick_values.get("next_year_by_slot", {}).get(overall)
     else:
         v = pick_values.get("by_pick", {}).get((overall, 0))
-    return int(v) if v is not None else None
+    if v is None:
+        return None
+    f = float(v)
+    return int(f) if f == int(f) else round(f, 1)
 
 
 def _annotate_pick(d: dict[str, Any], pick_slot: int, nfl_logos: dict, pick_values: dict) -> None:
