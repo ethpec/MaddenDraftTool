@@ -159,20 +159,21 @@ Implemented:
   - **Need slide** (×0.75 in round 1, ×0.50 in rounds 2–3, ×0.25 in rounds 4–7)
   Both components use `_slide_prob`. The rationale: round 1 picks are
   need-driven so a need-slide signal dominates; late rounds are BPA-driven.
-  Sum + hot-zone bonus (pick 33 +15 pp; picks 30–32 / 34–35 +7.5 pp;
-  picks 20–29 / 36–42 +5 pp) − QB need penalty (R1 only: −5 pp when
-  QB is the team's top eligible need, making them less willing to move
-  back), then × GM `TradeDown` trait multiplier ×
-  `_portfolio_multiplier_down` (pick-rich teams less willing, pick-poor
-  more — see helper below) × `_cooldown_for_events_since` (decaying
-  cooldown based on drafts since last trade) × `_round_modifier_down`
-  (R1 0.90×, R2-3 1.10×, R4-6 1.15×, R7 1.25×). Clamped to [5%, 95%].
+  Sum + hot-zone bonus (pick 1: −50 pp; picks 2–10 / 30–32 / 34–35:
+  +7.5 pp; pick 33: +15 pp; picks 20–29 / 36–42: +5 pp; all others:
+  +2.5 pp) − QB need penalty (R1 only: −10 pp when QB is the team's
+  top eligible need, making them less willing to move back), then × GM
+  `TradeDown` trait multiplier × `_portfolio_multiplier_down`
+  (pick-rich teams less willing, pick-poor more — see helper below) ×
+  `_cooldown_for_events_since` (decaying cooldown based on drafts since
+  last trade) × `_round_modifier_down` (R1 0.80×, R2 1.40×, R3 1.80×,
+  R4 1.65×, R5 2.05×, R6 3.05×, R7 9.50×). Clamped to [10%, 95%].
   The cooldown counter lives on `DraftSession._events_since_trade_per_team`
   (dict[team] = int). Reset to 0 by `_execute_cpu_trade`,
   `accept_trade_down_offer`, and `submit_user_trade_up` (when the target was
   on the clock). Incremented by `_record_selection` for the team that drafted.
 - `_cooldown_for_events_since(n)` — returns the trade-down cooldown multiplier:
-  `n is None` (team has never traded) → 1.0×; `n == 0` (just traded) → 0.5×;
+  `n is None` (team has never traded) → 1.0×; `n == 0` (just traded) → 0.25×;
   `n == 1` (1 draft since) → 0.75×; `n ≥ 2` → 1.0× (fully restored). Forces
   ~2 drafts between trade-downs instead of allowing trade-draft-trade patterns.
 - `willing_to_trade_down(state, pick)` — rolls against `_trade_down_probability`.
@@ -201,16 +202,18 @@ Implemented:
   multiplicatively: `(bpa_prob + need_prob + qb_need_boost)` (each scored
   by `_slide_prob_up` × the same round-based impact weights used by
   `_trade_down_probability`: Round 1 bpa 0.25 / need 0.75; Rounds 2-3
-  balanced; Rounds 4-7 bpa 0.75 / need 0.25; QB need boost: R1 only +5 pp
+  balanced; Rounds 4-7 bpa 0.75 / need 0.25; QB need boost: R1 only +10 pp
   when QB is the team's top eligible need) × GM `TradeUp` trait multiplier
   (0.75–1.25×) × `_distance_multiplier` × `_portfolio_multiplier` ×
   `_round_modifier_up`. Clamped to [0.1%, 50%].
-- `_round_modifier_up(round_1)` — trade-UP round multiplier: R1-2 1.00×,
-  R3-5 1.10×, R6-7 1.15×. Boosts late-round trade-ups since those picks
-  change hands more freely.
-- `_round_modifier_down(round_1)` — trade-DOWN round multiplier: R1 0.90×,
-  R2-3 1.10×, R4-6 1.15×, R7 1.25×. Dampens round 1 (teams hold R1 picks
-  tightly) and boosts late rounds significantly.
+- `_round_modifier_up(round_1)` — trade-UP round multiplier: R1 1.20×,
+  R2 0.55×, R3 0.40×, R4 0.30×, R5 0.25×, R6 0.25×, R7 0.175×. Boosts
+  R1 trade-ups (premium slots) and dampens late rounds where teams rarely
+  spend capital to move up.
+- `_round_modifier_down(round_1)` — trade-DOWN round multiplier: R1 0.80×,
+  R2 1.40×, R3 1.85×, R4 1.65×, R5 2.15×, R6 3.05×, R7 10.0×. Dampens
+  round 1 (teams hold R1 picks tightly) and aggressively boosts late
+  rounds where trade-downs are very frequent.
 - `_slide_prob_up(current_slot, rank)` — base trade-up probability component
   (caller scales by impact weight). Buckets: ≥ 0.33 → 0.40, ≥ 0.25 → 0.20,
   ≥ 0.125 → 0.05, ≥ 0 → 0.0, < 0 → −0.25. Negative ratios (target below the
@@ -225,12 +228,12 @@ Implemented:
   team's share of remaining current-year picks across the league. `share =
   team_remaining / total_remaining`. Baseline (1.0×) is set at 4% share —
   above the ~3.1% league average (1/32), so most teams fall in the
-  0.625–0.875× range. Pick-rich teams (≥ 5%) hit 1.25×; very pick-poor teams
-  (< 2%) drop to 0.50×.
-- `_portfolio_multiplier_down(share)` — top-to-bottom flip of the trade-up
-  version, used by `_trade_down_probability`. Pick-rich teams hit 0.50×
-  (they don't need more picks), pick-poor teams get up to 1.25× (eager to
-  acquire). Same share buckets, multipliers reversed.
+  0.625–0.875× range. Pick-rich teams (≥ 5%) hit 1.25×; very pick-rich
+  (≥ 6%) hit 1.5×; very pick-poor teams (< 2%) drop to 0.25×.
+- `_portfolio_multiplier_down(share)` — inverted version for trade-DOWN
+  willingness. Pick-rich teams (≥ 5%) drop to 0.25× (≥ 6% → 0.10×, very
+  pick-rich teams almost never trade down); pick-poor teams (< 1.5%)
+  reach 1.5× (eager to acquire).
 - `generate_trade_offers_for_pick(state, pick, m_down)` — builds CPU offers.
   For each other team that passes `_trade_up_probability` AND whose rolled M_up
   ≥ m_down, enumerates (offered, return) combinations subject to:
@@ -285,6 +288,22 @@ Implemented:
 - `attempt_user_trade_down(state, m_down)` — delegates to
   `generate_trade_offers_for_pick` for the user's on-clock pick. Trade Hub
   "Incoming Offers" is fully wired (see section 5a for the flow).
+- `generate_force_qb_offers(state, pick, max_attempts=15)` — Force QB Trade
+  path. Filters teams to those with QB `TrueWeight > need_window_min` for
+  the current round, then builds `motivation_overrides = {team: top_qb_id}`
+  and calls `generate_trade_offers_for_pick` with that dict. `m_down` is
+  rolled once and held fixed; trade-up willingness is re-rolled each attempt.
+  Returns `{"result": "no_eligible_teams"}`, `{"result": "no_deal", "attempts": N}`,
+  or `{"result": "offer", "offer": {...}, "player": {...}, "attempts": N}`.
+- `generate_trade_offers_for_pick` now accepts an optional
+  `motivation_overrides: dict[str, str] | None = None` parameter. When set,
+  only teams in the dict are considered and their mapped player ID is passed
+  as `motivation_player_id` to `_trade_up_probability` and `_covet_multiplier`.
+  Existing callers pass nothing — zero behavior change.
+- `_trade_up_probability` and `_covet_multiplier` each accept an optional
+  `motivation_player_id: str | None = None`. When set, bypasses BPA/need
+  lookups and uses that player for both slide components. QB is a premium
+  position so the non-premium R1 dampener never fires on this path.
 
 ### 3a. Roster mutation during the draft
 When a player is drafted (`DraftSession._record_selection`), their entry in
@@ -417,7 +436,7 @@ they later come on the clock.
 all cleared in `_advance()` alongside pending offers.
 
 ### 5b. Trade Hub — tabs and incoming offers table
-Trade Hub now has two tabs (persisted in `tradeHubState.tab`):
+Trade Hub now has three tabs (persisted in `tradeHubState.tab`):
 
 - **Your Trade** (original flow) — when user is on the clock: "Incoming
   Offers" table + propose-a-trade form. When an AI is on the clock:
@@ -428,6 +447,12 @@ Trade Hub now has two tabs (persisted in `tradeHubState.tab`):
   each side, see running Jimmy-Johnson point totals. Optional **Force
   override** checkbox bypasses willingness and value checks. Calls
   `POST /api/trade/manual` → `DraftSession.submit_manual_trade`.
+- **Force QB Trade** — forces the current on-clock CPU pick to be traded
+  to a QB-needy team. Eligible teams must have QB `TrueWeight >
+  need_window_min` for the current round. Retries up to 15 times; on
+  success the winning team auto-drafts their top-board QB. Disabled
+  when the user's team is on the clock (shows a message instead). Calls
+  `POST /api/trade/force-qb` → `DraftSession.force_qb_trade`.
 
 The "Incoming Offers" table shows one row per CPU offer with: Team, You
 Receive, You Send, **Net Value** (offered − sent, gold/red), and **Net
@@ -648,6 +673,7 @@ POST /api/pick/sim-until-end             Drives the draft to completion (ignores
 GET  /api/trade/down-offers              AI offers for user's pick (only valid when user on clock)
 POST /api/trade/up                       { target_overall, offered_overalls }
 POST /api/trade/accept-offer             { from_team } — user accepts a cached AI trade-up offer
+POST /api/trade/force-qb                 Force the on-clock CPU pick to trade to a QB-needy team; winning team auto-drafts their top QB
 POST /api/trade/manual                   { team_a, team_b, team_a_overalls, team_b_overalls, force_override }
 POST /api/export                         Write all 3 xlsx files + zip
 GET  /api/export/download/<kind>         kind = outcome | picks | trades | zip

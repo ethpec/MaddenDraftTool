@@ -122,7 +122,10 @@ def _pick_point_value(overall: int, year_offset: int, pick_values: dict[str, Any
         v = pick_values.get("next_year_by_slot", {}).get(overall)
     else:
         v = pick_values.get("by_pick", {}).get((overall, 0))
-    return int(v) if v is not None else None
+    if v is None:
+        return None
+    f = float(v)
+    return int(f) if f == int(f) else round(f, 1)
 
 
 def _annotate_pick(d: dict[str, Any], pick_slot: int, nfl_logos: dict, pick_values: dict) -> None:
@@ -767,6 +770,17 @@ def api_trade_accept_offer():
     if not from_team:
         return jsonify({"ok": False, "error": "missing_from_team"}), 400
     return jsonify(sess.accept_trade_down_offer(str(from_team)))
+
+
+@app.post("/api/trade/force-qb")
+def api_force_qb_trade():
+    sess, err = _require_session()
+    if err:
+        return err
+    result = sess.force_qb_trade()
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
 
 
 @app.post("/api/export")

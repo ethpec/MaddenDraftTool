@@ -1,0 +1,1954 @@
+[
+  {
+    "collegeName": "Abilene Christian",
+    "binaryReference": "10000000000000000000011011001111"
+  },
+  {
+    "collegeName": "Adams State",
+    "binaryReference": "10000000000000011100111100110001"
+  },
+  {
+    "collegeName": "Air Force",
+    "binaryReference": "10000000000000000000011011010000"
+  },
+  {
+    "collegeName": "Akron",
+    "binaryReference": "10000000000000000000011011010001"
+  },
+  {
+    "collegeName": "Alabama",
+    "binaryReference": "10000000000000000000011011010010"
+  },
+  {
+    "collegeName": "Alabama A&M",
+    "binaryReference": "10000000000000000000011011010011"
+  },
+  {
+    "collegeName": "Alabama State",
+    "binaryReference": "10000000000000000000011011010100"
+  },
+  {
+    "collegeName": "Albany",
+    "binaryReference": "10000000000000000000011011010101"
+  },
+  {
+    "collegeName": "Alberta",
+    "binaryReference": "10000000000000011100111100101111"
+  },
+  {
+    "collegeName": "Albion College",
+    "binaryReference": "10000000000000000110011000100001"
+  },
+  {
+    "collegeName": "Alcorn State",
+    "binaryReference": "10000000000000000000011011010110"
+  },
+  {
+    "collegeName": "Appalachian State",
+    "binaryReference": "10000000000000000000011011010111"
+  },
+  {
+    "collegeName": "Arizona",
+    "binaryReference": "10000000000000000000011011011000"
+  },
+  {
+    "collegeName": "Arizona Christian",
+    "binaryReference": "10000000000000011100111100110100"
+  },
+  {
+    "collegeName": "Arizona State",
+    "binaryReference": "10000000000000000000011011011001"
+  },
+  {
+    "collegeName": "Arkansas",
+    "binaryReference": "10000000000000000000011011011010"
+  },
+  {
+    "collegeName": "Uni. Arkansas Monticello",
+    "binaryReference": "10000000000000000000011110100001"
+  },
+  {
+    "collegeName": "Arkansas at Pine Bluff",
+    "binaryReference": "10000000000000000000011011011011"
+  },
+  {
+    "collegeName": "Arkansas State",
+    "binaryReference": "10000000000000000000011011011100"
+  },
+  {
+    "collegeName": "Army",
+    "binaryReference": "10000000000000000000011011011101"
+  },
+  {
+    "collegeName": "Ashland",
+    "binaryReference": "10000000000000000110011000100011"
+  },
+  {
+    "collegeName": "Assumption",
+    "binaryReference": "10000000000000001110011011001000"
+  },
+  {
+    "collegeName": "Auburn",
+    "binaryReference": "10000000000000000000011011011110"
+  },
+  {
+    "collegeName": "Augustana",
+    "binaryReference": "10000000000000000000011011011111"
+  },
+  {
+    "collegeName": "Austin Peay",
+    "binaryReference": "10000000000000000000011011100000"
+  },
+  {
+    "collegeName": "Azusa Pacific",
+    "binaryReference": "10000000000000011001001100101111"
+  },
+  {
+    "collegeName": "Baker",
+    "binaryReference": "10000000000000000110011000101110"
+  },
+  {
+    "collegeName": "Ball State",
+    "binaryReference": "10000000000000000000011011100001"
+  },
+  {
+    "collegeName": "Baylor",
+    "binaryReference": "10000000000000000000011011100010"
+  },
+  {
+    "collegeName": "Belhaven",
+    "binaryReference": "10000000000000000110011000011111"
+  },
+  {
+    "collegeName": "Beloit College",
+    "binaryReference": "10000000000000000110011000101111"
+  },
+  {
+    "collegeName": "Bemidji State",
+    "binaryReference": "10000000000000001110011011001011"
+  },
+  {
+    "collegeName": "Benedictine College",
+    "binaryReference": "10000000000000011100111100110111"
+  },
+  {
+    "collegeName": "Bentley College",
+    "binaryReference": "10000000000000000000011011100011"
+  },
+  {
+    "collegeName": "Berry College",
+    "binaryReference": "10000000000000000000011100000000"
+  },
+  {
+    "collegeName": "Beth Cookman",
+    "binaryReference": "10000000000000000000011011100100"
+  },
+  {
+    "collegeName": "Bethel",
+    "binaryReference": "10000000000000000110011000101010"
+  },
+  {
+    "collegeName": "Bloomsburg",
+    "binaryReference": "10000000000000000000011011100101"
+  },
+  {
+    "collegeName": "Boise State",
+    "binaryReference": "10000000000000000000011011100110"
+  },
+  {
+    "collegeName": "Boston College",
+    "binaryReference": "10000000000000000000011011100111"
+  },
+  {
+    "collegeName": "Bowie State",
+    "binaryReference": "10000000000000000110011000100111"
+  },
+  {
+    "collegeName": "Bowling Green State",
+    "binaryReference": "10000000000000000000011011101000"
+  },
+  {
+    "collegeName": "Bridgewater State",
+    "binaryReference": "10000000000000000000011011101001"
+  },
+  {
+    "collegeName": "Brown",
+    "binaryReference": "10000000000000000000011011101010"
+  },
+  {
+    "collegeName": "Bucknell",
+    "binaryReference": "10000000000000000000011011101011"
+  },
+  {
+    "collegeName": "Buffalo",
+    "binaryReference": "10000000000000000000011011101100"
+  },
+  {
+    "collegeName": "Buffalo State",
+    "binaryReference": "10000000000000000000011011101101"
+  },
+  {
+    "collegeName": "Butler",
+    "binaryReference": "10000000000000000000011011101110"
+  },
+  {
+    "collegeName": "BYU",
+    "binaryReference": "10000000000000000000011011101111"
+  },
+  {
+    "collegeName": "Cal Lutheran",
+    "binaryReference": "10000000000000010111111110101100"
+  },
+  {
+    "collegeName": "Cal Poly SLO",
+    "binaryReference": "10000000000000000000011011110000"
+  },
+  {
+    "collegeName": "Cal State Bakersfield",
+    "binaryReference": "10000000000000000000011011110001"
+  },
+  {
+    "collegeName": "Calgary",
+    "binaryReference": "10000000000000000000011011110010"
+  },
+  {
+    "collegeName": "California",
+    "binaryReference": "10000000000000000000011011110011"
+  },
+  {
+    "collegeName": "California (PA)",
+    "binaryReference": "10000000000000000000011101110001"
+  },
+  {
+    "collegeName": "UC Davis",
+    "binaryReference": "10000000000000000000011011110100"
+  },
+  {
+    "collegeName": "Cal State Northridge",
+    "binaryReference": "10000000000000000000011011110101"
+  },
+  {
+    "collegeName": "Campbell University",
+    "binaryReference": "10000000000000010111100100010001"
+  },
+  {
+    "collegeName": "Canisius",
+    "binaryReference": "10000000000000000000011011110111"
+  },
+  {
+    "collegeName": "Carroll College",
+    "binaryReference": "10000000000000000000011011111000"
+  },
+  {
+    "collegeName": "Carson-Newman",
+    "binaryReference": "10000000000000000000011011111001"
+  },
+  {
+    "collegeName": "Catawba College",
+    "binaryReference": "10000000000000001110011011000000"
+  },
+  {
+    "collegeName": "C. Connecticut State",
+    "binaryReference": "10000000000000000000011011111010"
+  },
+  {
+    "collegeName": "Central Arkansas",
+    "binaryReference": "10000000000000000000011011111011"
+  },
+  {
+    "collegeName": "Central Michigan",
+    "binaryReference": "10000000000000000000011011111100"
+  },
+  {
+    "collegeName": "Central Missouri",
+    "binaryReference": "10000000000000001110011011000010"
+  },
+  {
+    "collegeName": "Central Oklahoma",
+    "binaryReference": "10000000000000000110011000100100"
+  },
+  {
+    "collegeName": "Central State (OH)",
+    "binaryReference": "10000000000000000000011011111101"
+  },
+  {
+    "collegeName": "Central Washington",
+    "binaryReference": "10000000000000000000011011111110"
+  },
+  {
+    "collegeName": "Centre College",
+    "binaryReference": "10000000000000001110011011001001"
+  },
+  {
+    "collegeName": "Chadron State",
+    "binaryReference": "10000000000000000110011000100110"
+  },
+  {
+    "collegeName": "Charleston Southern",
+    "binaryReference": "10000000000000000000011011111111"
+  },
+  {
+    "collegeName": "Charlotte",
+    "binaryReference": "10000000000000011000001001001001"
+  },
+  {
+    "collegeName": "Cincinnati",
+    "binaryReference": "10000000000000000000011100000001"
+  },
+  {
+    "collegeName": "Citadel",
+    "binaryReference": "10000000000000000000011100000010"
+  },
+  {
+    "collegeName": "Clarion",
+    "binaryReference": "10000000000000000000011100000011"
+  },
+  {
+    "collegeName": "Clemson",
+    "binaryReference": "10000000000000000000011100000100"
+  },
+  {
+    "collegeName": "Clinch Valley",
+    "binaryReference": "10000000000000000000011100000101"
+  },
+  {
+    "collegeName": "Coastal Carolina",
+    "binaryReference": "10000000000000000000011100000110"
+  },
+  {
+    "collegeName": "Coe College",
+    "binaryReference": "10000000000000000000011100000111"
+  },
+  {
+    "collegeName": "Colgate",
+    "binaryReference": "10000000000000000000011100001000"
+  },
+  {
+    "collegeName": "Colorado",
+    "binaryReference": "10000000000000000000011100001010"
+  },
+  {
+    "collegeName": "Mines",
+    "binaryReference": "10000000000000011100111100100011"
+  },
+  {
+    "collegeName": "Colorado State",
+    "binaryReference": "10000000000000000000011100001011"
+  },
+  {
+    "collegeName": "Columbia",
+    "binaryReference": "10000000000000000000011100001100"
+  },
+  {
+    "collegeName": "Concordia",
+    "binaryReference": "10000000000000000110011000101011"
+  },
+  {
+    "collegeName": "Concordia Univ.-St. Paul",
+    "binaryReference": "10000000000000011100111100110000"
+  },
+  {
+    "collegeName": "Connecticut",
+    "binaryReference": "10000000000000000000011100001101"
+  },
+  {
+    "collegeName": "Cornell",
+    "binaryReference": "10000000000000000000011100001110"
+  },
+  {
+    "collegeName": "CSU-Pueblo",
+    "binaryReference": "10000000000000001110011010111001"
+  },
+  {
+    "collegeName": "Culver-Stockton",
+    "binaryReference": "10000000000000000000011100001111"
+  },
+  {
+    "collegeName": "Cumberlands",
+    "binaryReference": "10000000000000010111111110100101"
+  },
+  {
+    "collegeName": "Dakota State",
+    "binaryReference": "10000000000000011100111100100101"
+  },
+  {
+    "collegeName": "Dartmouth",
+    "binaryReference": "10000000000000000000011100010000"
+  },
+  {
+    "collegeName": "Davidson",
+    "binaryReference": "10000000000000000000011100010001"
+  },
+  {
+    "collegeName": "Dayton",
+    "binaryReference": "10000000000000000000011100010010"
+  },
+  {
+    "collegeName": "Delaware",
+    "binaryReference": "10000000000000000000011100010011"
+  },
+  {
+    "collegeName": "Delaware State",
+    "binaryReference": "10000000000000000000011100010100"
+  },
+  {
+    "collegeName": "Delta State",
+    "binaryReference": "10000000000000000000011100010101"
+  },
+  {
+    "collegeName": "Dickinson State",
+    "binaryReference": "10000000000000011100111100101010"
+  },
+  {
+    "collegeName": "Drake",
+    "binaryReference": "10000000000000000000011100010110"
+  },
+  {
+    "collegeName": "Dubuque",
+    "binaryReference": "10000000000000011001110010000101"
+  },
+  {
+    "collegeName": "Duke",
+    "binaryReference": "10000000000000000000011100010111"
+  },
+  {
+    "collegeName": "Duquesne",
+    "binaryReference": "10000000000000000000011100011000"
+  },
+  {
+    "collegeName": "Eastern Illinois",
+    "binaryReference": "10000000000000000000011100011001"
+  },
+  {
+    "collegeName": "Eastern Kentucky",
+    "binaryReference": "10000000000000000000011100011010"
+  },
+  {
+    "collegeName": "East Tennessee State",
+    "binaryReference": "10000000000000000000011100011011"
+  },
+  {
+    "collegeName": "East Carolina",
+    "binaryReference": "10000000000000000000011100011100"
+  },
+  {
+    "collegeName": "East Central University",
+    "binaryReference": "10000000000000001110011011000001"
+  },
+  {
+    "collegeName": "East Stroudsburg",
+    "binaryReference": "10000000000000000000011100011101"
+  },
+  {
+    "collegeName": "East Texas Baptist",
+    "binaryReference": "10000000000000011010110000010001"
+  },
+  {
+    "collegeName": "Eastern Michigan",
+    "binaryReference": "10000000000000000000011100011110"
+  },
+  {
+    "collegeName": "Eastern Oregon",
+    "binaryReference": "10000000000000000000011100011111"
+  },
+  {
+    "collegeName": "Eastern Washington",
+    "binaryReference": "10000000000000000000011100100000"
+  },
+  {
+    "collegeName": "Edinboro",
+    "binaryReference": "10000000000000011100111100100111"
+  },
+  {
+    "collegeName": "Elon University",
+    "binaryReference": "10000000000000000000011100100001"
+  },
+  {
+    "collegeName": "Emporia State",
+    "binaryReference": "10000000000000000000011100100010"
+  },
+  {
+    "collegeName": "Fairfield",
+    "binaryReference": "10000000000000000000011100100011"
+  },
+  {
+    "collegeName": "Fairmont State",
+    "binaryReference": "10000000000000011010110000001101"
+  },
+  {
+    "collegeName": "FAU",
+    "binaryReference": "10000000000000000000011100100100"
+  },
+  {
+    "collegeName": "Faulkner",
+    "binaryReference": "10000000000000011000001111100110"
+  },
+  {
+    "collegeName": "Fayetteville State",
+    "binaryReference": "10000000000000010111100100001101"
+  },
+  {
+    "collegeName": "Ferris State",
+    "binaryReference": "10000000000000000000011100100101"
+  },
+  {
+    "collegeName": "Findlay",
+    "binaryReference": "10000000000000010111111110101000"
+  },
+  {
+    "collegeName": "FIU",
+    "binaryReference": "10000000000000000000011100100110"
+  },
+  {
+    "collegeName": "Florida",
+    "binaryReference": "10000000000000000000011100100111"
+  },
+  {
+    "collegeName": "Florida A&M",
+    "binaryReference": "10000000000000000000011100101000"
+  },
+  {
+    "collegeName": "Florida State",
+    "binaryReference": "10000000000000000000011100101001"
+  },
+  {
+    "collegeName": "Florida Tech",
+    "binaryReference": "10000000000000010111100100001100"
+  },
+  {
+    "collegeName": "Fordham",
+    "binaryReference": "10000000000000000000011100101010"
+  },
+  {
+    "collegeName": "Fort Hays State",
+    "binaryReference": "10000000000000000110011000110000"
+  },
+  {
+    "collegeName": "Fort Valley State",
+    "binaryReference": "10000000000000000000011100101011"
+  },
+  {
+    "collegeName": "Framingham State",
+    "binaryReference": "10000000100000111001110100100010"
+  },
+  {
+    "collegeName": "Franklin College",
+    "binaryReference": "10000000000000000000011100101100"
+  },
+  {
+    "collegeName": "Fresno State",
+    "binaryReference": "10000000000000000000011100101101"
+  },
+  {
+    "collegeName": "Friends University",
+    "binaryReference": "10000000000000011100111100111001"
+  },
+  {
+    "collegeName": "Frostburg State",
+    "binaryReference": "10000000000000011010110000001111"
+  },
+  {
+    "collegeName": "Furman",
+    "binaryReference": "10000000000000000000011100101110"
+  },
+  {
+    "collegeName": "Georgia Southern",
+    "binaryReference": "10000000000000000000011100101111"
+  },
+  {
+    "collegeName": "Gannon University",
+    "binaryReference": "10000000000000011100111100100100"
+  },
+  {
+    "collegeName": "Gardner-Webb",
+    "binaryReference": "10000000000000000000011100110000"
+  },
+  {
+    "collegeName": "Georgetown",
+    "binaryReference": "10000000000000000000011100110001"
+  },
+  {
+    "collegeName": "Georgia",
+    "binaryReference": "10000000000000000000011100110010"
+  },
+  {
+    "collegeName": "Georgia State",
+    "binaryReference": "10000000000000000110011000100101"
+  },
+  {
+    "collegeName": "Georgia Tech",
+    "binaryReference": "10000000000000000000011100110011"
+  },
+  {
+    "collegeName": "Grambling State",
+    "binaryReference": "10000000000000000000011100110100"
+  },
+  {
+    "collegeName": "Grand Valley State",
+    "binaryReference": "10000000000000000000011100110101"
+  },
+  {
+    "collegeName": "Greenville College",
+    "binaryReference": "10000000000000011000001111101000"
+  },
+  {
+    "collegeName": "Hampton",
+    "binaryReference": "10000000000000000000011100110110"
+  },
+  {
+    "collegeName": "Harding",
+    "binaryReference": "10000000000000000000011100110111"
+  },
+  {
+    "collegeName": "Harvard",
+    "binaryReference": "10000000000000000000011100111000"
+  },
+  {
+    "collegeName": "Hastings College",
+    "binaryReference": "10000000000000000000011100111001"
+  },
+  {
+    "collegeName": "Hawaii",
+    "binaryReference": "10000000000000000000011100111010"
+  },
+  {
+    "collegeName": "Heidelberg",
+    "binaryReference": "10000000000000001110011011000101"
+  },
+  {
+    "collegeName": "Henderson State",
+    "binaryReference": "10000000000000000000011100111011"
+  },
+  {
+    "collegeName": "Hillsdale",
+    "binaryReference": "10000000000000000000011100111100"
+  },
+  {
+    "collegeName": "Hobart",
+    "binaryReference": "10000000000000001110110111101010"
+  },
+  {
+    "collegeName": "Hofstra",
+    "binaryReference": "10000000000000000000011100111101"
+  },
+  {
+    "collegeName": "Holy Cross",
+    "binaryReference": "10000000000000000000011100111110"
+  },
+  {
+    "collegeName": "Houston",
+    "binaryReference": "10000000000000000000011100111111"
+  },
+  {
+    "collegeName": "Houston Baptist",
+    "binaryReference": "10000000011001100001101001110010"
+  },
+  {
+    "collegeName": "Howard",
+    "binaryReference": "10000000000000000000011101000000"
+  },
+  {
+    "collegeName": "Humboldt State",
+    "binaryReference": "10000000000000001101100111111011"
+  },
+  {
+    "collegeName": "Huntingdon",
+    "binaryReference": "10000000000000000110011000111110"
+  },
+  {
+    "collegeName": "Idaho",
+    "binaryReference": "10000000000000000000011101000001"
+  },
+  {
+    "collegeName": "Idaho State",
+    "binaryReference": "10000000000000000000011101000010"
+  },
+  {
+    "collegeName": "Illinois",
+    "binaryReference": "10000000000000000000011101000011"
+  },
+  {
+    "collegeName": "Illinois State",
+    "binaryReference": "10000000000000000000011101000100"
+  },
+  {
+    "collegeName": "Incarnate Word",
+    "binaryReference": "10000000000000010111111110101010"
+  },
+  {
+    "collegeName": "Indiana",
+    "binaryReference": "10000000000000000000011101000101"
+  },
+  {
+    "collegeName": "Indiana State",
+    "binaryReference": "10000000000000000000011101000110"
+  },
+  {
+    "collegeName": "Iona",
+    "binaryReference": "10000000000000000000011101000111"
+  },
+  {
+    "collegeName": "Iowa",
+    "binaryReference": "10000000000000000000011101001000"
+  },
+  {
+    "collegeName": "Iowa State",
+    "binaryReference": "10000000000000000000011101001001"
+  },
+  {
+    "collegeName": "IUP",
+    "binaryReference": "10000000000000000000011101001010"
+  },
+  {
+    "collegeName": "James Madison",
+    "binaryReference": "10000000000000000000011101001011"
+  },
+  {
+    "collegeName": "Jackson State",
+    "binaryReference": "10000000000000000000011101001100"
+  },
+  {
+    "collegeName": "Jacksonville State",
+    "binaryReference": "10000000000000000000011101001101"
+  },
+  {
+    "collegeName": "Jacksonville University",
+    "binaryReference": "10000000000000010111100100001110"
+  },
+  {
+    "collegeName": "John Carroll",
+    "binaryReference": "10000000000000000000011101001110"
+  },
+  {
+    "collegeName": "Kansas",
+    "binaryReference": "10000000000000000000011101001111"
+  },
+  {
+    "collegeName": "Kansas State",
+    "binaryReference": "10000000000000000000011101010000"
+  },
+  {
+    "collegeName": "Kennesaw State",
+    "binaryReference": "10000000000000011100111100101011"
+  },
+  {
+    "collegeName": "Kent State",
+    "binaryReference": "10000000000000000000011101010001"
+  },
+  {
+    "collegeName": "Kentucky",
+    "binaryReference": "10000000000000000000011101010010"
+  },
+  {
+    "collegeName": "Kentucky Wesleyan",
+    "binaryReference": "10000000000000011001001100110000"
+  },
+  {
+    "collegeName": "Knoxville College",
+    "binaryReference": "10000000000000000000011101010011"
+  },
+  {
+    "collegeName": "Kutztown",
+    "binaryReference": "10000000000000000000011101010100"
+  },
+  {
+    "collegeName": "La Salle",
+    "binaryReference": "10000000000000000000011101010101"
+  },
+  {
+    "collegeName": "LA. Tech",
+    "binaryReference": "10000000000000000000011101010110"
+  },
+  {
+    "collegeName": "Lafayette",
+    "binaryReference": "10000000000000000000011101010111"
+  },
+  {
+    "collegeName": "Lake Erie College",
+    "binaryReference": "10000000000000011000001111101001"
+  },
+  {
+    "collegeName": "Lamar University",
+    "binaryReference": "10000000000000010111100100001010"
+  },
+  {
+    "collegeName": "Lambuth",
+    "binaryReference": "10000000000000000000011101011000"
+  },
+  {
+    "collegeName": "Lane",
+    "binaryReference": "10000000000000000000011101011001"
+  },
+  {
+    "collegeName": "Laval",
+    "binaryReference": "10000000000000011000001111101010"
+  },
+  {
+    "collegeName": "Lehigh",
+    "binaryReference": "10000000000000000000011101011010"
+  },
+  {
+    "collegeName": "Lenoir-Rhyne",
+    "binaryReference": "10000000000000011100111100101101"
+  },
+  {
+    "collegeName": "Liberty",
+    "binaryReference": "10000000000000000000011101011011"
+  },
+  {
+    "collegeName": "Limestone",
+    "binaryReference": "10000000000000011100111100010000"
+  },
+  {
+    "collegeName": "Lindenwood",
+    "binaryReference": "10000000000000000000011101011100"
+  },
+  {
+    "collegeName": "Lindsey Wilson College",
+    "binaryReference": "10000000000000011100111100111000"
+  },
+  {
+    "collegeName": "Livingstone College",
+    "binaryReference": "10000000010000100110100110111100"
+  },
+  {
+    "collegeName": "Louisiana Christian",
+    "binaryReference": "10000000000000001110111000110010"
+  },
+  {
+    "collegeName": "Louisville",
+    "binaryReference": "10000000000000000000011101011101"
+  },
+  {
+    "collegeName": "LSU",
+    "binaryReference": "10000000000000000000011101011110"
+  },
+  {
+    "collegeName": "Mississippi Valley State",
+    "binaryReference": "10000000000000000000011101011111"
+  },
+  {
+    "collegeName": "Maine",
+    "binaryReference": "10000000000000000000011101100000"
+  },
+  {
+    "collegeName": "Malone",
+    "binaryReference": "10000000000000000000011011110110"
+  },
+  {
+    "collegeName": "Manitoba",
+    "binaryReference": "10000000000000000000011101100001"
+  },
+  {
+    "collegeName": "Marian",
+    "binaryReference": "10000000000000011000000101110001"
+  },
+  {
+    "collegeName": "Marist",
+    "binaryReference": "10000000000000000000011101100010"
+  },
+  {
+    "collegeName": "Mars Hill",
+    "binaryReference": "10000000000000001110111000110001"
+  },
+  {
+    "collegeName": "Marshall",
+    "binaryReference": "10000000000000000000011101100011"
+  },
+  {
+    "collegeName": "Mary Hardin-Baylor",
+    "binaryReference": "10000000000000001110011010111110"
+  },
+  {
+    "collegeName": "Maryland",
+    "binaryReference": "10000000000000000000011101100100"
+  },
+  {
+    "collegeName": "Maryville College",
+    "binaryReference": "10000000000000010111111110101101"
+  },
+  {
+    "collegeName": "Massachusetts",
+    "binaryReference": "10000000000000000000011101100101"
+  },
+  {
+    "collegeName": "McGill University",
+    "binaryReference": "10000000000000001110011011001111"
+  },
+  {
+    "collegeName": "McNeese State",
+    "binaryReference": "10000000000000000000011101100110"
+  },
+  {
+    "collegeName": "Memphis",
+    "binaryReference": "10000000000000000000011101100111"
+  },
+  {
+    "collegeName": "Mercer",
+    "binaryReference": "10000000011010000000111010010100"
+  },
+  {
+    "collegeName": "Mercyhurst University",
+    "binaryReference": "10000000000000011100111100101110"
+  },
+  {
+    "collegeName": "Merrimack",
+    "binaryReference": "10000000000000000000011111100010"
+  },
+  {
+    "collegeName": "Mesa State",
+    "binaryReference": "10000000000000000000011101101001"
+  },
+  {
+    "collegeName": "Miami",
+    "binaryReference": "10000000000000000000011101101010"
+  },
+  {
+    "collegeName": "Miami of Ohio",
+    "binaryReference": "10000000000000000000011101101011"
+  },
+  {
+    "collegeName": "Michigan",
+    "binaryReference": "10000000000000000000011101101100"
+  },
+  {
+    "collegeName": "Michigan State",
+    "binaryReference": "10000000000000000000011101101101"
+  },
+  {
+    "collegeName": "Michigan Tech",
+    "binaryReference": "10000000000000000110011000101000"
+  },
+  {
+    "collegeName": "Middle Tennessee State",
+    "binaryReference": "10000000000000000000011101101110"
+  },
+  {
+    "collegeName": "Midwestern State",
+    "binaryReference": "10000000000000000000011101101111"
+  },
+  {
+    "collegeName": "Minnesota",
+    "binaryReference": "10000000000000000000011101110000"
+  },
+  {
+    "collegeName": "Minnesota State",
+    "binaryReference": "10000000000000001110011011000111"
+  },
+  {
+    "collegeName": "Mississippi College",
+    "binaryReference": "10000000000000011000001111101011"
+  },
+  {
+    "collegeName": "Mississippi State",
+    "binaryReference": "10000000000000000000011101110010"
+  },
+  {
+    "collegeName": "Missouri",
+    "binaryReference": "10000000000000000000011101110011"
+  },
+  {
+    "collegeName": "Missouri Southern State",
+    "binaryReference": "10000000000000000000011101110100"
+  },
+  {
+    "collegeName": "Missouri State",
+    "binaryReference": "10000000000000000000011101110101"
+  },
+  {
+    "collegeName": "Missouri S&T",
+    "binaryReference": "10000000000000011100111100101100"
+  },
+  {
+    "collegeName": "Missouri Western State",
+    "binaryReference": "10000000000000000000011101110110"
+  },
+  {
+    "collegeName": "Monmouth",
+    "binaryReference": "10000000000000000000011101110111"
+  },
+  {
+    "collegeName": "Montana",
+    "binaryReference": "10000000000000000000011101111000"
+  },
+  {
+    "collegeName": "Montana State",
+    "binaryReference": "10000000000000000000011101111001"
+  },
+  {
+    "collegeName": "Montclair State",
+    "binaryReference": "10000000010000100110100110111011"
+  },
+  {
+    "collegeName": "Montreal University",
+    "binaryReference": "10000000000000001110011011000110"
+  },
+  {
+    "collegeName": "Morehead State",
+    "binaryReference": "10000000000000000000011101111010"
+  },
+  {
+    "collegeName": "Morehouse",
+    "binaryReference": "10000000000000000000011101111011"
+  },
+  {
+    "collegeName": "Morgan State",
+    "binaryReference": "10000000000000000000011101111100"
+  },
+  {
+    "collegeName": "Morningside College",
+    "binaryReference": "10000000000000010111111110101001"
+  },
+  {
+    "collegeName": "Morris Brown",
+    "binaryReference": "10000000000000000000011101111101"
+  },
+  {
+    "collegeName": "Mount Union",
+    "binaryReference": "10000000000000000000011101111110"
+  },
+  {
+    "collegeName": "Mt S. Antonio College",
+    "binaryReference": "10000000000000000000011101111111"
+  },
+  {
+    "collegeName": "Murray State",
+    "binaryReference": "10000000000000000000011110000000"
+  },
+  {
+    "collegeName": "North Alabama",
+    "binaryReference": "10000000000000000000011110000001"
+  },
+  {
+    "collegeName": "Northern Arizona",
+    "binaryReference": "10000000000000000000011110000010"
+  },
+  {
+    "collegeName": "Northern Colorado",
+    "binaryReference": "10000000000000000000011110000100"
+  },
+  {
+    "collegeName": "Northern Illinois",
+    "binaryReference": "10000000000000000000011110000101"
+  },
+  {
+    "collegeName": "N.C. A&T",
+    "binaryReference": "10000000000000000000011110000011"
+  },
+  {
+    "collegeName": "N.C. State",
+    "binaryReference": "10000000000000000000011110000110"
+  },
+  {
+    "collegeName": "N/A",
+    "binaryReference": "10000000000000000000011110000111"
+  },
+  {
+    "collegeName": "Navy",
+    "binaryReference": "10000000000000000000011110001000"
+  },
+  {
+    "collegeName": "North Carolina Central",
+    "binaryReference": "10000000000000000000011110001001"
+  },
+  {
+    "collegeName": "Nebraska-Omaha",
+    "binaryReference": "10000000000000000000011110001010"
+  },
+  {
+    "collegeName": "Nebraska",
+    "binaryReference": "10000000000000000000011110001011"
+  },
+  {
+    "collegeName": "Nebraska-Kearney",
+    "binaryReference": "10000000000000000000011110001100"
+  },
+  {
+    "collegeName": "Nevada",
+    "binaryReference": "10000000000000000000011110001101"
+  },
+  {
+    "collegeName": "New Hampshire",
+    "binaryReference": "10000000000000000000011110001110"
+  },
+  {
+    "collegeName": "New Mexico State",
+    "binaryReference": "10000000000000000000011110001111"
+  },
+  {
+    "collegeName": "New Mexico",
+    "binaryReference": "10000000000000000000011110010000"
+  },
+  {
+    "collegeName": "Newberry College",
+    "binaryReference": "10000000000000000110011000100010"
+  },
+  {
+    "collegeName": "Nicholls State",
+    "binaryReference": "10000000000000000000011110010001"
+  },
+  {
+    "collegeName": "No College",
+    "binaryReference": "10000000000000000000011110010010"
+  },
+  {
+    "collegeName": "None",
+    "binaryReference": "10000000000000000000011110010011"
+  },
+  {
+    "collegeName": "Norfolk State",
+    "binaryReference": "10000000000000000000011110010100"
+  },
+  {
+    "collegeName": "North Carolina",
+    "binaryReference": "10000000000000000000011110010101"
+  },
+  {
+    "collegeName": "North Dakota",
+    "binaryReference": "10000000000000000000011110010110"
+  },
+  {
+    "collegeName": "North Dakota State",
+    "binaryReference": "10000000000000000000011110010111"
+  },
+  {
+    "collegeName": "North Greenville",
+    "binaryReference": "10000000000000001110011011000011"
+  },
+  {
+    "collegeName": "North Texas",
+    "binaryReference": "10000000000000000000011110011000"
+  },
+  {
+    "collegeName": "NE Mississippi Community",
+    "binaryReference": "10000000000000011100111100010010"
+  },
+  {
+    "collegeName": "Northeastern",
+    "binaryReference": "10000000000000000000011110011001"
+  },
+  {
+    "collegeName": "Northeastern State",
+    "binaryReference": "10000000000000001110011011001101"
+  },
+  {
+    "collegeName": "Northern Iowa",
+    "binaryReference": "10000000000000000000011110011010"
+  },
+  {
+    "collegeName": "Northern Michigan",
+    "binaryReference": "10000000000000010111100100010010"
+  },
+  {
+    "collegeName": "Northern State",
+    "binaryReference": "10000000000000000000011110011011"
+  },
+  {
+    "collegeName": "Northwestern",
+    "binaryReference": "10000000000000000000011110011100"
+  },
+  {
+    "collegeName": "Northwestern State",
+    "binaryReference": "10000000000000010111111110101011"
+  },
+  {
+    "collegeName": "Northwood",
+    "binaryReference": "10000000000000000000011110011101"
+  },
+  {
+    "collegeName": "Notre Dame",
+    "binaryReference": "10000000000000000000011110011110"
+  },
+  {
+    "collegeName": "Notre Dame College",
+    "binaryReference": "10000000000000011010110000001100"
+  },
+  {
+    "collegeName": "NW Missouri State",
+    "binaryReference": "10000000000000000000011110011111"
+  },
+  {
+    "collegeName": "NW Oklahoma State",
+    "binaryReference": "10000000000000000000011110100000"
+  },
+  {
+    "collegeName": "Ohio",
+    "binaryReference": "10000000000000000000011110100010"
+  },
+  {
+    "collegeName": "Ohio Dominican",
+    "binaryReference": "10000000000000011100111100101000"
+  },
+  {
+    "collegeName": "Ohio Northern",
+    "binaryReference": "10000000000000000000011110100011"
+  },
+  {
+    "collegeName": "Ohio State",
+    "binaryReference": "10000000000000000000011110100100"
+  },
+  {
+    "collegeName": "Oklahoma",
+    "binaryReference": "10000000000000000000011110100101"
+  },
+  {
+    "collegeName": "Oklahoma State",
+    "binaryReference": "10000000000000000000011110100110"
+  },
+  {
+    "collegeName": "Old Dominion",
+    "binaryReference": "10000000000000001110011010111011"
+  },
+  {
+    "collegeName": "Ole Miss",
+    "binaryReference": "10000000000000000000011110100111"
+  },
+  {
+    "collegeName": "Oregon",
+    "binaryReference": "10000000000000000000011110101000"
+  },
+  {
+    "collegeName": "Oregon State",
+    "binaryReference": "10000000000000000000011110101001"
+  },
+  {
+    "collegeName": "Ottawa",
+    "binaryReference": "10000000000000000000011110101010"
+  },
+  {
+    "collegeName": "Ouachita Baptist",
+    "binaryReference": "10000000000000000110011000101101"
+  },
+  {
+    "collegeName": "Prairie View A&M",
+    "binaryReference": "10000000000000000000011110101011"
+  },
+  {
+    "collegeName": "Pace University",
+    "binaryReference": "10000000000000011100111100100110"
+  },
+  {
+    "collegeName": "Palomar College",
+    "binaryReference": "10000000000000001110011011000100"
+  },
+  {
+    "collegeName": "Penn",
+    "binaryReference": "10000000000000000000011110101100"
+  },
+  {
+    "collegeName": "Penn State",
+    "binaryReference": "10000000000000000000011110101101"
+  },
+  {
+    "collegeName": "Peru State College",
+    "binaryReference": "10000000011010000000111011010010"
+  },
+  {
+    "collegeName": "Pikeville",
+    "binaryReference": "10000000000000000000011110101110"
+  },
+  {
+    "collegeName": "Pittsburg State",
+    "binaryReference": "10000000000000000000011110101111"
+  },
+  {
+    "collegeName": "Pittsburgh",
+    "binaryReference": "10000000000000000000011110110000"
+  },
+  {
+    "collegeName": "Portland State",
+    "binaryReference": "10000000000000000000011110110001"
+  },
+  {
+    "collegeName": "Presbyterian",
+    "binaryReference": "10000000000000000000011101101000"
+  },
+  {
+    "collegeName": "Pretoria",
+    "binaryReference": "10000000000000010111111110100100"
+  },
+  {
+    "collegeName": "Princeton",
+    "binaryReference": "10000000000000000000011110110010"
+  },
+  {
+    "collegeName": "Purdue",
+    "binaryReference": "10000000000000000000011110110011"
+  },
+  {
+    "collegeName": "Queen's University",
+    "binaryReference": "10000000000000000110011000101100"
+  },
+  {
+    "collegeName": "Ramapo",
+    "binaryReference": "10000000000000000000011110110100"
+  },
+  {
+    "collegeName": "Regina",
+    "binaryReference": "10000000000000000000011110110101"
+  },
+  {
+    "collegeName": "Rensselaer Poly",
+    "binaryReference": "10000000000000010111111110100110"
+  },
+  {
+    "collegeName": "Rhode Island",
+    "binaryReference": "10000000000000000000011110110110"
+  },
+  {
+    "collegeName": "Rice",
+    "binaryReference": "10000000000000000000011110110111"
+  },
+  {
+    "collegeName": "Richmond",
+    "binaryReference": "10000000000000000000011110111000"
+  },
+  {
+    "collegeName": "Robert Morris",
+    "binaryReference": "10000000000000000000011110111001"
+  },
+  {
+    "collegeName": "Rowan",
+    "binaryReference": "10000000000000000000011110111010"
+  },
+  {
+    "collegeName": "Rutgers",
+    "binaryReference": "10000000000000000000011110111011"
+  },
+  {
+    "collegeName": "S. Connecticut State",
+    "binaryReference": "10000000000000000000011110111100"
+  },
+  {
+    "collegeName": "South Dakota State",
+    "binaryReference": "10000000000000000000011110111101"
+  },
+  {
+    "collegeName": "Southern Illinois",
+    "binaryReference": "10000000000000000000011110111110"
+  },
+  {
+    "collegeName": "South Carolina State",
+    "binaryReference": "10000000000000000000011110111111"
+  },
+  {
+    "collegeName": "Sacramento State",
+    "binaryReference": "10000000000000000000011111000001"
+  },
+  {
+    "collegeName": "Sacred Heart",
+    "binaryReference": "10000000000000000000011111000010"
+  },
+  {
+    "collegeName": "Saginaw Valley",
+    "binaryReference": "10000000000000000000011111000011"
+  },
+  {
+    "collegeName": "Salisbury",
+    "binaryReference": "10000000000000000110011000100000"
+  },
+  {
+    "collegeName": "Sam Houston",
+    "binaryReference": "10000000000000000000011111000100"
+  },
+  {
+    "collegeName": "Samford",
+    "binaryReference": "10000000000000000000011111000101"
+  },
+  {
+    "collegeName": "San Diego",
+    "binaryReference": "10000000000000000000011111000110"
+  },
+  {
+    "collegeName": "San Diego State",
+    "binaryReference": "10000000000000000000011111000000"
+  },
+  {
+    "collegeName": "San Jose State",
+    "binaryReference": "10000000000000000000011111000111"
+  },
+  {
+    "collegeName": "U of Saskatchewan",
+    "binaryReference": "10000000010000100110100110111010"
+  },
+  {
+    "collegeName": "Savannah State",
+    "binaryReference": "10000000000000000000011111001000"
+  },
+  {
+    "collegeName": "Scottsbluff JC",
+    "binaryReference": "10000000000000000110011000110010"
+  },
+  {
+    "collegeName": "SE Louisiana",
+    "binaryReference": "10000000000000000000011111001001"
+  },
+  {
+    "collegeName": "SE Missouri State",
+    "binaryReference": "10000000000000000000011111001011"
+  },
+  {
+    "collegeName": "Seattle",
+    "binaryReference": "10000000000000011000001111101100"
+  },
+  {
+    "collegeName": "Shepherd University",
+    "binaryReference": "10000000000000001110011011001100"
+  },
+  {
+    "collegeName": "Shippensburg",
+    "binaryReference": "10000000000000000000011111001100"
+  },
+  {
+    "collegeName": "Siena",
+    "binaryReference": "10000000000000000000011111001101"
+  },
+  {
+    "collegeName": "Simon Fraser",
+    "binaryReference": "10000000000000000000011111001110"
+  },
+  {
+    "collegeName": "Sioux Falls",
+    "binaryReference": "10000000000000011010110000010000"
+  },
+  {
+    "collegeName": "Slippery Rock",
+    "binaryReference": "10000000000000000110011000101001"
+  },
+  {
+    "collegeName": "SMU",
+    "binaryReference": "10000000000000000000011111001111"
+  },
+  {
+    "collegeName": "Sonoma State",
+    "binaryReference": "10000000000000000000011111010000"
+  },
+  {
+    "collegeName": "South Alabama",
+    "binaryReference": "10000000000000001110011010111010"
+  },
+  {
+    "collegeName": "South Carolina",
+    "binaryReference": "10000000000000000000011111010001"
+  },
+  {
+    "collegeName": "South Dakota",
+    "binaryReference": "10000000000000000000011111010010"
+  },
+  {
+    "collegeName": "SE Oklahoma State",
+    "binaryReference": "10000000000000011100111100010001"
+  },
+  {
+    "collegeName": "Southeastern University",
+    "binaryReference": "10000000000000000000011111001010"
+  },
+  {
+    "collegeName": "Southern",
+    "binaryReference": "10000000000000000000011111010011"
+  },
+  {
+    "collegeName": "Southern Arkansas",
+    "binaryReference": "10000000000000000000011111010100"
+  },
+  {
+    "collegeName": "Southern Miss",
+    "binaryReference": "10000000000000000000011111010101"
+  },
+  {
+    "collegeName": "Southern Nazarene ",
+    "binaryReference": "10000000000000011010110000010010"
+  },
+  {
+    "collegeName": "Southern Oregon",
+    "binaryReference": "10000000000000011000001010010010"
+  },
+  {
+    "collegeName": "Southern Utah",
+    "binaryReference": "10000000000000000000011111010110"
+  },
+  {
+    "collegeName": "SW Assemblies of God",
+    "binaryReference": "10000000000000011100111100110110"
+  },
+  {
+    "collegeName": "St. Augustine",
+    "binaryReference": "10000000000000000000011111010111"
+  },
+  {
+    "collegeName": "St. Cloud State",
+    "binaryReference": "10000000000000000000011111011000"
+  },
+  {
+    "collegeName": "St. Francis",
+    "binaryReference": "10000000000000000000011111011001"
+  },
+  {
+    "collegeName": "St. John's",
+    "binaryReference": "10000000000000000000011111011010"
+  },
+  {
+    "collegeName": "St. Mary's",
+    "binaryReference": "10000000000000000000011111011011"
+  },
+  {
+    "collegeName": "St. Norbert",
+    "binaryReference": "10000000000000011100111100101001"
+  },
+  {
+    "collegeName": "St. Paul's",
+    "binaryReference": "10000000000000000000011111011100"
+  },
+  {
+    "collegeName": "St. Peters",
+    "binaryReference": "10000000000000000000011111011101"
+  },
+  {
+    "collegeName": "Stanford",
+    "binaryReference": "10000000000000000000011111011110"
+  },
+  {
+    "collegeName": "Stephen F. Austin",
+    "binaryReference": "10000000000000000000011111011111"
+  },
+  {
+    "collegeName": "Stetson",
+    "binaryReference": "10000000000000011000001111101101"
+  },
+  {
+    "collegeName": "Stillman",
+    "binaryReference": "10000000000000000000011111100000"
+  },
+  {
+    "collegeName": "Stony Brook",
+    "binaryReference": "10000000000000000000011111100001"
+  },
+  {
+    "collegeName": "SW Mississippi State",
+    "binaryReference": "10000000000000000000011111100011"
+  },
+  {
+    "collegeName": "SW Oklahoma State",
+    "binaryReference": "10000000000000010111100100001011"
+  },
+  {
+    "collegeName": "Syracuse",
+    "binaryReference": "10000000000000000000011111100100"
+  },
+  {
+    "collegeName": "Texas A&M Kingsville",
+    "binaryReference": "10000000000000000000011111100101"
+  },
+  {
+    "collegeName": "Tarleton State",
+    "binaryReference": "10000000000000000000011111100110"
+  },
+  {
+    "collegeName": "TCU",
+    "binaryReference": "10000000000000000000011111100111"
+  },
+  {
+    "collegeName": "Temple",
+    "binaryReference": "10000000000000000000011111101000"
+  },
+  {
+    "collegeName": "Tennessee Tech",
+    "binaryReference": "10000000000000000000011111101001"
+  },
+  {
+    "collegeName": "Tenn-Chattanooga",
+    "binaryReference": "10000000000000000000011111101010"
+  },
+  {
+    "collegeName": "Tennessee",
+    "binaryReference": "10000000000000000000011111101011"
+  },
+  {
+    "collegeName": "Tennessee State",
+    "binaryReference": "10000000000000000000011111101100"
+  },
+  {
+    "collegeName": "Tenn-Martin",
+    "binaryReference": "10000000000000000000011111101101"
+  },
+  {
+    "collegeName": "Texas",
+    "binaryReference": "10000000000000000000011111101110"
+  },
+  {
+    "collegeName": "Texas A&M",
+    "binaryReference": "10000000000000000000011111101111"
+  },
+  {
+    "collegeName": "Texas A&M-Commerce",
+    "binaryReference": "10000000000000001110110111101011"
+  },
+  {
+    "collegeName": "Texas Southern",
+    "binaryReference": "10000000000000000000011111110000"
+  },
+  {
+    "collegeName": "Texas State",
+    "binaryReference": "10000000000000000000011111110001"
+  },
+  {
+    "collegeName": "Texas Tech",
+    "binaryReference": "10000000000000000000011111110010"
+  },
+  {
+    "collegeName": "Texas-Permian Basin",
+    "binaryReference": "10000000000000011000001111101110"
+  },
+  {
+    "collegeName": "Tiffin",
+    "binaryReference": "10000000000000000000011111110011"
+  },
+  {
+    "collegeName": "Toledo",
+    "binaryReference": "10000000000000000000011111110100"
+  },
+  {
+    "collegeName": "Towson",
+    "binaryReference": "10000000000000000000011111110101"
+  },
+  {
+    "collegeName": "Trinity",
+    "binaryReference": "10000000000000000000011111110110"
+  },
+  {
+    "collegeName": "Troy",
+    "binaryReference": "10000000000000000000011111110111"
+  },
+  {
+    "collegeName": "Truman State",
+    "binaryReference": "10000000000000000000011111111000"
+  },
+  {
+    "collegeName": "Tulane",
+    "binaryReference": "10000000000000000000011111111001"
+  },
+  {
+    "collegeName": "Tulsa",
+    "binaryReference": "10000000000000000000011111111010"
+  },
+  {
+    "collegeName": "Tusculum College",
+    "binaryReference": "10000000000000000000011111111011"
+  },
+  {
+    "collegeName": "Tuskegee",
+    "binaryReference": "10000000000000000000011111111100"
+  },
+  {
+    "collegeName": "UAB",
+    "binaryReference": "10000000000000000000011111111101"
+  },
+  {
+    "collegeName": "Univ. British Columbia",
+    "binaryReference": "10000000000000011010110000001110"
+  },
+  {
+    "collegeName": "UC Irvine",
+    "binaryReference": "10000000000000001110011011001110"
+  },
+  {
+    "collegeName": "UCF",
+    "binaryReference": "10000000000000000000011111111110"
+  },
+  {
+    "collegeName": "UCLA",
+    "binaryReference": "10000000000000000000011111111111"
+  },
+  {
+    "collegeName": "UL Lafayette",
+    "binaryReference": "10000000000000000000100000000000"
+  },
+  {
+    "collegeName": "UL Monroe",
+    "binaryReference": "10000000000000000000100000000001"
+  },
+  {
+    "collegeName": "Union College",
+    "binaryReference": "10000000000000000000100000011000"
+  },
+  {
+    "collegeName": "Charleston",
+    "binaryReference": "10000000000000011000001111100111"
+  },
+  {
+    "collegeName": "Indianapolis",
+    "binaryReference": "10000000000000011100111100010011"
+  },
+  {
+    "collegeName": "Univ of Minnesota Duluth",
+    "binaryReference": "10000000000000011100111100110010"
+  },
+  {
+    "collegeName": "Wisconsin-Platteville",
+    "binaryReference": "10000000000000011100111100001111"
+  },
+  {
+    "collegeName": "UW-Stout",
+    "binaryReference": "10000000000000011100111100110101"
+  },
+  {
+    "collegeName": "UNLV",
+    "binaryReference": "10000000000000000000100000000010"
+  },
+  {
+    "collegeName": "USC",
+    "binaryReference": "10000000000000000000100000000011"
+  },
+  {
+    "collegeName": "USF",
+    "binaryReference": "10000000000000000000100000000100"
+  },
+  {
+    "collegeName": "Utah",
+    "binaryReference": "10000000000000000000100000000101"
+  },
+  {
+    "collegeName": "Utah State",
+    "binaryReference": "10000000000000000000100000000110"
+  },
+  {
+    "collegeName": "UTEP",
+    "binaryReference": "10000000000000000000100000000111"
+  },
+  {
+    "collegeName": "UTSA",
+    "binaryReference": "10000000000000000001111001010010"
+  },
+  {
+    "collegeName": "UW La Crosse",
+    "binaryReference": "10000000000000000000100000001000"
+  },
+  {
+    "collegeName": "UW Stevens Point",
+    "binaryReference": "10000000000000000000100000001001"
+  },
+  {
+    "collegeName": "UW-Milwaukee",
+    "binaryReference": "10000000000000001110011011001010"
+  },
+  {
+    "collegeName": "Valdosta State",
+    "binaryReference": "10000000000000000000100000001010"
+  },
+  {
+    "collegeName": "Valparaiso",
+    "binaryReference": "10000000000000000000100000001011"
+  },
+  {
+    "collegeName": "Vanderbilt",
+    "binaryReference": "10000000000000000000100000001100"
+  },
+  {
+    "collegeName": "Villanova",
+    "binaryReference": "10000000000000000000100000001101"
+  },
+  {
+    "collegeName": "Virginia",
+    "binaryReference": "10000000000000000000100000001110"
+  },
+  {
+    "collegeName": "Virginia Commonwealth",
+    "binaryReference": "10000000000000011000001111101111"
+  },
+  {
+    "collegeName": "Virginia State",
+    "binaryReference": "10000000000000011001110010001110"
+  },
+  {
+    "collegeName": "Virginia Tech",
+    "binaryReference": "10000000000000000000100000001111"
+  },
+  {
+    "collegeName": "Virginia Union",
+    "binaryReference": "10000000000000000000100000010000"
+  },
+  {
+    "collegeName": "Virginia-Lynchburg",
+    "binaryReference": "10000000000000011000001111110000"
+  },
+  {
+    "collegeName": "VMI",
+    "binaryReference": "10000000000000000000100000010001"
+  },
+  {
+    "collegeName": "W. Carolina",
+    "binaryReference": "10000000000000000000100000010010"
+  },
+  {
+    "collegeName": "W. Illinois",
+    "binaryReference": "10000000000000000000100000010011"
+  },
+  {
+    "collegeName": "W. Kentucky",
+    "binaryReference": "10000000000000000000100000010100"
+  },
+  {
+    "collegeName": "W. Michigan",
+    "binaryReference": "10000000000000000000100000010101"
+  },
+  {
+    "collegeName": "W. New Mexico",
+    "binaryReference": "10000000000000000000100000010110"
+  },
+  {
+    "collegeName": "W. Texas A&M",
+    "binaryReference": "10000000000000000000100000010111"
+  },
+  {
+    "collegeName": "Wagner College",
+    "binaryReference": "10000000000000001010101011000001"
+  },
+  {
+    "collegeName": "Wake Forest",
+    "binaryReference": "10000000000000000000100000011001"
+  },
+  {
+    "collegeName": "Walla Walla",
+    "binaryReference": "10000000000000000000100000011010"
+  },
+  {
+    "collegeName": "Walsh",
+    "binaryReference": "10000000000000000110011000110001"
+  },
+  {
+    "collegeName": "Washington State",
+    "binaryReference": "10000000000000000000100000011011"
+  },
+  {
+    "collegeName": "Washburn",
+    "binaryReference": "10000000000000000000100000011100"
+  },
+  {
+    "collegeName": "Washington",
+    "binaryReference": "10000000000000000000100000011101"
+  },
+  {
+    "collegeName": "Wayne State",
+    "binaryReference": "10000000000000000000100000011110"
+  },
+  {
+    "collegeName": "Weber State",
+    "binaryReference": "10000000000000000000100000011111"
+  },
+  {
+    "collegeName": "Wesley College",
+    "binaryReference": "10000000000000010111100100001111"
+  },
+  {
+    "collegeName": "West Alabama",
+    "binaryReference": "10000000000000001110011010111111"
+  },
+  {
+    "collegeName": "West Chester",
+    "binaryReference": "10000000000000010111111110100111"
+  },
+  {
+    "collegeName": "West Florida",
+    "binaryReference": "10000000011010000000111010111111"
+  },
+  {
+    "collegeName": "West Georgia",
+    "binaryReference": "10000000000000000000100000100000"
+  },
+  {
+    "collegeName": "West Liberty University",
+    "binaryReference": "10000000000000011100111100110011"
+  },
+  {
+    "collegeName": "West Virginia",
+    "binaryReference": "10000000000000000000100000100001"
+  },
+  {
+    "collegeName": "Western Colorado ",
+    "binaryReference": "10000000000000011001001100110001"
+  },
+  {
+    "collegeName": "Western Ontario",
+    "binaryReference": "10000000000000000000100000100010"
+  },
+  {
+    "collegeName": "Western Oregon",
+    "binaryReference": "10000000000000000000100000100011"
+  },
+  {
+    "collegeName": "Western University",
+    "binaryReference": "10000000011001100001101001110100"
+  },
+  {
+    "collegeName": "Western Washington",
+    "binaryReference": "10000000000000000000100000100100"
+  },
+  {
+    "collegeName": "Westminster",
+    "binaryReference": "10000000000000000000100000100101"
+  },
+  {
+    "collegeName": "Wheaton",
+    "binaryReference": "10000000000000000000100000100110"
+  },
+  {
+    "collegeName": "Whitworth",
+    "binaryReference": "10000000000000000000100000100111"
+  },
+  {
+    "collegeName": "Widener University",
+    "binaryReference": "10000000011001100001101001110011"
+  },
+  {
+    "collegeName": "William & Mary",
+    "binaryReference": "10000000000000000000100000101000"
+  },
+  {
+    "collegeName": "William Penn",
+    "binaryReference": "10000000000000000000100000101001"
+  },
+  {
+    "collegeName": "Wingate",
+    "binaryReference": "10000000000000000000100000101010"
+  },
+  {
+    "collegeName": "Winston Salem",
+    "binaryReference": "10000000000000000000100000101011"
+  },
+  {
+    "collegeName": "Wisconsin-Eau Claire",
+    "binaryReference": "10000000000000010111100100010000"
+  },
+  {
+    "collegeName": "Wisconsin-Oshkosh",
+    "binaryReference": "10000000000000010110111011011011"
+  },
+  {
+    "collegeName": "Wisconsin",
+    "binaryReference": "10000000000000000000100000101100"
+  },
+  {
+    "collegeName": "Wisc-Whitewater",
+    "binaryReference": "10000000000000000000100000101101"
+  },
+  {
+    "collegeName": "Wofford",
+    "binaryReference": "10000000000000000000100000101110"
+  },
+  {
+    "collegeName": "Wyoming",
+    "binaryReference": "10000000000000000000100000101111"
+  },
+  {
+    "collegeName": "Yale",
+    "binaryReference": "10000000000000000000100000110000"
+  },
+  {
+    "collegeName": "York University",
+    "binaryReference": "10000000100000111001110100100011"
+  },
+  {
+    "collegeName": "Youngstown State",
+    "binaryReference": "10000000000000000000100000110001"
+  }
+]
