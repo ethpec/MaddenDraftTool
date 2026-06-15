@@ -424,8 +424,9 @@ def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str,
       OT/WR/EDGE  → base²  (e.g. 1.05² ≈ 1.103)
 
     motivation_player_id: when set (Force QB Trade path), bypasses the
-    BPA/need lookup and uses this player directly. Existing callers pass
-    nothing and hit the default None path unchanged.
+    BPA/need lookup and uses this player directly, and treats the player's
+    board rank as 2 spots higher (floor 1) to model QB desperation. Existing
+    callers pass nothing and hit the default None path unchanged.
     """
     offering_team = gm.get("TeamName")
     target_slot = pick.get("overall", 1)
@@ -468,6 +469,11 @@ def _covet_multiplier(state: dict[str, Any], gm: dict[str, Any], pick: dict[str,
     player_board_rank = team_rank.get(pid)
     if not player_board_rank:
         return 1.0
+
+    # Force QB path: treat the QB as 2 spots higher on the board (floor 1) so
+    # QB-needy teams show more desperation than their noisy private rank implies.
+    if motivation_player_id is not None:
+        player_board_rank = max(1, player_board_rank - 2)
 
     slide_ratio = (target_slot - player_board_rank) / target_slot
     if slide_ratio >= 0.4:
@@ -1278,6 +1284,10 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
 
         m_up = _roll_trade_threshold(round_1, is_trade_up=True, pick_in_round=pick.get("pick_in_round", 1))
         m_up *= _covet_multiplier(state, gm, pick, motivation_player_id=mo_id)
+        # Force QB path: flat bonus so QB-needy teams offer closer to what
+        # organic QB trades produce (where covet naturally fires at high slide).
+        if motivation_overrides is not None:
+            m_up += 0.05
         # When the user is on clock, derive a per-team floor from this AI's
         # m_up so the window stays at least _USER_TRADE_DOWN_FLOOR_OFFSET wide,
         # AND clamp the floor up to _USER_TRADE_DOWN_HARD_FLOOR to block
@@ -1476,7 +1486,7 @@ def generate_force_qb_offers(
     if not motivation_overrides:
         return {"result": "no_eligible_teams"}
 
-    m_down = _roll_trade_threshold(round_1, is_trade_up=False, pick_in_round=pick_in_round)
+    m_down = _roll_trade_threshold(round_1, is_trade_up=False, pick_in_round=pick_in_round) + 0.025
 
     for attempt in range(1, max_attempts + 1):
         offers = generate_trade_offers_for_pick(

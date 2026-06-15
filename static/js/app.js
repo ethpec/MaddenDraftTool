@@ -40,7 +40,7 @@ const PICK_SELECTION_SOUND_SRC = '/static/sounds/selection.mp3';
 const TRADE_SOUND_SRC = '/static/sounds/trade.mp3';
 const USER_ON_CLOCK_CHIME_SRC = '/static/sounds/chime.mp3';
 
-function playSound(src, volume = 0.7) {
+function playSound(src, volume = 0.15) {
   const audio = new Audio(src);
   audio.volume = volume;
   audio.play().catch(() => {
@@ -49,15 +49,15 @@ function playSound(src, volume = 0.7) {
 }
 
 function playPickSelectionSound() {
-  playSound(PICK_SELECTION_SOUND_SRC, 0.65);
+  playSound(PICK_SELECTION_SOUND_SRC, 0.25);
 }
 
 function playTradeSound() {
-  playSound(TRADE_SOUND_SRC, 0.75);
+  playSound(TRADE_SOUND_SRC, 0.25);
 }
 
 function playUserOnClockChime() {
-  playSound(USER_ON_CLOCK_CHIME_SRC, 0.7);
+  playSound(USER_ON_CLOCK_CHIME_SRC, 0.25);
 }
 
 function maybePlayUserOnClockChime(previousSession, nextSession) {

@@ -24,7 +24,7 @@ def run_sim(seed: int) -> dict:
     # Fresh data copy + fresh session per seed. `load_all` returns a deepcopy
     # of its cached dict, so each call is independent.
     random.seed(seed)
-    data = load_all(None)
+    data = load_all("2036") # Put draft year here "2036", None = TestFiles
     sess = DraftSession(data, user_team=None)
 
     # Use position groups from DraftMaxPerPositionGroup.xlsx.
