@@ -48,9 +48,9 @@ _NON_PREMIUM_R1_SKIP: dict[int, float] = {
 # Inner list is indexed by (AvoidPoorCharacter trait - 1), so [0]=trait1 ... [4]=trait5.
 # 9999 = effectively off-board.
 _CHAR_PENALTY: dict[int, list[int]] = {
-    60: [0,  0,  0,  0,    0],
-    75: [0,  5, 10, 16,   32],
-    90: [0,  8, 16, 32, 9999],
+    60: [0, 0, 0, 0, 0],
+    75: [0, 1, 3, 5, 16],
+    90: [0, 2, 6, 10, 9999],
 }
 
 
@@ -74,10 +74,10 @@ def compute_team_big_board(team_name: str, draftable_players: list[dict[str, Any
     # PROSPECT_FACTOR caps the downward (worse rank) portion of the swing.
     PROSPECT_FACTOR: dict[str, float] = {
         "Can'tMiss":      0.00,
-        "BlueChipPrem":   0.25,
-        "BlueChipNonPrem": 0.50,
+        "BlueChipPrem":   0.125,
+        "BlueChipNonPrem": 0.25,
         "TopPrem":      0.50,
-        "TopNonPrem":   0.85,
+        "TopNonPrem":   0.75,
     }
 
     skill = max(1, min(5, int(gm_info.get("BigBoardSkill") or 3)))

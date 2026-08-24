@@ -69,13 +69,15 @@ def _write_outcome(session: DraftSession, path: Path) -> None:
     ws.title = "DraftPickOutcome"
     ws.append([
         "Overall", "Round", "PickInRound", "OriginalTeam", "DraftingTeam",
-        "PlayerID", "PlayerName",
+        "PlayerID", "PlayerName", "Position",
     ])
     for pick in session.board():
+        player = session._find_player(pick.selected_player_id)
         ws.append([
             pick.overall, pick.round_1, pick.pick_in_round_1,
             pick.original_team, pick.current_team,
             pick.selected_player_id, pick.selected_player_name,
+            player.get("position") if player else None,
         ])
     wb.save(path)
 
