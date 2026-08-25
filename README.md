@@ -20,6 +20,12 @@ https://github.com/user-attachments/assets/fba4b6cb-d308-4358-a0a8-9e28c3542257
   heuristics are placeholder shells today.
 - You can offer trade-ups to any team's pick; when their pick is up,
   you can review trade-down offers from AI teams.
+- **Force Trade** makes the on-clock AI team shop their pick even if
+  they weren't planning to. The offers it produces come from the same
+  logic as trades that happen on their own while simming — no position
+  is targeted. You see the proposed deal (both sides' picks, values,
+  and the player the acquiring team would take) and accept or decline
+  it; declining changes nothing, so you can roll again.
 - Exports three xlsx files for re-import / inspection:
   - `DraftPickOutcome.xlsx` — every pick + the player drafted.
   - `DraftPicks_updated.xlsx` — same shape as input, with new

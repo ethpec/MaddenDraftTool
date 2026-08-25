@@ -33,14 +33,14 @@ POSITION_GROUPS: dict[str, str] = {
 # In round 1 only, a single roll determines whether the team filters all of
 # these out of their available pool for that pick.
 _NON_PREMIUM_POSITIONS: frozenset[str] = frozenset({
-    "HB", "TE", "C",
+    "HB", "C",
     "LOLB", "ROLB", "MLB",
     "FS", "SS",
 })
 
 # trait 1–5 -> probability of skipping all non-premium positions in R1.
 _NON_PREMIUM_R1_SKIP: dict[int, float] = {
-    1: 0.90, 2: 0.75, 3: 0.33, 4: 0.10, 5: 0.0,
+    1: 0.75, 2: 0.50, 3: 0.33, 4: 0.10, 5: 0.0,
 }
 
 # Character penalty applied to noisy_rank in compute_team_big_board.
@@ -365,13 +365,21 @@ _USER_TRADE_DOWN_HARD_FLOOR: float = 0.95
 # capital back than they are to spend it moving up.
 _FUTURE_PICK_GATE_UP_PREMIUM: float = 0.025   # future R1/R2 base gate; boosted by target position
 _FUTURE_PICK_GATE_BONUS: dict[str, float] = {  # added to base when BPA/need is this group
-    "QB": 0.475, "WR": 0.125, "OT": 0.125, "EDGE": 0.125, "CB": 0.075,
+    "QB": 0.475, "WR": 0.125, "OT": 0.125, "EDGE": 0.175, "CB": 0.075,
 }
 _FUTURE_PICK_GATE_UP_LATE: float = 0.15      # future R3+ in trade-up offer
 _FUTURE_PICK_GATE_DOWN: float = 0.25          # future R3+ in trade-down return; only rolls if trade-up team also passed _FUTURE_PICK_GATE_UP_LATE (R1/R2 always blocked)
 
 # Cap on how many future picks a single side can include.
 _MAX_FUTURE_PICKS_PER_SIDE: int = 1
+
+# Force Trade only: replaces the picks 1-5 hard block (0.0) in the R1
+# non-premium dampener so top-5 picks can be shopped at all. Applied the same
+# way the picks 6-10 factor is — including being multiplied twice when BOTH
+# the team's BPA and their top eligible need are non-premium — so the result
+# still floors at the [0.1%, 50%] clamp. Auto-sim trades and Force QB Trade
+# keep the hard 0.0. See `_trade_up_probability(relax_non_premium=...)`.
+_FORCE_TRADE_TOP5_NON_PREMIUM_FACTOR: float = 0.05
 
 
 def _roll_trade_threshold(round_1: int, is_trade_up: bool, pick_in_round: int = 1) -> float:
@@ -771,7 +779,8 @@ def _portfolio_multiplier_down(share: float) -> float:
 
 
 def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick: dict[str, Any],
-                          motivation_player_id: str | None = None) -> float:
+                          motivation_player_id: str | None = None,
+                          relax_non_premium: bool = False) -> float:
     """Return the probability (0–1) that a team is willing to trade up to target_pick.
 
     Five components combined multiplicatively:
@@ -797,6 +806,15 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     lookups and uses this specific player for both slide components. The non-
     premium dampener still runs but QB is a premium position so it never fires.
     Existing callers pass nothing and hit the default None path unchanged.
+
+    relax_non_premium: when True (Force Trade path only) the dampener changes
+    in two ways, **at picks 1-5 only**:
+      1. The hard 0.0 block becomes ``_FORCE_TRADE_TOP5_NON_PREMIUM_FACTOR``.
+      2. The BPA and need checks switch from AND to **OR** — a premium
+         motivator on either side escapes the dampener entirely, and teams
+         with nothing premium to chase are penalized once, not twice.
+    Picks 6-32 keep the original independent AND-semantics even on the force
+    path. Auto-sim trades and Force QB Trade leave it False throughout.
     """
     offering_team = gm.get("TeamName")
     target_slot = target_pick.get("draft_slot") or target_pick.get("overall") or 1
@@ -837,9 +855,14 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     # R1 non-premium dampener: two independent multipliers, one for BPA and
     # one for top eligible need. Each uses the same scale (hard block top 5,
     # graduated suppression 6-32) and both are multiplied into the final result.
+    # Exception: Force Trade at picks 1-5 switches to OR-semantics — see below.
     def _non_prem_factor() -> float:
         if pick_in_round <= 5:
-            return 0.0
+            # Force Trade relaxes the hard block to a steep multiplier so a
+            # top-5 pick can be shopped when the league's boards are topped by
+            # non-premium positions. Every other caller keeps the hard 0.0.
+            return (_FORCE_TRADE_TOP5_NON_PREMIUM_FACTOR
+                    if relax_non_premium else 0.0)
         elif pick_in_round <= 10:
             return 0.10
         elif pick_in_round <= 20:
@@ -849,12 +872,8 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
     non_prem_mult = 1.0
     if round_1 == 1 and bpa:
         bpa_grp = POSITION_GROUPS.get(bpa.get("position", ""), bpa.get("position", ""))
-        if bpa_grp not in _FUTURE_PICK_GATE_BONUS:
-            factor = _non_prem_factor()
-            if factor == 0.0:
-                return 0.0
-            non_prem_mult *= factor
-        # Check top eligible need independently. Force QB path uses the
+        bpa_premium = bpa_grp in _FUTURE_PICK_GATE_BONUS
+        # Resolve the team's top eligible need player. Force QB path uses the
         # motivation player directly (QB → premium → dampener never fires).
         if motivation_player_id is not None:
             top_need = player_map.get(motivation_player_id)
@@ -868,9 +887,28 @@ def _trade_up_probability(state: dict[str, Any], gm: dict[str, Any], target_pick
                  if POSITION_GROUPS.get(p.get("position"), p.get("position")) in _eligible),
                 None,
             )
-        if top_need:
-            need_grp = POSITION_GROUPS.get(top_need.get("position", ""), top_need.get("position", ""))
-            if need_grp not in _FUTURE_PICK_GATE_BONUS:
+        need_grp = (POSITION_GROUPS.get(top_need.get("position", ""), top_need.get("position", ""))
+                    if top_need else None)
+        need_premium = top_need is not None and need_grp in _FUTURE_PICK_GATE_BONUS
+
+        if relax_non_premium and pick_in_round <= 5:
+            # Force Trade, picks 1-5 only: OR-semantics. A premium motivator on
+            # EITHER side is enough to escape the dampener entirely, so a team
+            # chasing a premium NEED isn't vetoed just because their board
+            # happens to be topped by a non-premium BPA (common this early).
+            # Only teams with nothing premium to chase are penalized, and then
+            # once rather than twice.
+            if not bpa_premium and not need_premium:
+                non_prem_mult *= _non_prem_factor()
+        else:
+            # Everywhere else: the original two independent multipliers, one
+            # for BPA and one for top eligible need, both applied.
+            if not bpa_premium:
+                factor = _non_prem_factor()
+                if factor == 0.0:
+                    return 0.0
+                non_prem_mult *= factor
+            if top_need is not None and not need_premium:
                 factor = _non_prem_factor()
                 if factor == 0.0:
                     return 0.0
@@ -1217,7 +1255,8 @@ def _best_offer_for_team(value_of: dict[int, float], anchors: list[dict[str, Any
 
 def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
                                    m_down: float,
-                                   motivation_overrides: dict[str, str] | None = None) -> list[dict[str, Any]]:
+                                   motivation_overrides: dict[str, str] | None = None,
+                                   relax_non_premium: bool = False) -> list[dict[str, Any]]:
     """Return CPU trade-up offers for the given pick, ranked by ratio.
 
     Caller is responsible for the willingness roll AND for rolling ``m_down``
@@ -1240,6 +1279,9 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
     3. Return offers sorted by ratio offered/(target+return) descending; tie-
        break on fewer total picks. The trade-down team picks the most
        efficient offer across teams (highest value-per-unit-sent).
+
+    ``relax_non_premium`` is forwarded to `_trade_up_probability`; only the
+    Force Trade path sets it (see `generate_force_trade_offer`).
     """
     if not pick:
         return []
@@ -1279,7 +1321,9 @@ def generate_trade_offers_for_pick(state: dict[str, Any], pick: dict[str, Any],
         if motivation_overrides is not None and team not in motivation_overrides:
             continue
         mo_id = motivation_overrides.get(team) if motivation_overrides else None
-        if random.random() > _trade_up_probability(state, gm, pick, motivation_player_id=mo_id):
+        if random.random() > _trade_up_probability(
+                state, gm, pick, motivation_player_id=mo_id,
+                relax_non_premium=relax_non_premium):
             continue
 
         m_up = _roll_trade_threshold(round_1, is_trade_up=True, pick_in_round=pick.get("pick_in_round", 1))
@@ -1506,6 +1550,89 @@ def generate_force_qb_offers(
                 }
 
     return {"result": "no_deal", "attempts": max_attempts}
+
+
+def generate_force_trade_offer(
+    state: dict[str, Any],
+    pick: dict[str, Any],
+    max_attempts: int = 15,
+) -> dict[str, Any]:
+    """Force the on-clock team to shop their pick, then return the deal taken.
+
+    Unlike ``generate_force_qb_offers`` this forces only the trade-DOWN side.
+    The ``willing_to_trade_down`` roll is skipped; everything downstream is the
+    vanilla auto-trade path used by ``_ensure_pending_offers`` —  no motivation
+    overrides, no M_up bonus, no M_down bonus. Each attempt re-rolls the entire
+    trade-up side (per-team willingness, M_up, future-pick gates, complexity
+    tier, selection mode). ``m_down`` is rolled once and held fixed for the run,
+    so a high asking price can yield no deal across all attempts; the caller
+    re-presses to reroll it.
+
+    One deliberate deviation from the auto-trade path: offers are generated
+    with ``relax_non_premium=True``, softening the R1 picks 1-5 hard block to
+    ``_FORCE_TRADE_TOP5_NON_PREMIUM_FACTOR``. Without it a top-5 pick is
+    effectively unshoppable whenever most teams' boards are topped by
+    non-premium positions, which is common that early in round 1. Auto-sim
+    trades and Force QB Trade are unaffected.
+
+    The acquiring team's selection is resolved here via ``sim_pick`` so the
+    caller can preview it before applying anything. ``sim_pick`` is read-only
+    and takes the team by name, so the trade does not need to be applied first.
+    An attempt whose winner would skip (every remaining position group capped
+    out) is discarded and the loop continues.
+
+    Returns one of:
+      {"result": "no_eligible_teams"}   — nobody else holds a tradeable pick
+      {"result": "no_deal", "attempts": N, "m_down": float}
+      {"result": "offer", "offer": {...}, "player_id": str,
+       "rationale": str | None, "attempts": N, "m_down": float}
+    """
+    if not pick:
+        return {"result": "no_eligible_teams"}
+
+    round_1 = pick.get("round", 1)
+    pick_in_round = pick.get("pick_in_round", 1)
+    on_clock_team = pick.get("current_team")
+    user_team = state.get("user_team")
+    target_overall = pick.get("overall", 0)
+
+    # Cheap pre-check: if no other team holds a pick that could be sent, no
+    # attempt can ever produce an offer (e.g. the final pick of the draft).
+    # Mirrors the eligibility rules inside generate_trade_offers_for_pick:
+    # the user team never trades up here, and an offered pick must be a future
+    # pick or fall after the target.
+    all_picks = state.get("remaining_picks", []) + state.get("future_picks", [])
+    if not any(p.get("current_team") not in (on_clock_team, user_team)
+               and (p.get("year_offset", 0) > 0
+                    or p.get("overall", 0) > target_overall)
+               for p in all_picks):
+        return {"result": "no_eligible_teams"}
+
+    m_down = _roll_trade_threshold(round_1, is_trade_up=False,
+                                   pick_in_round=pick_in_round)
+
+    for attempt in range(1, max_attempts + 1):
+        offers = generate_trade_offers_for_pick(state, pick, m_down,
+                                                relax_non_premium=True)
+        if not offers:
+            continue
+        chosen = select_trade_down_offer(offers)
+        if not chosen:
+            continue
+        decision = sim_pick(state, chosen["from_team"])
+        if decision.get("outcome") != "select":
+            continue
+        return {
+            "result": "offer",
+            "offer": chosen,
+            "player_id": decision.get("player_id"),
+            "rationale": decision.get("rationale"),
+            "attempts": attempt,
+            "m_down": round(m_down, 3),
+        }
+
+    return {"result": "no_deal", "attempts": max_attempts,
+            "m_down": round(m_down, 3)}
 
 
 # -----------------------------------------------------------------------------

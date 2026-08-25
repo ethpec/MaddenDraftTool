@@ -124,6 +124,11 @@ class DraftSession:
         # player — no further trades on this pick. Set to that pick's overall
         # in accept_trade_down_offer and cleared in _advance.
         self._pick_must_select: int | None = None
+        # Pending Force Trade preview: the chosen offer plus the pinned
+        # selection shown to the user. Nothing is applied until they accept.
+        # Cleared by `_clear_pending_offers` (and therefore `_advance`), and
+        # on decline. See `force_trade_preview` / `accept_force_trade`.
+        self._pending_force_trade: dict[str, Any] | None = None
         # Tracks "draft on-clock events since this team's last trade-down."
         # Reset to 0 when the team trades; incremented by 1 each time they
         # draft a player. Absent from dict if the team has never traded.
@@ -545,6 +550,176 @@ class DraftSession:
                 "attempts": result["attempts"],
                 "eligible_teams": result.get("eligible_teams", []),
             }
+
+    def force_trade_preview(self) -> dict[str, Any]:
+        """Force the on-clock CPU team to shop their pick and preview the deal.
+
+        Forces only the trade-down side's willingness — offer generation and
+        selection are the vanilla auto-trade path. **Mutates no draft state**:
+        the trade is stored on ``_pending_force_trade`` and applied only by
+        ``accept_force_trade``. Declining, or simply never accepting, leaves
+        the pick on the clock with its original owner.
+
+        The player the acquiring team would take is resolved up front (via
+        ``logic.sim_pick``, which is read-only) and pinned, so accepting
+        drafts exactly the player that was previewed rather than re-rolling.
+
+        Returns:
+          {"ok": True, "result": "user_on_clock"}     — user's pick, can't force
+          {"ok": True, "result": "no_eligible_teams"}
+          {"ok": True, "result": "no_deal", "attempts": N}
+          {"ok": True, "result": "offer", "trade": {...}, "player": {...}}
+        """
+        with self.lock:
+            pick = self.current_pick()
+            if pick is None:
+                return {"ok": False, "error": "draft_complete"}
+            if pick.current_team == self.user_team:
+                self._pending_force_trade = None
+                return {"ok": True, "result": "user_on_clock",
+                        "message": "Your team is on the clock — use Incoming Offers to manage your pick."}
+
+            snap = self._snapshot_for_logic()
+            pick_dict = _pick_to_dict(pick)
+            result = logic.generate_force_trade_offer(snap, pick_dict)
+
+            if result["result"] != "offer":
+                self._pending_force_trade = None
+                return {"ok": True, "result": result["result"],
+                        "attempts": result.get("attempts", 0)}
+
+            player = self._find_player(result.get("player_id"))
+            if player is None:
+                self._pending_force_trade = None
+                return {"ok": True, "result": "no_deal",
+                        "attempts": result.get("attempts", 0)}
+
+            offer = result["offer"]
+            trading_down = pick.current_team
+            trading_up = offer["from_team"]
+
+            self._pending_force_trade = {
+                "overall": pick.overall,
+                "trading_down": trading_down,
+                "trading_up": trading_up,
+                "offer": offer,
+                "player_id": player.get("Player_ID"),
+                "rationale": result.get("rationale"),
+            }
+
+            return {
+                "ok": True,
+                "result": "offer",
+                "attempts": result["attempts"],
+                "trade": {
+                    "trading_up": trading_up,
+                    "trading_down": trading_down,
+                    "offered_picks": offer["offered_picks"],
+                    "return_picks": offer.get("return_picks", []),
+                    "target_pick": offer["target_pick"],
+                    "offer_value": offer["offer_value"],
+                    "return_value": offer.get("return_value", 0),
+                    "target_value": offer["target_value"],
+                },
+                "player": {
+                    "player_id": player.get("Player_ID"),
+                    "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
+                    "position": player.get("position"),
+                    "college": player.get("college"),
+                    "college_logo": player.get("college_logo"),
+                },
+            }
+
+    def accept_force_trade(self) -> dict[str, Any]:
+        """Apply the pending Force Trade preview and draft the pinned player.
+
+        Revalidates everything the preview assumed before mutating: the same
+        pick is still on the clock with the same owner, every offered/return
+        pick is still owned by the expected team and undrafted, and the pinned
+        player is still available. Any mismatch returns ``stale`` and drops the
+        pending offer so the user can re-roll.
+        """
+        with self.lock:
+            pending = self._pending_force_trade
+            if not pending:
+                return {"ok": False, "error": "no_pending_force_trade"}
+
+            def _stale() -> dict[str, Any]:
+                self._pending_force_trade = None
+                return {"ok": True, "result": "stale"}
+
+            pick = self.current_pick()
+            if pick is None:
+                return _stale()
+            if (pick.overall != pending["overall"]
+                    or pick.current_team != pending["trading_down"]):
+                return _stale()
+
+            offer = pending["offer"]
+            trading_down = pending["trading_down"]
+            trading_up = pending["trading_up"]
+
+            # Every pick that moves must still be owned by the side the offer
+            # assumed and must still be undrafted.
+            offered_records: list[PickRecord] = []
+            for p in offer["offered_picks"]:
+                rec = self._pick_by_overall.get(p["overall"])
+                if (rec is None or rec.current_team != trading_up
+                        or rec.selected_player_id is not None):
+                    return _stale()
+                offered_records.append(rec)
+
+            return_records: list[PickRecord] = []
+            for p in offer.get("return_picks", []):
+                rec = self._pick_by_overall.get(p["overall"])
+                if (rec is None or rec.current_team != trading_down
+                        or rec.selected_player_id is not None):
+                    return _stale()
+                return_records.append(rec)
+
+            player = self._find_player(pending["player_id"])
+            if player is None or player.get("drafted"):
+                return _stale()
+
+            self._apply_trade(pick, offered_records, trading_down, trading_up,
+                              "AI", return_picks=return_records)
+            # The on-clock team traded — reset their cooldown clock, exactly as
+            # the auto-trade path does.
+            self._events_since_trade_per_team[trading_down] = 0
+            rationale = pending.get("rationale") or "force_trade"
+            self._clear_pending_offers()  # also nulls _pending_force_trade
+
+            current = self.current_pick()  # same overall, now owned by trading_up
+            self._record_selection(current, player, rationale=rationale)
+            self._advance()
+
+            return {
+                "ok": True,
+                "result": "trade_completed",
+                "trade": {
+                    "trading_up": trading_up,
+                    "trading_down": trading_down,
+                    "offered_picks": offer["offered_picks"],
+                    "return_picks": offer.get("return_picks", []),
+                    "target_pick": offer["target_pick"],
+                    "offer_value": offer["offer_value"],
+                    "return_value": offer.get("return_value", 0),
+                    "target_value": offer["target_value"],
+                },
+                "player": {
+                    "player_id": player.get("Player_ID"),
+                    "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
+                    "position": player.get("position"),
+                    "college": player.get("college"),
+                    "college_logo": player.get("college_logo"),
+                },
+            }
+
+    def decline_force_trade(self) -> dict[str, Any]:
+        """Drop the pending Force Trade preview. Touches no draft state."""
+        with self.lock:
+            self._pending_force_trade = None
+            return {"ok": True}
 
     def submit_user_trade_up(self, target_overall: int,
                              offered_pick_overalls: list[int],
@@ -1019,6 +1194,7 @@ class DraftSession:
         self._pending_offers_for_overall = None
         self._trade_down_willing = None
         self._trade_down_m_down = None
+        self._pending_force_trade = None
 
     def _find_player(self, player_id: str | None) -> dict[str, Any] | None:
         if not player_id:

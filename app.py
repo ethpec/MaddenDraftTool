@@ -783,6 +783,38 @@ def api_force_qb_trade():
     return jsonify(result)
 
 
+@app.post("/api/trade/force")
+def api_force_trade_preview():
+    """Force the on-clock CPU team to shop their pick. Applies nothing —
+    the resulting deal is previewed and must be accepted separately."""
+    sess, err = _require_session()
+    if err:
+        return err
+    result = sess.force_trade_preview()
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/trade/force/accept")
+def api_force_trade_accept():
+    sess, err = _require_session()
+    if err:
+        return err
+    result = sess.accept_force_trade()
+    if not result.get("ok"):
+        return jsonify(result), 400
+    return jsonify(result)
+
+
+@app.post("/api/trade/force/decline")
+def api_force_trade_decline():
+    sess, err = _require_session()
+    if err:
+        return err
+    return jsonify(sess.decline_force_trade())
+
+
 @app.post("/api/export")
 def api_export():
     sess, err = _require_session()

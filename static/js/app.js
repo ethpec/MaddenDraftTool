@@ -1314,6 +1314,9 @@ async function openTradeHub() {
       <button class="trade-hub-tab${tradeHubState.tab === 'manual' ? ' active' : ''}" data-th-tab="manual">
         Two-Team Trade
       </button>
+      <button class="trade-hub-tab${tradeHubState.tab === 'force-trade' ? ' active' : ''}" data-th-tab="force-trade">
+        Force Trade
+      </button>
       <button class="trade-hub-tab${tradeHubState.tab === 'force-qb' ? ' active' : ''}" data-th-tab="force-qb">
         Force QB Trade
       </button>
@@ -1339,6 +1342,10 @@ async function renderTradeHubTab() {
   if (tradeHubState.tab === 'manual') {
     body.innerHTML = renderManualTradeForm();
     wireManualTradeForm();
+    return;
+  }
+  if (tradeHubState.tab === 'force-trade') {
+    renderForceTradeTab(body);
     return;
   }
   if (tradeHubState.tab === 'force-qb') {
@@ -1529,6 +1536,212 @@ async function submitTradeUp() {
   }
 }
 
+// ---------- Force Trade tab ----------
+
+// Holds the last previewed deal so switching tabs doesn't lose it. `overall`
+// pins it to the pick it was generated for — if the draft has moved on, the
+// stale preview is dropped rather than shown. The authoritative copy lives on
+// the session; this is only what's on screen.
+const forceTradeState = { preview: null, overall: null };
+
+function clearForceTradePreview() {
+  forceTradeState.preview = null;
+  forceTradeState.overall = null;
+}
+
+function renderForceTradeTab(body) {
+  const c = state.session?.current_pick;
+  if (!c) {
+    body.innerHTML = '<div class="text-sm text-slate-400">Draft is complete — no live picks.</div>';
+    return;
+  }
+  if (forceTradeState.preview && forceTradeState.overall !== c.overall) {
+    clearForceTradePreview();
+  }
+  const isUserPick = c.current_team === state.userTeam;
+  const pickLabel = `${escapeHtml(c.current_team)} · ${roundPickLabel(c)} · pick #${c.draft_slot ?? c.overall}`;
+  body.innerHTML = `
+    <div class="space-y-4">
+      <div>
+        <div class="card-eyebrow mb-1">On the Clock</div>
+        <div class="text-sm text-slate-300">${pickLabel}</div>
+      </div>
+      <div class="text-xs text-slate-400 leading-relaxed">
+        Forces the on-clock team to shop this pick. No position is targeted —
+        offers come from the same logic that runs when trades happen on their
+        own while simming. Nothing is applied until you accept, so you can
+        decline and roll a new deal as many times as you like.
+      </div>
+      ${isUserPick
+        ? '<div class="text-sm text-amber-400">Your team is on the clock — use Incoming Offers to manage your pick.</div>'
+        : `<button id="force-trade-btn" class="primary-btn mt-1">Force Trade</button>`
+      }
+      <div id="force-trade-result">${
+        forceTradeState.preview ? renderForceTradePreview(forceTradeState.preview) : ''
+      }</div>
+    </div>
+  `;
+  if (!isUserPick) {
+    document.getElementById('force-trade-btn')?.addEventListener('click', executeForceTrade);
+    wireForceTradePreviewButtons();
+  }
+}
+
+function renderForceTradePreview(res) {
+  const t = res.trade;
+  const allPicks = [...(state.board || []), ...(state.futurePicks || [])];
+  const getVal = overall => allPicks.find(p => p.overall === overall)?.value ?? null;
+  const logoMap = buildTeamLogoMap();
+
+  const fmtPick = p => {
+    const val = getVal(p.overall);
+    const ny = p.year_offset
+      ? ' <span class="text-[9px] font-semibold text-amber-400 border border-amber-700 rounded px-1">NY</span>'
+      : '';
+    return `<div class="flex items-center justify-between py-0.5 text-xs">
+      <span>${roundPickLabel(p)}${ny}</span>
+      <span class="font-mono text-accent-400 ml-3">${val != null ? val.toLocaleString() : '—'}</span>
+    </div>`;
+  };
+
+  const panel = (teamName, label, labelClass, picks, total) => {
+    const logo = logoMap[teamName];
+    const logoEl = logo
+      ? `<img src="${logo}" class="w-8 h-8 object-contain flex-shrink-0" onerror="this.style.display='none'">`
+      : `<div class="w-8 h-8 rounded-full bg-ink-700 flex-shrink-0"></div>`;
+    return `
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 mb-2">
+          ${logoEl}
+          <div class="min-w-0">
+            <div class="font-semibold text-sm truncate">${escapeHtml(teamName)}</div>
+            <div class="text-xs ${labelClass}">${label}</div>
+          </div>
+        </div>
+        <div class="text-[10px] uppercase text-slate-500 mb-1">Sends</div>
+        <div class="border border-ink-700 rounded p-2 bg-ink-900 divide-y divide-ink-800">
+          ${picks.map(fmtPick).join('')}
+        </div>
+        <div class="text-[11px] text-right text-slate-400 mt-1">
+          Total <span class="text-accent-400 font-mono">${(total || 0).toLocaleString()}</span>
+        </div>
+      </div>`;
+  };
+
+  const sendsDown = [t.target_pick, ...(t.return_picks || [])].filter(Boolean);
+  const net = (t.offer_value || 0) - (t.target_value || 0) - (t.return_value || 0);
+  const netStr = (net >= 0 ? '+' : '') + net.toFixed(0);
+  const netClass = net >= 0 ? 'text-accent-400' : 'text-rose-400';
+  const denom = (t.target_value || 0) + (t.return_value || 0);
+  const ratio = denom > 0 ? (t.offer_value || 0) / denom : null;
+  const ratioStr = ratio != null ? ratio.toFixed(2) + 'x' : '—';
+  const ratioClass = ratio == null ? 'text-slate-500'
+    : ratio >= 1 ? 'text-accent-400' : 'text-rose-400';
+
+  const posLine = res.player?.position
+    ? ` <span class="text-slate-500">· ${escapeHtml(res.player.position)}</span>` : '';
+  const collegeLine = res.player?.college
+    ? ` <span class="text-slate-500">· ${escapeHtml(res.player.college)}</span>` : '';
+
+  return `
+    <div class="border border-ink-700 rounded-lg p-3 mt-3 bg-ink-950 space-y-3">
+      <div class="flex gap-4">
+        ${panel(t.trading_up, '▲ Trades Up', 'text-emerald-400', t.offered_picks, t.offer_value)}
+        ${panel(t.trading_down, '▼ Trades Down', 'text-amber-400', sendsDown,
+                (t.target_value || 0) + (t.return_value || 0))}
+      </div>
+      <div class="flex items-center justify-between border-t border-ink-800 pt-2 text-xs">
+        <span class="text-slate-400">Net Value
+          <span class="font-mono ${netClass} ml-1">${netStr}</span></span>
+        <span class="text-slate-400">Net Ratio
+          <span class="font-mono ${ratioClass} ml-1">${ratioStr}</span></span>
+      </div>
+      <div class="border-t border-ink-800 pt-2 text-sm text-slate-300">
+        ${escapeHtml(t.trading_up)} would select
+        <span class="text-white font-semibold">${escapeHtml(res.player?.name || '?')}</span>${posLine}${collegeLine}
+      </div>
+      <div class="flex gap-2 pt-1">
+        <button id="force-trade-accept" class="primary-btn">Accept Trade</button>
+        <button id="force-trade-decline" class="action-btn">Decline</button>
+      </div>
+    </div>
+  `;
+}
+
+function wireForceTradePreviewButtons() {
+  document.getElementById('force-trade-accept')?.addEventListener('click', acceptForceTrade);
+  document.getElementById('force-trade-decline')?.addEventListener('click', declineForceTrade);
+}
+
+async function acceptForceTrade() {
+  const res = await api.post('/api/trade/force/accept', {}).catch(() => ({ ok: false }));
+  if (!res.ok) {
+    toast('Trade failed: ' + (res.error || 'unknown error'));
+    return;
+  }
+  if (res.result === 'stale') {
+    clearForceTradePreview();
+    toast('That deal is no longer valid — roll a new one.');
+    renderTradeHubTab();
+    return;
+  }
+  clearForceTradePreview();
+  playTradeSound();
+  await reloadSessionAndRender();
+  document.getElementById('modal-root').classList.remove(
+    'trade-hub-modal', 'big-board-modal-open', 'full-board-modal',
+    'picker-modal', 'player-modal', 'trade-history-modal', 'rosters-modal',
+    'gm-info-modal', 'sim-report-modal'
+  );
+  showTradeModal(res.trade, {
+    selected_player_id: res.player.player_id,
+    selected_player_name: res.player.name,
+  });
+}
+
+async function declineForceTrade() {
+  clearForceTradePreview();
+  await api.post('/api/trade/force/decline', {}).catch(() => ({ ok: false }));
+  renderTradeHubTab();
+}
+
+async function executeForceTrade() {
+  const btn = document.getElementById('force-trade-btn');
+  const resultDiv = document.getElementById('force-trade-result');
+  if (!btn || !resultDiv) return;
+  btn.disabled = true;
+  btn.textContent = 'Working…';
+  resultDiv.innerHTML = '';
+  clearForceTradePreview();
+
+  const res = await api.post('/api/trade/force', {}).catch(() => ({ ok: false }));
+
+  btn.disabled = false;
+  btn.textContent = 'Force Trade';
+
+  if (!res.ok) {
+    resultDiv.innerHTML = '<div class="text-sm text-red-400 mt-2">Error — could not execute force trade.</div>';
+    return;
+  }
+  if (res.result === 'user_on_clock') {
+    resultDiv.innerHTML = `<div class="text-sm text-amber-400 mt-2">${escapeHtml(res.message || 'Your team is on the clock.')}</div>`;
+    return;
+  }
+  if (res.result === 'no_eligible_teams') {
+    resultDiv.innerHTML = '<div class="text-sm text-slate-400 mt-2">No other team holds a pick that could be sent for this one.</div>';
+    return;
+  }
+  if (res.result === 'no_deal') {
+    resultDiv.innerHTML = `<div class="text-sm text-slate-400 mt-2">No deal after ${res.attempts} attempts — nobody would meet the asking price. Press Force Trade again to roll a new one.</div>`;
+    return;
+  }
+
+  forceTradeState.preview = res;
+  forceTradeState.overall = state.session?.current_pick?.overall ?? null;
+  resultDiv.innerHTML = renderForceTradePreview(res);
+  wireForceTradePreviewButtons();
+}
+
 // ---------- Force QB Trade tab ----------
 
 function renderForceQbTab(body) {
@@ -1553,7 +1766,7 @@ function renderForceQbTab(body) {
       </div>
       ${isUserPick
         ? '<div class="text-sm text-amber-400">Your team is on the clock — use the Incoming Offers or manual trade to manage your pick.</div>'
-        : `<button id="force-qb-btn" class="btn-primary mt-1">Force QB Trade</button>`
+        : `<button id="force-qb-btn" class="primary-btn mt-1">Force QB Trade</button>`
       }
       <div id="force-qb-result"></div>
     </div>

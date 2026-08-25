@@ -254,9 +254,14 @@ Implemented:
       `_FUTURE_PICK_GATE_UP_PREMIUM` (2.5%) base, boosted by
       `_FUTURE_PICK_GATE_BONUS` only when the top board player is *both* a
       premium position group *and* an eligible need in the target round's
-      window (QB +0.65, WR/OT/EDGE +0.175, CB +0.125); R3+ futures gate at
+      window (QB +0.475, WR/OT/EDGE +0.125, CB +0.075); R3+ futures gate at
       `_FUTURE_PICK_GATE_UP_LATE` (15%). Trade-down return: R1/R2 futures
-      always blocked (0%); R3+ gated at `_FUTURE_PICK_GATE_DOWN` (10%).
+      always blocked (0%); R3+ gated at `_FUTURE_PICK_GATE_DOWN` (25%), and
+      only when the trade-up team is also including a future R3+ pick.
+
+      Note `_FUTURE_PICK_GATE_BONUS` does double duty: its **keys** are the
+      premium-position set (`QB/WR/OT/EDGE/CB`) that `_trade_up_probability`
+      membership-tests for the R1 non-premium dampener.
   Returns offers sorted by ratio `offered/(target+return)` descending (tie-
   break: fewer total picks). Caller (`_ensure_pending_offers`) is responsible
   for rolling/caching `m_down`.
@@ -269,13 +274,13 @@ Implemented:
   Trade Hub still shows them ratio-sorted for manual review.
 - `_best_offer_for_team` — inner helper that picks each offering team's
   single best combo. Two layered rolls:
-    1. **Complexity tier** (`_roll_complexity_tier`): 85% small (max 2 offered,
-       max 1 return) / 10% medium (max 3 offered, max 1 return) / 5% large
+    1. **Complexity tier** (`_roll_complexity_tier`): 80% small (max 2 offered,
+       max 1 return) / 10% medium (max 3 offered, max 1 return) / 10% large
        (max 3 offered, max 2 return). If no valid combo exists at the rolled
        tier, escalates to the next tier until one is found or tiers exhaust.
     2. **Selection mode** (`_roll_selection_mode`): one of six modes —
-       min_cost 20% / min_ratio 20% / max_cost 12.5% / max_ratio 12.5% /
-       min_value 30% / random_deal 5%. The chosen mode is applied to the
+       min_cost 20% / min_ratio 20% / max_cost 7.5% / max_ratio 12.5% /
+       min_value 30% / random_deal 10%. The chosen mode is applied to the
        full pool of valid combos at the resolved tier (see `_select_combo`).
        All deterministic modes tiebreak on fewer total picks; `random_deal`
        skips the tiebreak. This produces visibly different offer "styles"
@@ -295,6 +300,42 @@ Implemented:
   rolled once and held fixed; trade-up willingness is re-rolled each attempt.
   Returns `{"result": "no_eligible_teams"}`, `{"result": "no_deal", "attempts": N}`,
   or `{"result": "offer", "offer": {...}, "player": {...}, "attempts": N}`.
+- `generate_force_trade_offer(state, pick, max_attempts=15)` — Force Trade
+  path. Forces only the **trade-down** side: the `willing_to_trade_down` roll
+  is skipped and everything downstream is the vanilla auto-trade path — no
+  `motivation_overrides`, no M_up bonus, no M_down bonus. `m_down` is rolled
+  once and held fixed for the run; each attempt re-rolls the entire trade-up
+  side. The acquiring team's selection is resolved up front via `sim_pick`
+  (read-only, takes the team by name — no trade needs to be applied) and
+  returned so the caller can preview it; an attempt whose winner would `skip`
+  is discarded and the loop continues. A cheap pre-check returns
+  `no_eligible_teams` when no other team holds a sendable pick (e.g. the last
+  pick of the draft).
+  **One deliberate deviation from the auto path**: offers are generated with
+  `relax_non_premium=True`, which changes the R1 non-premium dampener in
+  `_trade_up_probability` **at picks 1-5 only** (picks 6-32 are untouched even
+  on the force path):
+    1. The hard `0.0` block becomes `_FORCE_TRADE_TOP5_NON_PREMIUM_FACTOR`
+       (0.025).
+    2. The BPA and top-eligible-need checks switch from **AND to OR** — a
+       premium motivator on *either* side escapes the dampener entirely, and a
+       team with nothing premium to chase is penalized once instead of twice.
+  Without this a top-5 pick is effectively unshoppable whenever most teams'
+  boards are topped by non-premium positions, which is common that early in
+  round 1 — a team chasing a premium *need* was being vetoed purely because
+  its BPA happened to be a HB. Measured offer rate (4 sessions × 12 presses):
+  overall 5 **20.8% → 77.1%**, overall 3 68.8% → 75.0%, overall 1 58.3% →
+  60.4% (pick 1 stays feasibility-bound — a 3000-point target, not
+  eligibility, is what limits it there). Overall 8 and 12 are unchanged,
+  confirming the ≤5 scoping. Auto-sim trades and Force QB Trade leave the flag
+  False and keep the original hard block + AND-semantics; verified
+  byte-identical against the pre-change path. Returns
+  `{"result": "no_eligible_teams"}`,
+  `{"result": "no_deal", "attempts": N, "m_down": float}`, or
+  `{"result": "offer", "offer": {...}, "player_id": str, "rationale": str|None,
+  "attempts": N, "m_down": float}`.
+  **Contrast with `generate_force_qb_offers`**, which forces the trade-*up*
+  side via per-team motivation overrides plus QB-specific desperation bonuses.
 - `generate_trade_offers_for_pick` now accepts an optional
   `motivation_overrides: dict[str, str] | None = None` parameter. When set,
   only teams in the dict are considered and their mapped player ID is passed
@@ -436,7 +477,7 @@ they later come on the clock.
 all cleared in `_advance()` alongside pending offers.
 
 ### 5b. Trade Hub — tabs and incoming offers table
-Trade Hub now has three tabs (persisted in `tradeHubState.tab`):
+Trade Hub now has four tabs (persisted in `tradeHubState.tab`):
 
 - **Your Trade** (original flow) — when user is on the clock: "Incoming
   Offers" table + propose-a-trade form. When an AI is on the clock:
@@ -447,6 +488,21 @@ Trade Hub now has three tabs (persisted in `tradeHubState.tab`):
   each side, see running Jimmy-Johnson point totals. Optional **Force
   override** checkbox bypasses willingness and value checks. Calls
   `POST /api/trade/manual` → `DraftSession.submit_manual_trade`.
+- **Force Trade** — forces the on-clock CPU team to shop their pick. No
+  position is targeted; offers are generated by the vanilla auto-trade
+  path (see `generate_force_trade_offer`). **Two-phase, unlike Force QB
+  Trade**: `POST /api/trade/force` previews the deal and mutates *nothing*
+  (stored on `DraftSession._pending_force_trade` with the acquiring team's
+  selection pinned), then `POST /api/trade/force/accept` applies it and
+  drafts the pinned player, or `POST /api/trade/force/decline` drops it.
+  Accept revalidates before mutating — same pick on the clock with the
+  same owner, every offered/return pick still owned by the expected team
+  and undrafted, pinned player still available — and returns
+  `{"result": "stale"}` on any mismatch rather than applying a stale deal.
+  `_pending_force_trade` is cleared by `_clear_pending_offers` (and
+  therefore `_advance`). Disabled when the user's team is on the clock.
+  Tagged `AI`-initiated. Each press rerolls `m_down`, so decline-and-retry
+  reshuffles the asking price as well as the trade-up side.
 - **Force QB Trade** — forces the current on-clock CPU pick to be traded
   to a QB-needy team. Eligible teams must have QB `TrueWeight >
   need_window_min` for the current round. Retries up to 15 times; on
@@ -674,6 +730,9 @@ GET  /api/trade/down-offers              AI offers for user's pick (only valid w
 POST /api/trade/up                       { target_overall, offered_overalls }
 POST /api/trade/accept-offer             { from_team } — user accepts a cached AI trade-up offer
 POST /api/trade/force-qb                 Force the on-clock CPU pick to trade to a QB-needy team; winning team auto-drafts their top QB
+POST /api/trade/force                    Force the on-clock CPU team to shop their pick — PREVIEW ONLY, mutates nothing
+POST /api/trade/force/accept             Apply the pending Force Trade preview + draft the pinned player (revalidates; may return "stale")
+POST /api/trade/force/decline            Drop the pending Force Trade preview (no side effects)
 POST /api/trade/manual                   { team_a, team_b, team_a_overalls, team_b_overalls, force_override }
 POST /api/export                         Write all 3 xlsx files + zip
 GET  /api/export/download/<kind>         kind = outcome | picks | trades | zip
@@ -739,8 +798,36 @@ is fully dynamic.
   thresholds, hot-zone bonuses, `_TRADE_THRESHOLD_TABLE` probabilities,
   `_TRADE_UP_OFFSET` (±0.049, applied as a uniform random offset per offer),
   `_FUTURE_PICK_GATE_UP_PREMIUM` (0.025) / `_FUTURE_PICK_GATE_UP_LATE` (0.15) /
-  `_FUTURE_PICK_GATE_DOWN` (0.10) / `_FUTURE_PICK_GATE_BONUS` position bonuses, and the complexity
-  tier weights (0.85/0.10/0.05) are initial guesses; refine via play-testing.
+  `_FUTURE_PICK_GATE_DOWN` (0.25) / `_FUTURE_PICK_GATE_BONUS` position bonuses, and the complexity
+  tier weights (0.80/0.10/0.10) are initial guesses; refine via play-testing.
+- Top-5 Force Trade rate — the picks 1-5 OR-semantics relaxation (see
+  `generate_force_trade_offer`) fixed overalls 3 and 5. **Overall 1 is still
+  limited** (~60% offer rate per press). Measured cause: **reach, not the
+  ratio window.** At overall 1, 25 of 30 teams cannot assemble a package worth
+  even 1.0× the 3000-point target; the median team's best legal package is
+  0.66×. Zero teams overshoot `m_up` at any slot, so the ceiling is never the
+  blocker. (Overall 3: 19/30 short, median 0.90×. Overall 5: 10/30, median
+  1.16× — which is why 5 now works.)
+  - A force-path **`m_down` discount would not help**: the reach distribution
+    at overall 1 is a cliff, not a gradient — 5 teams at ≥1.05×, *zero*
+    between 1.00 and 1.05, then a drop to 0.75× and below. Shaving 5-10 pp off
+    the asking price adds at most one team. Do not bother.
+  - **Raising `_FUTURE_PICK_GATE_UP_PREMIUM` would not help either.** Note the
+    gate is `_FUTURE_PICK_GATE_UP_PREMIUM + _FUTURE_PICK_GATE_BONUS` — 50% for
+    a QB-chasing team, 15% WR/OT/EDGE, 10% CB, flat 2.5% only when the BPA is
+    not a premium *and* eligible need — so future 1sts are not locked out to
+    begin with. Reach measured *with* a free future 1st is still 0.66× median
+    at overall 1.
+  - The only structural lever that moves reach is the **offered-pick count**
+    (`_COMPLEXITY_TIERS` caps at 3). Measured medians — overall 1: 3 picks
+    0.66× → 5 picks 0.85×; overall 3: 0.90× → 1.11×; overall 5: 1.15× → 1.40×.
+    Raising the future cap from 1 to 2 does almost nothing on its own because
+    the total-picks cap is what binds.
+  - **Overall 1 is probably working as intended.** Even at 5 offered picks and
+    2 futures the median team reaches only 0.85× of a 3000-point target; only
+    ~5 teams can ever pay. That is a property of the Jimmy Johnson chart, and
+    it mirrors reality — trading up to #1 is rare and limited to teams with
+    real capital. Prefer leaving it alone over inflating package sizes.
 - Position group cap tuning — `MaxDrafted` values in `DraftMaxPerPositionGroup.xlsx`
   are initial guesses; refine based on play-testing.
 - `exporter._encode_team_id` now reads the 24-bit prefix from each row's
